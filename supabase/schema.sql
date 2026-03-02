@@ -1669,6 +1669,12 @@ create table org_public_pages (
   -- Branding
   accent_color     text default '#a855f7',   -- CSS hex color
   logo_url         text,
+  -- Custom domain / URL
+  -- When set, this is shown as the shareable link in the admin UI.
+  -- To redirect visitors, the coach configures a URL forward on their domain:
+  --   https://their-gym.com → https://<powerplus-host>/?r=<slug>
+  -- The app reads the ?r=slug param and redirects to /org/:slug automatically.
+  custom_url       text,
   -- Sections are stored as ordered JSONB array
   -- Each element: { id, type, order, visible, title, body, items[] }
   -- type: 'about' | 'coaches' | 'highlights' | 'testimonials' | 'faq' | 'intake' | 'custom'

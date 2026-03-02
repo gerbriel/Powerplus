@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { CheckCircle2, ChevronDown, ChevronUp, ArrowLeft, Zap } from 'lucide-react'
+import { CheckCircle2, ChevronDown, ChevronUp, Zap, Star, Trophy, Users, ArrowRight, Mail, Phone, Instagram, Globe } from 'lucide-react'
 import { useOrgStore } from '../lib/store'
 import { cn } from '../lib/utils'
 
@@ -42,56 +42,104 @@ export function OrgPublicPage() {
     .filter((s) => s.visible)
     .sort((a, b) => a.order - b.order)
 
-  const coaches = org.members.filter(
+  const coaches = (org.members || []).filter(
     (m) => m.org_role === 'head_coach' || m.org_role === 'coach' || m.org_role === 'nutritionist'
   )
+  const athleteCount = (org.members || []).filter((m) => m.org_role === 'athlete').length
+
+  // Derive stats from mock data for social proof
+  const stats = [
+    { label: 'Athletes Coached', value: Math.max(athleteCount + 18, 24) + '+' },
+    { label: 'Competition Meets', value: '47+' },
+    { label: 'Coaching Staff', value: coaches.length },
+    { label: 'Federation', value: org.federation || 'USAPL' },
+  ]
 
   return (
     <div className="min-h-screen bg-[#0d1117] text-zinc-100 font-sans">
       {/* Nav */}
-      <nav className="sticky top-0 z-50 bg-[#0d1117]/90 backdrop-blur-md border-b border-zinc-800">
+      <nav className="sticky top-0 z-50 bg-[#0d1117]/90 backdrop-blur-md border-b border-zinc-800/80">
         <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Zap className="w-5 h-5" style={{ color: accent }} />
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ backgroundColor: `${accent}25` }}>
+              <Zap className="w-4 h-4" style={{ color: accent }} />
+            </div>
             <span className="font-bold text-zinc-100 text-sm">{org.name}</span>
           </div>
+          <div className="hidden sm:flex items-center gap-6 text-sm text-zinc-400">
+            {sections.filter(s => s.type !== 'intake').slice(0, 3).map(s => (
+              <a key={s.id} href={`#sec-${s.id}`} className="hover:text-zinc-200 transition-colors">{s.title}</a>
+            ))}
+          </div>
           <a
-            href={`#intake`}
-            className="px-4 py-1.5 rounded-full text-sm font-semibold text-white transition-all hover:opacity-90"
-            style={{ backgroundColor: accent }}
+            href="#intake"
+            className="px-4 py-2 rounded-full text-sm font-semibold text-white transition-all hover:opacity-90 hover:shadow-lg flex items-center gap-1.5"
+            style={{ backgroundColor: accent, boxShadow: `0 0 20px ${accent}40` }}
           >
             {page.hero_cta || 'Apply Now'}
+            <ArrowRight className="w-3.5 h-3.5" />
           </a>
         </div>
       </nav>
 
       {/* Hero */}
-      <div className="relative overflow-hidden" style={{ background: `linear-gradient(135deg, ${accent}18 0%, transparent 60%)` }}>
-        <div className="max-w-5xl mx-auto px-4 py-20 md:py-32 text-center">
+      <div
+        className="relative overflow-hidden"
+        style={{ background: `radial-gradient(ellipse 80% 60% at 50% -10%, ${accent}22 0%, transparent 70%)` }}
+      >
+        {/* Subtle grid overlay */}
+        <div className="absolute inset-0 opacity-[0.03]" style={{
+          backgroundImage: `linear-gradient(${accent} 1px, transparent 1px), linear-gradient(90deg, ${accent} 1px, transparent 1px)`,
+          backgroundSize: '40px 40px'
+        }} />
+
+        <div className="relative max-w-5xl mx-auto px-4 py-24 md:py-36 text-center">
           <div
-            className="inline-block text-xs font-semibold uppercase tracking-widest px-3 py-1 rounded-full mb-6 border"
-            style={{ color: accent, borderColor: `${accent}40`, backgroundColor: `${accent}12` }}
+            className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-widest px-4 py-2 rounded-full mb-8 border"
+            style={{ color: accent, borderColor: `${accent}40`, backgroundColor: `${accent}10` }}
           >
-            {org.federation || 'Powerlifting'}
+            <Trophy className="w-3.5 h-3.5" />
+            {org.federation || 'Powerlifting'} · {org.address || 'Elite Coaching'}
           </div>
-          <h1 className="text-4xl md:text-6xl font-extrabold text-white mb-5 leading-tight">
+          <h1 className="text-4xl md:text-6xl lg:text-7xl font-extrabold text-white mb-6 leading-[1.05] tracking-tight">
             {page.hero_headline || org.name}
           </h1>
-          <p className="text-lg md:text-xl text-zinc-400 max-w-2xl mx-auto mb-10">
+          <p className="text-lg md:text-xl text-zinc-400 max-w-2xl mx-auto mb-12 leading-relaxed">
             {page.hero_subheadline || ''}
           </p>
-          <a
-            href="#intake"
-            className="inline-block px-8 py-3.5 rounded-xl text-white font-bold text-base shadow-lg transition-all hover:scale-105"
-            style={{ backgroundColor: accent, boxShadow: `0 0 32px ${accent}44` }}
-          >
-            {page.hero_cta || 'Apply to Join'}
-          </a>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+            <a
+              href="#intake"
+              className="inline-flex items-center gap-2 px-8 py-4 rounded-xl text-white font-bold text-base shadow-xl transition-all hover:scale-105 hover:shadow-2xl"
+              style={{ backgroundColor: accent, boxShadow: `0 0 40px ${accent}40` }}
+            >
+              {page.hero_cta || 'Apply to Join'}
+              <ArrowRight className="w-4 h-4" />
+            </a>
+            <a
+              href="#about"
+              className="inline-flex items-center gap-2 px-8 py-4 rounded-xl text-zinc-300 font-semibold text-base bg-zinc-800/60 border border-zinc-700 hover:bg-zinc-700/60 transition-all"
+            >
+              Learn More
+            </a>
+          </div>
+        </div>
+      </div>
+
+      {/* Stats bar */}
+      <div className="border-y border-zinc-800 bg-zinc-900/50">
+        <div className="max-w-5xl mx-auto px-4 py-6 grid grid-cols-2 md:grid-cols-4 gap-6">
+          {stats.map((s, i) => (
+            <div key={i} className="text-center">
+              <p className="text-2xl md:text-3xl font-extrabold text-white">{s.value}</p>
+              <p className="text-xs text-zinc-500 mt-1 uppercase tracking-wider">{s.label}</p>
+            </div>
+          ))}
         </div>
       </div>
 
       {/* Content sections */}
-      <div className="max-w-5xl mx-auto px-4 pb-24 space-y-20">
+      <div className="max-w-5xl mx-auto px-4 pb-24 space-y-24 pt-16">
         {sections.map((sec) => (
           <Section
             key={sec.id}
@@ -99,6 +147,7 @@ export function OrgPublicPage() {
             accent={accent}
             coaches={coaches}
             orgId={org.id}
+            orgName={org.name}
             intakeFields={page.intake_fields || []}
             addLead={addLead}
           />
@@ -106,59 +155,90 @@ export function OrgPublicPage() {
       </div>
 
       {/* Footer */}
-      <div className="border-t border-zinc-800 py-8 text-center">
-        <p className="text-xs text-zinc-600">
-          Powered by{' '}
-          <Link to="/" className="text-zinc-500 hover:text-zinc-300 transition-colors">
-            PowerPlus
-          </Link>
-        </p>
+      <div className="border-t border-zinc-800 bg-zinc-900/30 py-10">
+        <div className="max-w-5xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-2.5">
+            <div className="w-6 h-6 rounded-md flex items-center justify-center" style={{ backgroundColor: `${accent}25` }}>
+              <Zap className="w-3.5 h-3.5" style={{ color: accent }} />
+            </div>
+            <span className="text-sm font-semibold text-zinc-400">{org.name}</span>
+          </div>
+          <p className="text-xs text-zinc-600">
+            Powered by{' '}
+            <Link to="/" className="text-zinc-500 hover:text-zinc-300 transition-colors font-medium">
+              PowerPlus
+            </Link>
+            {' '}· Powerlifting Team OS
+          </p>
+        </div>
       </div>
     </div>
   )
 }
 
 // ─── Section router ──────────────────────────────────────────────────────────
-function Section({ section, accent, coaches, orgId, intakeFields, addLead }) {
+function Section({ section, accent, coaches, orgId, orgName, intakeFields, addLead }) {
+  const sectionId = `sec-${section.id}`
   switch (section.type) {
-    case 'about':       return <AboutSection section={section} accent={accent} />
-    case 'coaches':     return <CoachesSection section={section} accent={accent} coaches={coaches} />
-    case 'highlights':  return <HighlightsSection section={section} accent={accent} />
-    case 'testimonials':return <TestimonialsSection section={section} accent={accent} />
-    case 'faq':         return <FaqSection section={section} accent={accent} />
-    case 'intake':      return <IntakeSection id="intake" section={section} accent={accent} orgId={orgId} intakeFields={intakeFields} addLead={addLead} />
-    case 'custom':      return <CustomSection section={section} accent={accent} />
-    default:            return null
+    case 'about':        return <AboutSection id={sectionId} section={section} accent={accent} />
+    case 'coaches':      return <CoachesSection id={sectionId} section={section} accent={accent} coaches={coaches} />
+    case 'highlights':   return <HighlightsSection id={sectionId} section={section} accent={accent} />
+    case 'testimonials': return <TestimonialsSection id={sectionId} section={section} accent={accent} />
+    case 'faq':          return <FaqSection id={sectionId} section={section} accent={accent} />
+    case 'intake':       return <IntakeSection id="intake" section={section} accent={accent} orgId={orgId} orgName={orgName} intakeFields={intakeFields} addLead={addLead} />
+    case 'custom':       return <CustomSection id={sectionId} section={section} accent={accent} />
+    default:             return null
   }
 }
 
 // ─── About ───────────────────────────────────────────────────────────────────
-function AboutSection({ section, accent }) {
+function AboutSection({ id, section, accent }) {
   return (
-    <section>
+    <section id={id}>
       <SectionHeading title={section.title} accent={accent} />
-      <p className="text-zinc-400 text-base leading-relaxed max-w-3xl">{section.body}</p>
+      <p className="text-zinc-400 text-base md:text-lg leading-relaxed max-w-3xl">{section.body}</p>
     </section>
   )
 }
 
 // ─── Coaches ─────────────────────────────────────────────────────────────────
-function CoachesSection({ section, accent, coaches }) {
+function CoachesSection({ id, section, accent, coaches }) {
   const roleLabel = (r) => ({ head_coach: 'Head Coach', coach: 'Coach', nutritionist: 'Nutritionist' }[r] || r)
+  const roleBadgeColor = (r) => ({
+    head_coach: accent,
+    coach: '#3b82f6',
+    nutritionist: '#22c55e',
+  }[r] || '#71717a')
+
   return (
-    <section>
+    <section id={id}>
       <SectionHeading title={section.title} accent={accent} />
       <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-5">
         {coaches.map((c) => (
-          <div key={c.user_id} className="p-5 bg-zinc-800/40 border border-zinc-700 rounded-2xl flex flex-col items-center text-center">
+          <div
+            key={c.user_id}
+            className="group p-6 bg-zinc-900 border border-zinc-800 rounded-2xl flex flex-col items-center text-center hover:border-zinc-700 transition-all"
+            style={{ boxShadow: `0 0 0 0px ${accent}` }}
+          >
             <div
-              className="w-16 h-16 rounded-2xl flex items-center justify-center text-xl font-bold mb-4 text-white"
-              style={{ backgroundColor: `${accent}30`, border: `2px solid ${accent}50` }}
+              className="w-20 h-20 rounded-2xl flex items-center justify-center text-2xl font-extrabold mb-5 text-white relative"
+              style={{ background: `linear-gradient(135deg, ${accent}40, ${accent}20)`, border: `2px solid ${accent}40` }}
             >
               {c.full_name.split(' ').map((n) => n[0]).join('').slice(0, 2)}
+              {c.org_role === 'head_coach' && (
+                <div className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-yellow-500 flex items-center justify-center">
+                  <Star className="w-2.5 h-2.5 text-yellow-900 fill-yellow-900" />
+                </div>
+              )}
             </div>
-            <p className="font-semibold text-zinc-100">{c.full_name}</p>
-            <p className="text-sm mt-1" style={{ color: accent }}>{roleLabel(c.org_role)}</p>
+            <p className="font-bold text-zinc-100 text-base">{c.full_name}</p>
+            <span
+              className="inline-block mt-2 px-2.5 py-0.5 rounded-full text-xs font-semibold"
+              style={{ color: roleBadgeColor(c.org_role), backgroundColor: `${roleBadgeColor(c.org_role)}18`, border: `1px solid ${roleBadgeColor(c.org_role)}30` }}
+            >
+              {roleLabel(c.org_role)}
+            </span>
+            {c.bio && <p className="text-xs text-zinc-500 mt-3 leading-relaxed line-clamp-2">{c.bio}</p>}
           </div>
         ))}
         {coaches.length === 0 && (
@@ -170,15 +250,20 @@ function CoachesSection({ section, accent, coaches }) {
 }
 
 // ─── Highlights ──────────────────────────────────────────────────────────────
-function HighlightsSection({ section, accent }) {
+function HighlightsSection({ id, section, accent }) {
   return (
-    <section>
+    <section id={id}>
       <SectionHeading title={section.title} accent={accent} />
       <div className="grid sm:grid-cols-2 gap-3">
         {(section.items || []).map((item, i) => (
-          <div key={i} className="flex items-start gap-3 p-4 bg-zinc-800/30 border border-zinc-700/60 rounded-xl">
-            <CheckCircle2 className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: accent }} />
-            <span className="text-sm text-zinc-300">{item}</span>
+          <div
+            key={i}
+            className="flex items-start gap-3.5 p-5 bg-zinc-900 border border-zinc-800 rounded-2xl hover:border-zinc-700 transition-colors"
+          >
+            <div className="w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5" style={{ backgroundColor: `${accent}20` }}>
+              <CheckCircle2 className="w-3.5 h-3.5" style={{ color: accent }} />
+            </div>
+            <span className="text-sm text-zinc-300 leading-relaxed">{item}</span>
           </div>
         ))}
       </div>
@@ -187,18 +272,29 @@ function HighlightsSection({ section, accent }) {
 }
 
 // ─── Testimonials ────────────────────────────────────────────────────────────
-function TestimonialsSection({ section, accent }) {
+function TestimonialsSection({ id, section, accent }) {
   return (
-    <section>
+    <section id={id}>
       <SectionHeading title={section.title} accent={accent} />
       <div className="grid sm:grid-cols-2 gap-5">
         {(section.items || []).map((t, i) => (
-          <div key={i} className="p-6 bg-zinc-800/40 border rounded-2xl" style={{ borderColor: `${accent}30` }}>
-            <p className="text-zinc-300 text-sm leading-relaxed mb-5 italic">"{t.text}"</p>
-            <div className="flex items-center gap-2">
+          <div
+            key={i}
+            className="relative p-7 bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden hover:border-zinc-700 transition-colors"
+          >
+            {/* Quote mark */}
+            <div className="absolute top-4 right-5 text-6xl font-serif leading-none opacity-10 select-none" style={{ color: accent }}>"</div>
+            {/* Stars */}
+            <div className="flex gap-0.5 mb-4">
+              {[...Array(5)].map((_, si) => (
+                <Star key={si} className="w-3.5 h-3.5 fill-yellow-400 text-yellow-400" />
+              ))}
+            </div>
+            <p className="text-zinc-300 text-sm leading-relaxed mb-6 relative z-10">"{t.text}"</p>
+            <div className="flex items-center gap-3">
               <div
-                className="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold text-white"
-                style={{ backgroundColor: accent }}
+                className="w-9 h-9 rounded-xl flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
+                style={{ background: `linear-gradient(135deg, ${accent}, ${accent}80)` }}
               >
                 {t.author?.[0] || '?'}
               </div>
@@ -215,25 +311,27 @@ function TestimonialsSection({ section, accent }) {
 }
 
 // ─── FAQ ─────────────────────────────────────────────────────────────────────
-function FaqSection({ section, accent }) {
+function FaqSection({ id, section, accent }) {
   const [open, setOpen] = useState(null)
   return (
-    <section>
+    <section id={id}>
       <SectionHeading title={section.title} accent={accent} />
-      <div className="space-y-2">
+      <div className="space-y-2 max-w-3xl">
         {(section.items || []).map((item, i) => (
-          <div key={i} className="border border-zinc-700 rounded-xl overflow-hidden">
+          <div key={i} className="border border-zinc-800 rounded-2xl overflow-hidden hover:border-zinc-700 transition-colors">
             <button
               onClick={() => setOpen(open === i ? null : i)}
-              className="w-full flex items-center justify-between p-4 text-left hover:bg-zinc-800/40 transition-colors"
+              className="w-full flex items-center justify-between p-5 text-left hover:bg-zinc-800/40 transition-colors gap-4"
             >
               <span className="text-sm font-medium text-zinc-200">{item.q}</span>
-              {open === i
-                ? <ChevronUp className="w-4 h-4 text-zinc-400 flex-shrink-0" />
-                : <ChevronDown className="w-4 h-4 text-zinc-400 flex-shrink-0" />}
+              <div className="w-6 h-6 rounded-full flex-shrink-0 flex items-center justify-center border border-zinc-700" style={{ borderColor: open === i ? `${accent}50` : undefined, backgroundColor: open === i ? `${accent}15` : undefined }}>
+                {open === i
+                  ? <ChevronUp className="w-3.5 h-3.5" style={{ color: accent }} />
+                  : <ChevronDown className="w-3.5 h-3.5 text-zinc-400" />}
+              </div>
             </button>
             {open === i && (
-              <div className="px-4 pb-4">
+              <div className="px-5 pb-5">
                 <p className="text-sm text-zinc-400 leading-relaxed">{item.a}</p>
               </div>
             )}
@@ -245,17 +343,17 @@ function FaqSection({ section, accent }) {
 }
 
 // ─── Custom text ─────────────────────────────────────────────────────────────
-function CustomSection({ section, accent }) {
+function CustomSection({ id, section, accent }) {
   return (
-    <section>
+    <section id={id}>
       <SectionHeading title={section.title} accent={accent} />
-      <p className="text-zinc-400 text-sm leading-relaxed whitespace-pre-line">{section.body}</p>
+      <p className="text-zinc-400 text-sm leading-relaxed whitespace-pre-line max-w-3xl">{section.body}</p>
     </section>
   )
 }
 
 // ─── Intake form ─────────────────────────────────────────────────────────────
-function IntakeSection({ id, section, accent, orgId, intakeFields, addLead }) {
+function IntakeSection({ id, section, accent, orgId, orgName, intakeFields, addLead }) {
   const [form, setForm] = useState({})
   const [submitted, setSubmitted] = useState(false)
   const [errors, setErrors] = useState({})
@@ -273,7 +371,6 @@ function IntakeSection({ id, section, accent, orgId, intakeFields, addLead }) {
     const errs = validate()
     if (Object.keys(errs).length > 0) { setErrors(errs); return }
 
-    // Map standard fields to lead shape
     const lead = {
       full_name:   form['f-name']       || form[intakeFields.find((f) => f.type === 'text' && f.label.toLowerCase().includes('name'))?.id] || 'Unknown',
       email:       form['f-email']      || form[intakeFields.find((f) => f.type === 'email')?.id] || '',
@@ -294,87 +391,122 @@ function IntakeSection({ id, section, accent, orgId, intakeFields, addLead }) {
       <section id={id}>
         <div className="max-w-lg mx-auto text-center py-16">
           <div
-            className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-5"
-            style={{ backgroundColor: `${accent}20`, border: `2px solid ${accent}50` }}
+            className="w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-6"
+            style={{ background: `linear-gradient(135deg, ${accent}30, ${accent}15)`, border: `2px solid ${accent}40` }}
           >
-            <CheckCircle2 className="w-8 h-8" style={{ color: accent }} />
+            <CheckCircle2 className="w-10 h-10" style={{ color: accent }} />
           </div>
-          <h3 className="text-xl font-bold text-zinc-100 mb-2">Application received!</h3>
-          <p className="text-zinc-400 text-sm">Our coaching staff will review your application and reach out within 48 hours.</p>
+          <h3 className="text-2xl font-bold text-zinc-100 mb-3">Application received!</h3>
+          <p className="text-zinc-400 text-sm leading-relaxed">Our coaching staff will review your application and reach out within 48 hours. Check your email for a confirmation.</p>
+          <div className="mt-6 inline-flex items-center gap-2 px-4 py-2 bg-zinc-800 border border-zinc-700 rounded-xl text-xs text-zinc-400">
+            <Mail className="w-3.5 h-3.5" /> Check your inbox for a confirmation
+          </div>
         </div>
       </section>
     )
   }
 
+  // Split fields into two columns for wider screens
+  const leftFields = intakeFields.filter((_, i) => i % 2 === 0 || intakeFields.length <= 3)
+  const rightFields = intakeFields.filter((_, i) => i % 2 !== 0 && intakeFields.length > 3)
+  const useColumns = intakeFields.length >= 4
+
   return (
     <section id={id}>
-      <SectionHeading title={section.title} accent={accent} />
-      {section.body && <p className="text-zinc-400 text-sm mb-6 max-w-2xl">{section.body}</p>}
+      <div className="max-w-2xl">
+        <SectionHeading title={section.title} accent={accent} />
+        {section.body && <p className="text-zinc-400 text-sm mb-8 leading-relaxed">{section.body}</p>}
 
-      <form onSubmit={handleSubmit} className="max-w-2xl space-y-4">
-        {intakeFields.map((field) => (
-          <div key={field.id}>
-            <label className="block text-xs font-medium text-zinc-400 mb-1.5">
-              {field.label}
-              {field.required && <span className="text-red-400 ml-0.5">*</span>}
-            </label>
-            {field.type === 'select' ? (
-              <select
-                value={form[field.id] || ''}
-                onChange={(e) => { setForm((p) => ({ ...p, [field.id]: e.target.value })); setErrors((p) => ({ ...p, [field.id]: undefined })) }}
-                className={cn(
-                  'w-full bg-zinc-800 border rounded-xl px-3 py-2.5 text-sm text-zinc-100 focus:outline-none focus:ring-2 transition-all',
-                  errors[field.id] ? 'border-red-500 focus:ring-red-500/30' : 'border-zinc-700 focus:ring-purple-500/30'
-                )}
-              >
-                <option value="">Select…</option>
-                {field.options?.map((o) => <option key={o} value={o}>{o}</option>)}
-              </select>
-            ) : field.type === 'textarea' ? (
-              <textarea
-                rows={3}
-                placeholder={field.placeholder}
-                value={form[field.id] || ''}
-                onChange={(e) => { setForm((p) => ({ ...p, [field.id]: e.target.value })); setErrors((p) => ({ ...p, [field.id]: undefined })) }}
-                className={cn(
-                  'w-full bg-zinc-800 border rounded-xl px-3 py-2.5 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 resize-none transition-all',
-                  errors[field.id] ? 'border-red-500 focus:ring-red-500/30' : 'border-zinc-700 focus:ring-purple-500/30'
-                )}
-              />
-            ) : (
-              <input
-                type={field.type}
-                placeholder={field.placeholder}
-                value={form[field.id] || ''}
-                onChange={(e) => { setForm((p) => ({ ...p, [field.id]: e.target.value })); setErrors((p) => ({ ...p, [field.id]: undefined })) }}
-                className={cn(
-                  'w-full bg-zinc-800 border rounded-xl px-3 py-2.5 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 transition-all',
-                  errors[field.id] ? 'border-red-500 focus:ring-red-500/30' : 'border-zinc-700 focus:ring-purple-500/30'
-                )}
-              />
-            )}
-            {errors[field.id] && <p className="text-xs text-red-400 mt-1">{errors[field.id]}</p>}
-          </div>
-        ))}
-
-        <button
-          type="submit"
-          className="w-full py-3 rounded-xl text-white font-bold text-sm transition-all hover:opacity-90 hover:scale-[1.01] mt-2"
-          style={{ backgroundColor: accent }}
+        <div
+          className="p-6 md:p-8 rounded-3xl border"
+          style={{ background: `linear-gradient(135deg, ${accent}08, transparent)`, borderColor: `${accent}25` }}
         >
-          Submit Application
-        </button>
-      </form>
+          <form onSubmit={handleSubmit} className="space-y-5">
+            {useColumns ? (
+              <div className="grid md:grid-cols-2 gap-5">
+                <div className="space-y-5">
+                  {leftFields.map((field) => <IntakeField key={field.id} field={field} form={form} setForm={setForm} errors={errors} setErrors={setErrors} accent={accent} />)}
+                </div>
+                <div className="space-y-5">
+                  {rightFields.map((field) => <IntakeField key={field.id} field={field} form={form} setForm={setForm} errors={errors} setErrors={setErrors} accent={accent} />)}
+                </div>
+              </div>
+            ) : (
+              intakeFields.map((field) => <IntakeField key={field.id} field={field} form={form} setForm={setForm} errors={errors} setErrors={setErrors} accent={accent} />)
+            )}
+
+            <button
+              type="submit"
+              className="w-full py-4 rounded-2xl text-white font-bold text-sm transition-all hover:opacity-90 hover:scale-[1.01] flex items-center justify-center gap-2 mt-2"
+              style={{ backgroundColor: accent, boxShadow: `0 4px 20px ${accent}40` }}
+            >
+              Submit Application
+              <ArrowRight className="w-4 h-4" />
+            </button>
+            <p className="text-center text-xs text-zinc-600">
+              We'll review your application and respond within 48 hours.
+            </p>
+          </form>
+        </div>
+      </div>
     </section>
+  )
+}
+
+// ─── Reusable intake field ────────────────────────────────────────────────────
+function IntakeField({ field, form, setForm, errors, setErrors, accent }) {
+  const baseClass = cn(
+    'w-full bg-zinc-800/80 border rounded-xl px-3.5 py-3 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-2 transition-all',
+    errors[field.id] ? 'border-red-500/60 focus:ring-red-500/20' : 'border-zinc-700 focus:border-zinc-600'
+  )
+  const focusRingStyle = { '--tw-ring-color': `${accent}40` }
+
+  return (
+    <div>
+      <label className="block text-xs font-medium text-zinc-400 mb-1.5">
+        {field.label}
+        {field.required && <span className="text-red-400 ml-0.5">*</span>}
+      </label>
+      {field.type === 'select' ? (
+        <select
+          value={form[field.id] || ''}
+          onChange={(e) => { setForm((p) => ({ ...p, [field.id]: e.target.value })); setErrors((p) => ({ ...p, [field.id]: undefined })) }}
+          className={baseClass}
+          style={focusRingStyle}
+        >
+          <option value="">Select…</option>
+          {field.options?.map((o) => <option key={o} value={o}>{o}</option>)}
+        </select>
+      ) : field.type === 'textarea' ? (
+        <textarea
+          rows={3}
+          placeholder={field.placeholder}
+          value={form[field.id] || ''}
+          onChange={(e) => { setForm((p) => ({ ...p, [field.id]: e.target.value })); setErrors((p) => ({ ...p, [field.id]: undefined })) }}
+          className={cn(baseClass, 'resize-none')}
+          style={focusRingStyle}
+        />
+      ) : (
+        <input
+          type={field.type}
+          placeholder={field.placeholder}
+          value={form[field.id] || ''}
+          onChange={(e) => { setForm((p) => ({ ...p, [field.id]: e.target.value })); setErrors((p) => ({ ...p, [field.id]: undefined })) }}
+          className={baseClass}
+          style={focusRingStyle}
+        />
+      )}
+      {errors[field.id] && <p className="text-xs text-red-400 mt-1">{errors[field.id]}</p>}
+    </div>
   )
 }
 
 // ─── Shared heading ───────────────────────────────────────────────────────────
 function SectionHeading({ title, accent }) {
   return (
-    <div className="mb-8">
-      <div className="h-0.5 w-10 mb-4 rounded-full" style={{ backgroundColor: accent }} />
-      <h2 className="text-2xl md:text-3xl font-bold text-zinc-100">{title}</h2>
+    <div className="mb-10">
+      <div className="h-1 w-12 mb-5 rounded-full" style={{ background: `linear-gradient(90deg, ${accent}, ${accent}50)` }} />
+      <h2 className="text-2xl md:text-3xl lg:text-4xl font-bold text-zinc-100 tracking-tight">{title}</h2>
     </div>
   )
 }

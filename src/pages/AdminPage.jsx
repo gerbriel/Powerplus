@@ -2371,7 +2371,7 @@ function PublicPageTab() {
         <Card>
           <CardHeader>
             <CardTitle>Custom URL / Domain</CardTitle>
-            <CardSubtitle>Enter your own website URL to use as the shareable link for your public page. Visitors who open that URL should be redirected here by your domain provider.</CardSubtitle>
+            <CardSubtitle>Enter your own website URL so visitors from your domain land directly on your Powerplus public page.</CardSubtitle>
           </CardHeader>
           <CardBody className="space-y-4">
             <div>
@@ -2399,14 +2399,32 @@ function PublicPageTab() {
               </div>
               {heroForm.custom_url ? (
                 <p className="text-xs text-zinc-500 mt-2">
-                  <span className="text-green-400">✓</span> Copy Link and the shareable URL will use this address. The Preview button always shows your live Powerplus page.
+                  <span className="text-green-400">✓</span> Copy Link will share this address. Preview always opens the live Powerplus page.
                 </p>
               ) : (
                 <p className="text-xs text-zinc-500 mt-2">
-                  Leave blank to use the default Powerplus URL: <span className="text-zinc-400 font-mono">{window.location.origin}{internalUrl}</span>
+                  Default Powerplus URL: <span className="text-zinc-400 font-mono text-xs">{window.location.origin}{internalUrl}</span>
                 </p>
               )}
             </div>
+
+            {/* How-to redirect instructions */}
+            <div className="bg-zinc-800/60 border border-zinc-700/60 rounded-xl p-4 space-y-3">
+              <p className="text-xs font-semibold text-zinc-300">How to redirect your domain → your Powerplus page</p>
+              <div className="space-y-2 text-xs text-zinc-400">
+                <p className="font-medium text-zinc-300">Option A — URL Redirect (easiest, no hosting needed)</p>
+                <p>In your domain registrar (GoDaddy, Namecheap, Cloudflare, etc.), create a <span className="text-zinc-200 font-mono">URL Redirect / Forward</span> record:</p>
+                <div className="bg-zinc-900 border border-zinc-700 rounded-lg p-3 font-mono text-xs space-y-1">
+                  <p><span className="text-zinc-500">Source:</span> <span className="text-zinc-200">your-gym.com</span></p>
+                  <p><span className="text-zinc-500">Destination:</span> <span className="text-zinc-200 break-all">{window.location.origin}/Powerplus/?r={slug || 'your-slug'}</span></p>
+                  <p><span className="text-zinc-500">Type:</span> <span className="text-zinc-200">301 Permanent</span></p>
+                </div>
+                <p className="font-medium text-zinc-300 pt-1">Option B — Subdomain redirect</p>
+                <p>Create a <span className="text-zinc-200 font-mono">CNAME</span> pointing <span className="text-zinc-200 font-mono">apply.your-gym.com</span> → then redirect to the URL above via your registrar.</p>
+                <p className="text-zinc-500 pt-1">The <span className="text-zinc-400 font-mono">?r={slug || 'your-slug'}</span> parameter tells Powerplus which org page to load automatically.</p>
+              </div>
+            </div>
+
             <Button size="sm" onClick={saveHero}>
               {saved ? <><Check className="w-3.5 h-3.5" /> Saved!</> : 'Save URL'}
             </Button>
