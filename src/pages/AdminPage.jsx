@@ -1608,11 +1608,11 @@ function OrgFormModal({ open, onClose, initial = null, onSave }) {
 
 // ─── Head Coach: Overview (interconnected data) ───────────────────────────────
 function OverviewTab() {
-  const { profile } = useAuthStore()
+  const { profile, activeOrgId } = useAuthStore()
   const { orgs } = useOrgStore()
   const { goals } = useGoalsStore()
   const { blocks } = useTrainingStore()
-  const org = orgs.find((o) => o.id === profile?.org_id)
+  const org = orgs.find((o) => o.id === (activeOrgId || profile?.org_id))
   const athletes = org ? org.members.filter((m) => m.role === 'athlete') : []
   const staff = org ? org.members.filter((m) => m.role !== 'athlete') : []
   const completedGoals = goals.filter((g) => g.completed).length
@@ -1719,9 +1719,9 @@ function OverviewTab() {
 
 // ─── Head Coach: Team Members ─────────────────────────────────────────────────
 function TeamTab({ onInvite }) {
-  const { profile } = useAuthStore()
+  const { profile, activeOrgId } = useAuthStore()
   const { orgs, updateMemberRole, removeMember } = useOrgStore()
-  const org = orgs.find((o) => o.id === profile?.org_id)
+  const org = orgs.find((o) => o.id === (activeOrgId || profile?.org_id))
   const members = org?.members || []
   const [confirmDelete, setConfirmDelete] = useState(null)
   const [editRole, setEditRole] = useState(null)
@@ -1832,9 +1832,9 @@ function MemberRow({ member, isMe, editRole, onEditRole, onRoleChange, onCancelE
 
 // ─── Head Coach: Invitations ──────────────────────────────────────────────────
 function InvitationsTab() {
-  const { profile } = useAuthStore()
+  const { profile, activeOrgId } = useAuthStore()
   const { orgs, cancelInvite, resendInvite, acceptInvite } = useOrgStore()
-  const org = orgs.find((o) => o.id === profile?.org_id)
+  const org = orgs.find((o) => o.id === (activeOrgId || profile?.org_id))
   const invitations = org?.invitations || []
   const [resent, setResent] = useState({})
   const [inviteOpen, setInviteOpen] = useState(false)
@@ -1973,10 +1973,10 @@ function InviteModal({ open, onClose, orgId }) {
 
 // ─── Roles & Permissions Tab ──────────────────────────────────────────────────
 function RolesTab({ isSuperAdmin }) {
-  const { profile } = useAuthStore()
+  const { profile, activeOrgId } = useAuthStore()
   const isHeadCoach = profile?.role === 'admin'
   const orgs = useOrgStore(s => s.orgs)
-  const org = orgs.find(o => o.id === profile?.org_id) ?? orgs[0]
+  const org = orgs.find(o => o.id === (activeOrgId || profile?.org_id)) ?? orgs[0]
   const members = org?.members ?? []
 
   const cols = isSuperAdmin
@@ -2191,9 +2191,9 @@ function RolesTab({ isSuperAdmin }) {
 
 // ─── Public Page Editor (Head Coach) ─────────────────────────────────────────
 export function PublicPageTab() {
-  const { profile } = useAuthStore()
+  const { profile, activeOrgId } = useAuthStore()
   const { orgs, updatePublicPage, addPageSection, updatePageSection, deletePageSection } = useOrgStore()
-  const org = orgs.find((o) => o.id === profile?.org_id)
+  const org = orgs.find((o) => o.id === (activeOrgId || profile?.org_id))
   const page = org?.public_page || {}
   const slug = org?.slug || ''
 
@@ -2886,9 +2886,9 @@ const LEAD_STATUS_META = {
 }
 
 export function LeadsTab() {
-  const { profile } = useAuthStore()
+  const { profile, activeOrgId } = useAuthStore()
   const { orgs, updateLead, deleteLead } = useOrgStore()
-  const org = orgs.find((o) => o.id === profile?.org_id)
+  const org = orgs.find((o) => o.id === (activeOrgId || profile?.org_id))
   const leads = org?.leads || []
   const staff = org?.members.filter((m) => m.org_role !== 'athlete') || []
 
@@ -3138,9 +3138,9 @@ function LeadDetailModal({ lead, staff, orgId, onClose, onUpdate, deleteLead }) 
 
 // ─── Org Settings ─────────────────────────────────────────────────────────────
 function OrgSettingsTab() {
-  const { profile } = useAuthStore()
+  const { profile, activeOrgId } = useAuthStore()
   const { orgs, updateOrg } = useOrgStore()
-  const org = orgs.find((o) => o.id === profile?.org_id)
+  const org = orgs.find((o) => o.id === (activeOrgId || profile?.org_id))
   const [form, setForm] = useState({ name: org?.name || '', federation: org?.federation || '', timezone: org?.timezone || 'America/New_York', weight_unit: org?.weight_unit || 'lbs' })
   const [saved, setSaved] = useState(false)
 
