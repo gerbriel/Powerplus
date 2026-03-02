@@ -1,0 +1,320 @@
+import { useState } from 'react'
+import { BarChart3, TrendingUp, Users, Zap, Moon, Flame, Activity, Trophy, AlertTriangle } from 'lucide-react'
+import { ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Legend, RadarChart, Radar, PolarGrid, PolarAngleAxis } from 'recharts'
+import { Card, CardHeader, CardTitle, CardSubtitle } from '../components/ui/Card'
+import { Tabs } from '../components/ui/Tabs'
+import { StatCard } from '../components/ui/StatCard'
+import { Avatar } from '../components/ui/Avatar'
+import { Badge } from '../components/ui/Badge'
+import { ProgressBar } from '../components/ui/ProgressBar'
+import { MOCK_STRENGTH_TREND, MOCK_ADHERENCE_TREND, MOCK_TEAM_ADHERENCE, MOCK_ATHLETES } from '../lib/mockData'
+import { cn, adherenceColor } from '../lib/utils'
+import { useAuthStore } from '../lib/store'
+
+const CHART_COLORS = {
+  squat: '#d946ef',
+  bench: '#3b82f6',
+  deadlift: '#f97316',
+  adherence: '#22c55e',
+  nutrition: '#eab308',
+}
+
+const chartTooltipStyle = {
+  contentStyle: { backgroundColor: '#27272a', border: '1px solid #3f3f46', borderRadius: '8px', color: '#f4f4f5', fontSize: '12px' },
+  labelStyle: { color: '#a1a1aa' },
+}
+
+export function AnalyticsPage() {
+  const { profile } = useAuthStore()
+  const role = profile?.role || 'athlete'
+  const [tab, setTab] = useState(role === 'athlete' ? 'personal' : 'team')
+
+  const tabs = role === 'athlete'
+    ? [{ id: 'personal', label: 'My Progress' }]
+    : [
+        { id: 'team', label: 'Team', icon: Users },
+        { id: 'personal', label: 'Athlete Detail', icon: Activity },
+        ...(role === 'admin' ? [{ id: 'staff', label: 'Staff', icon: Trophy }] : []),
+      ]
+
+  return (
+    <div className="p-4 md:p-6 max-w-6xl mx-auto space-y-6">
+      <div>
+        <h1 className="text-xl font-bold text-zinc-100">Analytics</h1>
+        <p className="text-sm text-zinc-400 mt-0.5">Performance insights and trends</p>
+      </div>
+
+      <Tabs tabs={tabs} activeTab={tab} onChange={setTab} />
+
+      {tab === 'personal' && <PersonalAnalytics />}
+      {tab === 'team' && <TeamAnalytics />}
+      {tab === 'staff' && <StaffAnalytics />}
+    </div>
+  )
+}
+
+function PersonalAnalytics() {
+  const radarData = [
+    { subject: 'Squat', A: 84 },
+    { subject: 'Bench', A: 79 },
+    { subject: 'Deadlift', A: 88 },
+    { subject: 'Nutrition', A: 84 },
+    { subject: 'Sleep', A: 68 },
+    { subject: 'Adherence', A: 87 },
+  ]
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <StatCard label="Workouts Completed" value="47" sub="this block" icon={Zap} color="purple" />
+        <StatCard label="Adherence Rate" value="87%" sub="8-week avg" icon={Activity} color="green" trendLabel="+2% vs last" trend={1} />
+        <StatCard label="Avg Sleep" value="6.8h" sub="this week" icon={Moon} color="blue" trendLabel="-0.2h vs goal" trend={-1} />
+        <StatCard label="Nutrition Score" value="84%" sub="this week" icon={Flame} color="orange" trendLabel="+4% vs last" trend={1} />
+      </div>
+
+      {/* Strength trend */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Estimated 1RM Trend</CardTitle>
+          <CardSubtitle>Monthly progression on competition lifts (kg)</CardSubtitle>
+        </CardHeader>
+        <div className="h-56">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={MOCK_STRENGTH_TREND} margin={{ top: 5, right: 10, bottom: 5, left: -10 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#3f3f46" />
+              <XAxis dataKey="date" tick={{ fill: '#71717a', fontSize: 11 }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fill: '#71717a', fontSize: 11 }} axisLine={false} tickLine={false} />
+              <Tooltip {...chartTooltipStyle} />
+              <Legend wrapperStyle={{ fontSize: '12px', color: '#a1a1aa' }} />
+              <Line type="monotone" dataKey="squat" stroke={CHART_COLORS.squat} strokeWidth={2} dot={{ fill: CHART_COLORS.squat, r: 4 }} name="Squat" />
+              <Line type="monotone" dataKey="bench" stroke={CHART_COLORS.bench} strokeWidth={2} dot={{ fill: CHART_COLORS.bench, r: 4 }} name="Bench" />
+              <Line type="monotone" dataKey="deadlift" stroke={CHART_COLORS.deadlift} strokeWidth={2} dot={{ fill: CHART_COLORS.deadlift, r: 4 }} name="Deadlift" />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </Card>
+
+      {/* Adherence trend */}
+      <div className="grid md:grid-cols-2 gap-4">
+        <Card>
+          <CardHeader>
+            <CardTitle>Adherence & Nutrition</CardTitle>
+            <CardSubtitle>Weekly compliance percentages</CardSubtitle>
+          </CardHeader>
+          <div className="h-48">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={MOCK_ADHERENCE_TREND} margin={{ top: 5, right: 10, bottom: 5, left: -10 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#3f3f46" />
+                <XAxis dataKey="week" tick={{ fill: '#71717a', fontSize: 11 }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fill: '#71717a', fontSize: 11 }} axisLine={false} tickLine={false} domain={[0, 100]} />
+                <Tooltip {...chartTooltipStyle} />
+                <Legend wrapperStyle={{ fontSize: '12px', color: '#a1a1aa' }} />
+                <Bar dataKey="adherence" fill={CHART_COLORS.adherence} radius={[3, 3, 0, 0]} name="Workout %" />
+                <Bar dataKey="nutrition" fill={CHART_COLORS.nutrition} radius={[3, 3, 0, 0]} name="Nutrition %" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Performance Profile</CardTitle>
+            <CardSubtitle>Current cycle overview (0–100%)</CardSubtitle>
+          </CardHeader>
+          <div className="h-48">
+            <ResponsiveContainer width="100%" height="100%">
+              <RadarChart data={radarData} margin={{ top: 0, right: 20, bottom: 0, left: 20 }}>
+                <PolarGrid stroke="#3f3f46" />
+                <PolarAngleAxis dataKey="subject" tick={{ fill: '#71717a', fontSize: 11 }} />
+                <Radar name="Athlete" dataKey="A" stroke="#d946ef" fill="#d946ef" fillOpacity={0.2} />
+              </RadarChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
+      </div>
+
+      {/* PR log */}
+      <Card>
+        <CardHeader><CardTitle>Personal Records — Competition Lifts</CardTitle></CardHeader>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-zinc-700">
+                {['Lift', '1RM', '3RM', 'e1RM', 'Date', 'Source'].map((h) => (
+                  <th key={h} className="text-left text-xs font-semibold text-zinc-500 pb-2 pr-4">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-800">
+              {[
+                { lift: 'Squat', rm1: 210, rm3: 195, e1rm: 220, date: 'Feb 28', source: 'Gym' },
+                { lift: 'Bench', rm1: 147, rm3: 140, e1rm: 155, date: 'Feb 24', source: 'Gym' },
+                { lift: 'Deadlift', rm1: 272.5, rm3: 255, e1rm: 280, date: 'Feb 25', source: 'Gym' },
+              ].map((r) => (
+                <tr key={r.lift} className="hover:bg-zinc-800/30 transition-colors">
+                  <td className="py-2.5 pr-4 font-semibold text-zinc-200">{r.lift}</td>
+                  <td className="py-2.5 pr-4 text-purple-400 font-bold">{r.rm1}kg</td>
+                  <td className="py-2.5 pr-4 text-zinc-300">{r.rm3}kg</td>
+                  <td className="py-2.5 pr-4 text-yellow-400 font-bold">{r.e1rm}kg</td>
+                  <td className="py-2.5 pr-4 text-zinc-400">{r.date}</td>
+                  <td className="py-2.5"><Badge color="default">{r.source}</Badge></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    </div>
+  )
+}
+
+function TeamAnalytics() {
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <StatCard label="Team Adherence" value="86%" sub="this week" icon={Zap} color="purple" />
+        <StatCard label="Active Athletes" value="6" sub="of 6 on roster" icon={Users} color="blue" />
+        <StatCard label="Nutrition Avg" value="83%" sub="compliance" icon={Flame} color="orange" />
+        <StatCard label="Flags Active" value="3" sub="needs attention" icon={AlertTriangle} color="red" />
+      </div>
+
+      <div className="grid md:grid-cols-2 gap-4">
+        <Card>
+          <CardHeader><CardTitle>Team Adherence by Athlete</CardTitle></CardHeader>
+          <div className="h-52">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={MOCK_TEAM_ADHERENCE} layout="vertical" margin={{ top: 5, right: 20, bottom: 5, left: 10 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#3f3f46" horizontal={false} />
+                <XAxis type="number" tick={{ fill: '#71717a', fontSize: 11 }} domain={[0, 100]} axisLine={false} tickLine={false} />
+                <YAxis dataKey="athlete" type="category" tick={{ fill: '#a1a1aa', fontSize: 11 }} axisLine={false} tickLine={false} width={60} />
+                <Tooltip {...chartTooltipStyle} />
+                <Bar dataKey="adherence" fill="#d946ef" radius={[0, 3, 3, 0]} name="Adherence %" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
+
+        <Card>
+          <CardHeader><CardTitle>Athletes Needing Attention</CardTitle></CardHeader>
+          <div className="space-y-3">
+            {MOCK_ATHLETES.filter(a => a.flags.length > 0).map((a) => (
+              <div key={a.id} className="flex items-center gap-3 p-2.5 bg-zinc-700/30 rounded-lg">
+                <Avatar name={a.full_name} role="athlete" size="sm" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-zinc-200">{a.full_name}</p>
+                  <div className="flex flex-wrap gap-1 mt-0.5">
+                    {a.flags.map((flag) => (
+                      <FlagBadge key={flag} flag={flag} />
+                    ))}
+                  </div>
+                </div>
+                <span className={cn('text-sm font-bold', adherenceColor(a.adherence))}>{a.adherence}%</span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      </div>
+
+      {/* Full roster */}
+      <Card>
+        <CardHeader><CardTitle>Roster Overview</CardTitle></CardHeader>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-zinc-700">
+                {['Athlete', 'Class', 'Adherence', 'e1RM Total', 'Squat', 'Bench', 'Deadlift', 'Last Session'].map((h) => (
+                  <th key={h} className="text-left text-xs font-semibold text-zinc-500 pb-2 pr-3">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-800">
+              {MOCK_ATHLETES.map((a) => (
+                <tr key={a.id} className="hover:bg-zinc-800/30 transition-colors">
+                  <td className="py-3 pr-3">
+                    <div className="flex items-center gap-2">
+                      <Avatar name={a.full_name} role="athlete" size="xs" />
+                      <span className="font-medium text-zinc-200">{a.full_name}</span>
+                    </div>
+                  </td>
+                  <td className="py-3 pr-3 text-zinc-400">{a.weight_class}</td>
+                  <td className="py-3 pr-3">
+                    <div className="flex items-center gap-2">
+                      <span className={cn('text-xs font-bold', adherenceColor(a.adherence))}>{a.adherence}%</span>
+                      <ProgressBar value={a.adherence} max={100} color={a.adherence >= 85 ? 'green' : a.adherence >= 70 ? 'yellow' : 'red'} size="sm" className="w-16" />
+                    </div>
+                  </td>
+                  <td className="py-3 pr-3 font-bold text-zinc-200">{a.e1rm_squat + a.e1rm_bench + a.e1rm_deadlift}kg</td>
+                  <td className="py-3 pr-3 text-purple-400">{a.e1rm_squat}kg</td>
+                  <td className="py-3 pr-3 text-blue-400">{a.e1rm_bench}kg</td>
+                  <td className="py-3 pr-3 text-orange-400">{a.e1rm_deadlift}kg</td>
+                  <td className="py-3 text-zinc-400 text-xs">{a.last_session}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    </div>
+  )
+}
+
+function StaffAnalytics() {
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <StatCard label="Coach Avg Response" value="47min" sub="last 7 days" icon={Activity} color="blue" />
+        <StatCard label="Program Adjustments" value="12" sub="this week" icon={Zap} color="purple" />
+        <StatCard label="Athlete Retention" value="100%" sub="all-time" icon={Users} color="green" />
+        <StatCard label="Injury Reports" value="2" sub="active cases" icon={AlertTriangle} color="red" />
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Coach Performance Dashboard</CardTitle>
+          <CardSubtitle>Constructive metrics to support coaching quality</CardSubtitle>
+        </CardHeader>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-zinc-700">
+                {['Coach', 'Athletes', 'Avg Adherence', 'Adj/Week', 'Avg Response', 'Injury Rate'].map((h) => (
+                  <th key={h} className="text-left text-xs font-semibold text-zinc-500 pb-2 pr-4">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-800">
+              {[
+                { name: 'Elena Torres', athletes: 6, adherence: 86, adj: 4, response: '47min', injury: '0.3/mo' },
+                { name: 'Coach Marcus', athletes: 3, adherence: 91, adj: 2, response: '22min', injury: '0.1/mo' },
+              ].map((c) => (
+                <tr key={c.name} className="hover:bg-zinc-800/30 transition-colors">
+                  <td className="py-3 pr-4">
+                    <div className="flex items-center gap-2">
+                      <Avatar name={c.name} role="coach" size="xs" />
+                      <span className="font-medium text-zinc-200">{c.name}</span>
+                    </div>
+                  </td>
+                  <td className="py-3 pr-4 text-zinc-400">{c.athletes}</td>
+                  <td className="py-3 pr-4"><span className={cn('font-bold', adherenceColor(c.adherence))}>{c.adherence}%</span></td>
+                  <td className="py-3 pr-4 text-zinc-300">{c.adj}</td>
+                  <td className="py-3 pr-4 text-zinc-300">{c.response}</td>
+                  <td className="py-3"><Badge color="green">{c.injury}</Badge></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    </div>
+  )
+}
+
+function FlagBadge({ flag }) {
+  const map = {
+    pain_flag: { label: 'Pain', color: 'red' },
+    missed_sessions: { label: 'Missed', color: 'orange' },
+    low_sleep: { label: 'Low Sleep', color: 'blue' },
+  }
+  const f = map[flag] || { label: flag, color: 'default' }
+  return <Badge color={f.color}>{f.label}</Badge>
+}

@@ -1,0 +1,135 @@
+@import "tailwindcss";
+
+/* ─── Powerplus Brand Palette ────────────────────────────────────────────────
+   #50A5B1  teal       → primary interactive / brand accent
+   #F1600D  orange     → energy / PR / highlight
+   #FEF6ED  cream      → warm background base (light mode)
+   #1A265A  navy       → deep bg / text (light mode headings; dark mode surface)
+   ──────────────────────────────────────────────────────────────────────────── */
+
+@theme {
+  /* Brand */
+  --color-brand-teal:   #50A5B1;
+  --color-brand-teal-light: #7ec3cd;
+  --color-brand-teal-dark:  #38848f;
+  --color-brand-orange: #F1600D;
+  --color-brand-orange-light: #f58146;
+  --color-brand-orange-dark:  #c44c08;
+  --color-brand-cream:  #FEF6ED;
+  --color-brand-navy:   #1A265A;
+  --color-brand-navy-light: #263680;
+  --color-brand-navy-dark:  #111840;
+
+  /* Legacy surface scale (used in dark mode) */
+  --color-surface-900: #0d1117;
+  --color-surface-850: #111827;
+  --color-surface-800: #1a2236;
+  --color-surface-750: #1e2a40;
+  --color-surface-700: #253047;
+  --color-surface-600: #334060;
+  --color-surface-500: #4a5a7a;
+  --color-surface-400: #6b7fa0;
+  --color-surface-300: #94a3b8;
+  --color-surface-200: #cbd5e1;
+  --color-surface-100: #e8edf5;
+  --color-surface-50:  #f4f7fb;
+
+  /* Accent */
+  --color-accent-yellow: #eab308;
+  --color-accent-red:    #ef4444;
+  --color-accent-green:  #22c55e;
+  --color-accent-blue:   #3b82f6;
+  --color-accent-orange: #F1600D;
+}
+
+/* ─── CSS Variables — Dark Mode (default) ───────────────────────────────── */
+:root {
+  --bg-base:        #0d1117;
+  --bg-surface:     #1a2236;
+  --bg-elevated:    #1e2a40;
+  --bg-input:       #1e2a40;
+  --bg-hover:       #253047;
+  --border-default: #334060;
+  --border-subtle:  #253047;
+  --text-primary:   #f0f4fa;
+  --text-secondary: #94a3b8;
+  --text-muted:     #4a5a7a;
+  --brand-primary:  #50A5B1;
+  --brand-ring:     rgba(80,165,177,0.35);
+  --brand-orange:   #F1600D;
+  --brand-navy:     #263680;
+  --scrollbar-track: #1a2236;
+  --scrollbar-thumb: #334060;
+  color-scheme: dark;
+}
+
+/* ─── CSS Variables — Light Mode ────────────────────────────────────────── */
+.light {
+  --bg-base:        #FEF6ED;
+  --bg-surface:     #ffffff;
+  --bg-elevated:    #f5ede0;
+  --bg-input:       #ffffff;
+  --bg-hover:       #f0e6d5;
+  --border-default: #d4c4ae;
+  --border-subtle:  #e8dcd0;
+  --text-primary:   #1A265A;
+  --text-secondary: #3d4f7c;
+  --text-muted:     #7a8fbc;
+  --brand-primary:  #38848f;
+  --brand-ring:     rgba(56,132,143,0.3);
+  --brand-orange:   #c44c08;
+  --brand-navy:     #1A265A;
+  --scrollbar-track: #f0e6d5;
+  --scrollbar-thumb: #d4c4ae;
+  color-scheme: light;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: var(--bg-base);
+  color: var(--text-primary);
+  font-family: 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* ─── Utility classes driven by CSS variables ───────────────────────────── */
+.bg-pp-base     { background-color: var(--bg-base); }
+.bg-pp-surface  { background-color: var(--bg-surface); }
+.bg-pp-elevated { background-color: var(--bg-elevated); }
+.bg-pp-input    { background-color: var(--bg-input); }
+.bg-pp-hover    { background-color: var(--bg-hover); }
+.border-pp      { border-color: var(--border-default); }
+.border-pp-sub  { border-color: var(--border-subtle); }
+.text-pp        { color: var(--text-primary); }
+.text-pp-sub    { color: var(--text-secondary); }
+.text-pp-muted  { color: var(--text-muted); }
+.ring-pp        { --tw-ring-color: var(--brand-ring); }
+
+/* ─── Scrollbars ─────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--scrollbar-track); }
+::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--brand-primary); }
+
+/* ─── Form input utility ─────────────────────────────────────────────────── */
+.pp-input {
+  background-color: var(--bg-input);
+  border: 1px solid var(--border-default);
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.pp-input::placeholder { color: var(--text-muted); }
+.pp-input:focus {
+  border-color: var(--brand-primary);
+  box-shadow: 0 0 0 3px var(--brand-ring);
+}
