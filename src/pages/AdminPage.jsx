@@ -2210,6 +2210,7 @@ function PublicPageTab() {
     hero_subheadline: page.hero_subheadline || '',
     hero_cta:         page.hero_cta         || 'Apply to Join',
     accent_color:     page.accent_color     || '#a855f7',
+    custom_url:       page.custom_url       || '',
   })
 
   function saveHero() {
@@ -2224,7 +2225,9 @@ function PublicPageTab() {
     updatePublicPage(org.id, { published: !page.published })
   }
 
-  const publicUrl = `/org/${slug}`
+  const internalUrl = `/org/${slug}`
+  const publicUrl = (page.custom_url || heroForm.custom_url) ? (page.custom_url || heroForm.custom_url) : (window.location.origin + internalUrl)
+  const previewUrl = internalUrl
 
   const SECTION_TYPES = [
     { type: 'about',        label: 'About',         icon: FileText },
@@ -2254,17 +2257,23 @@ function PublicPageTab() {
                   href={publicUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center gap-1.5 text-xs text-purple-400 hover:text-purple-300 transition-colors"
+                  className="flex items-center gap-1.5 text-xs text-purple-400 hover:text-purple-300 transition-colors truncate max-w-xs"
                 >
-                  <ExternalLink className="w-3 h-3" />
-                  {window.location.origin}{publicUrl}
+                  <ExternalLink className="w-3 h-3 shrink-0" />
+                  {publicUrl}
                 </a>
               )}
             </div>
             <div className="flex items-center gap-2">
               <button
+                onClick={() => window.open(previewUrl, '_blank')}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-200 bg-zinc-800 border border-zinc-700 rounded-lg transition-colors"
+              >
+                <Eye className="w-3 h-3" /> Preview
+              </button>
+              <button
                 onClick={() => {
-                  navigator.clipboard?.writeText(window.location.origin + publicUrl)
+                  navigator.clipboard?.writeText(publicUrl)
                 }}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-200 bg-zinc-800 border border-zinc-700 rounded-lg transition-colors"
               >
@@ -2352,6 +2361,54 @@ function PublicPageTab() {
             </div>
             <Button size="sm" onClick={saveHero}>
               {saved ? <><Check className="w-3.5 h-3.5" /> Saved!</> : 'Save Changes'}
+            </Button>
+          </CardBody>
+        </Card>
+      )}
+
+      {/* Custom Domain card */}
+      {activeView === 'settings' && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Custom URL / Domain</CardTitle>
+            <CardSubtitle>Enter your own website URL to use as the shareable link for your public page. Visitors who open that URL should be redirected here by your domain provider.</CardSubtitle>
+          </CardHeader>
+          <CardBody className="space-y-4">
+            <div>
+              <label className="block text-xs font-medium text-zinc-400 mb-1.5">Your Website URL</label>
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1">
+                  <Link2 className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500 pointer-events-none" />
+                  <input
+                    value={heroForm.custom_url}
+                    onChange={(e) => setHeroForm((p) => ({ ...p, custom_url: e.target.value }))}
+                    placeholder="https://your-gym.com"
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-xl pl-9 pr-3 py-2.5 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-purple-500/40"
+                  />
+                </div>
+                {heroForm.custom_url && (
+                  <a
+                    href={heroForm.custom_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 px-3 py-2.5 text-xs text-purple-400 hover:text-purple-300 bg-zinc-800 border border-zinc-700 rounded-xl transition-colors whitespace-nowrap"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" /> Open
+                  </a>
+                )}
+              </div>
+              {heroForm.custom_url ? (
+                <p className="text-xs text-zinc-500 mt-2">
+                  <span className="text-green-400">✓</span> Copy Link and the shareable URL will use this address. The Preview button always shows your live Powerplus page.
+                </p>
+              ) : (
+                <p className="text-xs text-zinc-500 mt-2">
+                  Leave blank to use the default Powerplus URL: <span className="text-zinc-400 font-mono">{window.location.origin}{internalUrl}</span>
+                </p>
+              )}
+            </div>
+            <Button size="sm" onClick={saveHero}>
+              {saved ? <><Check className="w-3.5 h-3.5" /> Saved!</> : 'Save URL'}
             </Button>
           </CardBody>
         </Card>
