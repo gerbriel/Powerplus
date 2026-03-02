@@ -2226,8 +2226,13 @@ function PublicPageTab() {
   }
 
   const internalUrl = `/org/${slug}`
-  const publicUrl = (page.custom_url || heroForm.custom_url) ? (page.custom_url || heroForm.custom_url) : (window.location.origin + internalUrl)
-  const previewUrl = internalUrl
+  // Build the full absolute URL, respecting Vite's BASE_URL (e.g. /Powerplus/)
+  const base = (import.meta.env.BASE_URL || '/').replace(/\/$/, '')
+  const internalFullUrl = window.location.origin + base + internalUrl
+  const publicUrl = (page.custom_url || heroForm.custom_url)
+    ? (page.custom_url || heroForm.custom_url)
+    : internalFullUrl
+  const previewUrl = internalFullUrl
 
   const SECTION_TYPES = [
     { type: 'about',        label: 'About',         icon: FileText },
