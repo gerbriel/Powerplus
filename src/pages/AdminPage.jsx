@@ -65,7 +65,7 @@ function activityDot(type) {
 export function AdminPage() {
   const { profile } = useAuthStore()
   const isSuperAdmin = profile?.role === 'super_admin'
-  const isHeadCoach = profile?.role === 'admin'
+  const isHeadCoach = profile?.role === 'head_coach' || profile?.role === 'admin' || profile?.org_role === 'head_coach' || profile?.org_role === 'owner'
   const canManage = isSuperAdmin || isHeadCoach
 
   const SUPER_TABS = [

@@ -5,7 +5,7 @@ import {
   Activity, FileText, Search, SlidersHorizontal, Trophy, Flame,
   ChevronLeft, Plus, Pencil, Trash2, Send, Save, Edit2, Check,
   UtensilsCrossed, CalendarDays, ChevronDown, ChevronUp, Pill, Zap, Apple,
-  Sunrise, Sunset, Coffee, History, Package
+  Sunrise, Sunset, Coffee, History, Package, LayoutGrid, List
 } from 'lucide-react'
 import { Card, CardHeader, CardTitle } from '../components/ui/Card'
 import { Avatar } from '../components/ui/Avatar'
@@ -29,6 +29,7 @@ export function RosterPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [filterFlag, setFilterFlag] = useState('all')
   const [filterClass, setFilterClass] = useState('all')
+  const [viewMode, setViewMode] = useState('list') // 'list' | 'grid'
 
   const weightClasses = [...new Set(MOCK_ATHLETES.map(a => a.weight_class))].sort()
   const flagOptions = ['all', 'pain_flag', 'missed_sessions', 'low_sleep']
@@ -133,18 +134,62 @@ export function RosterPage() {
                 {weightClasses.map(wc => <option key={wc} value={wc}>{wc}</option>)}
               </select>
             </div>
-            <p className="text-xs text-zinc-500 ml-auto">{filteredAthletes.length} of {MOCK_ATHLETES.length}</p>
+            <p className="text-xs text-zinc-500">{filteredAthletes.length} of {MOCK_ATHLETES.length}</p>
+            {/* View toggle */}
+            <div className="ml-auto flex items-center gap-1 bg-zinc-800 border border-zinc-700 rounded-lg p-0.5">
+              <button
+                onClick={() => setViewMode('list')}
+                className={cn('p-1.5 rounded-md transition-colors', viewMode === 'list' ? 'bg-zinc-600 text-zinc-100' : 'text-zinc-500 hover:text-zinc-300')}
+              ><List className="w-3.5 h-3.5" /></button>
+              <button
+                onClick={() => setViewMode('grid')}
+                className={cn('p-1.5 rounded-md transition-colors', viewMode === 'grid' ? 'bg-zinc-600 text-zinc-100' : 'text-zinc-500 hover:text-zinc-300')}
+              ><LayoutGrid className="w-3.5 h-3.5" /></button>
+            </div>
           </div>
 
-          <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
-            {filteredAthletes.map((athlete) => (
-              <AthleteCard
-                key={athlete.id}
-                athlete={athlete}
-                onSelect={() => setSelectedAthlete(athlete)}
-              />
-            ))}
-          </div>
+          {/* List view */}
+          {viewMode === 'list' && (
+            <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
+              {/* Table header */}
+              <div className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr_auto] gap-x-4 px-4 py-2.5 border-b border-zinc-800 text-xs font-semibold text-zinc-500 uppercase tracking-wider">
+                <span>Athlete</span>
+                <span className="text-center">Squat</span>
+                <span className="text-center">Bench</span>
+                <span className="text-center">Dead</span>
+                <span className="text-center">Adherence</span>
+                <span className="text-center">Sessions</span>
+                <span></span>
+              </div>
+              {filteredAthletes.map((athlete, i) => (
+                <AthleteRow
+                  key={athlete.id}
+                  athlete={athlete}
+                  isLast={i === filteredAthletes.length - 1}
+                  onSelect={() => setSelectedAthlete(athlete)}
+                />
+              ))}
+              {filteredAthletes.length === 0 && (
+                <div className="py-12 text-center text-zinc-500 text-sm">No athletes match your filters.</div>
+              )}
+            </div>
+          )}
+
+          {/* Grid view */}
+          {viewMode === 'grid' && (
+            <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
+              {filteredAthletes.map((athlete) => (
+                <AthleteCard
+                  key={athlete.id}
+                  athlete={athlete}
+                  onSelect={() => setSelectedAthlete(athlete)}
+                />
+              ))}
+              {filteredAthletes.length === 0 && (
+                <div className="col-span-3 py-12 text-center text-zinc-500 text-sm">No athletes match your filters.</div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -155,6 +200,55 @@ export function RosterPage() {
           onClose={() => setSelectedAthlete(null)}
         />
       )}
+    </div>
+  )
+}
+
+function AthleteRow({ athlete, onSelect, isLast }) {
+  const { weightUnit } = useSettingsStore()
+  const squat = convertWeight(athlete.e1rm_squat, weightUnit)
+  const bench = convertWeight(athlete.e1rm_bench, weightUnit)
+  const dead  = convertWeight(athlete.e1rm_deadlift, weightUnit)
+
+  const adColor = athlete.adherence >= 85 ? 'text-green-400' : athlete.adherence >= 70 ? 'text-yellow-400' : 'text-red-400'
+  const adBar   = athlete.adherence >= 85 ? 'bg-green-500' : athlete.adherence >= 70 ? 'bg-yellow-500' : 'bg-red-500'
+
+  return (
+    <div
+      onClick={onSelect}
+      className={cn(
+        'grid grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr_auto] gap-x-4 px-4 py-3 items-center cursor-pointer hover:bg-zinc-800/60 transition-colors',
+        !isLast && 'border-b border-zinc-800/60'
+      )}
+    >
+      {/* Athlete name + avatar */}
+      <div className="flex items-center gap-3 min-w-0">
+        <Avatar name={athlete.full_name} role="athlete" size="sm" />
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-zinc-100 truncate">{athlete.full_name}</p>
+          <p className="text-xs text-zinc-500 truncate">{athlete.weight_class} · {athlete.federation}</p>
+        </div>
+        {athlete.flags.length > 0 && (
+          <div className="flex gap-1 flex-shrink-0">
+            {athlete.flags.map(f => <FlagBadge key={f} flag={f} />)}
+          </div>
+        )}
+      </div>
+      {/* S/B/D */}
+      <span className="text-sm font-bold text-purple-400 text-center">{squat}</span>
+      <span className="text-sm font-bold text-blue-400 text-center">{bench}</span>
+      <span className="text-sm font-bold text-orange-400 text-center">{dead}</span>
+      {/* Adherence */}
+      <div className="flex flex-col items-center gap-1">
+        <span className={cn('text-xs font-bold', adColor)}>{athlete.adherence}%</span>
+        <div className="w-full bg-zinc-700 rounded-full h-1">
+          <div className={cn('h-1 rounded-full', adBar)} style={{ width: `${athlete.adherence}%` }} />
+        </div>
+      </div>
+      {/* Sessions */}
+      <span className="text-xs text-zinc-400 text-center">{athlete.sessions_this_week}/{athlete.sessions_planned_this_week}</span>
+      {/* Arrow */}
+      <ChevronRight className="w-4 h-4 text-zinc-600" />
     </div>
   )
 }
