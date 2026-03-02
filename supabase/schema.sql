@@ -1589,152 +1589,66 @@ create policy "audit_logs: super_admin only"
   );
 
 -- ============================================================
--- MOCK DATA SEED  (Pre-Auth / Demo Mode)
+-- AUTH TRIGGER — Auto-create profile on sign-up
 -- ============================================================
--- Allows the app to run with mock users before real Supabase Auth
--- is wired up. Safe to run repeatedly — all inserts use ON CONFLICT.
---
--- To restore strict auth-based RLS later:
---   1. Re-add the FK:  alter table profiles add constraint profiles_id_fkey
---        foreign key (id) references auth.users(id) on delete cascade;
---   2. Re-apply the strict policies from the section above.
+-- When a user signs up via Supabase Auth, this trigger fires
+-- and inserts a matching row into public.profiles.
+-- The user's full_name and display_name come from auth metadata
+-- (passed during signUp: { data: { full_name: '...' } }).
 -- ============================================================
 
--- ── Drop the auth.users FK so mock UUIDs can be inserted ────────────────────
-alter table profiles drop constraint if exists profiles_id_fkey;
+create or replace function public.handle_new_user()
+returns trigger as $$
+begin
+  insert into public.profiles (id, email, full_name, display_name, platform_role)
+  values (
+    new.id,
+    new.email,
+    coalesce(new.raw_user_meta_data->>'full_name', split_part(new.email, '@', 1)),
+    coalesce(new.raw_user_meta_data->>'display_name', new.raw_user_meta_data->>'full_name', split_part(new.email, '@', 1)),
+    'user'
+  )
+  on conflict (id) do nothing;
+  return new;
+end;
+$$ language plpgsql security definer;
 
--- ── Relax RLS on profiles (anon key can read/write) ─────────────────────────
-drop policy if exists "profiles: owner can insert" on profiles;
-drop policy if exists "profiles: any org member can read" on profiles;
-drop policy if exists "profiles: owner can update" on profiles;
-create policy "profiles: anyone can read"           on profiles for select using (true);
-create policy "profiles: anon can upsert"           on profiles for insert with check (true);
-create policy "profiles: anon can update"           on profiles for update using (true);
+-- Drop and recreate so this is safe to re-run
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute procedure public.handle_new_user();
 
--- ── Relax RLS on organizations ───────────────────────────────────────────────
-drop policy if exists "orgs: members can read" on organizations;
-drop policy if exists "orgs: owner can update" on organizations;
-create policy "orgs: anyone can read"   on organizations for select using (true);
-create policy "orgs: anon can insert"   on organizations for insert with check (true);
-create policy "orgs: anon can update"   on organizations for update using (true);
+-- ============================================================
+-- ORG CREATION HELPER
+-- ============================================================
+-- Called client-side after a head_coach signs up and creates
+-- their organization. Creates the org and adds the creator
+-- as 'owner' in org_members in one transaction.
+-- Usage: select create_org_with_owner('<user_id>', 'Org Name', 'org-slug', 'USAPL', 'America/New_York', 'lbs');
+-- ============================================================
 
--- ── Relax RLS on org_members ─────────────────────────────────────────────────
-drop policy if exists "org_members: member can view own org" on org_members;
-drop policy if exists "org_members: owner/head_coach can manage" on org_members;
-create policy "org_members: anyone can read" on org_members for select using (true);
-create policy "org_members: anon can insert" on org_members for insert with check (true);
-create policy "org_members: anon can update" on org_members for update using (true);
-
--- ── Relax RLS on staff_athlete_assignments ───────────────────────────────────
-drop policy if exists "assignments: org admins can manage" on staff_athlete_assignments;
-drop policy if exists "assignments: staff can read own" on staff_athlete_assignments;
-create policy "assignments: anyone can read" on staff_athlete_assignments for select using (true);
-create policy "assignments: anon can insert" on staff_athlete_assignments for insert with check (true);
-
--- ── Relax RLS on nutrition_plans ─────────────────────────────────────────────
-drop policy if exists "nutrition_plans: athlete sees own" on nutrition_plans;
-drop policy if exists "nutrition_plans: staff with view nutrition can read" on nutrition_plans;
-drop policy if exists "nutrition_plans: athlete can insert own" on nutrition_plans;
-drop policy if exists "nutrition_plans: athlete or authorized staff can update" on nutrition_plans;
-create policy "nutrition_plans: anyone can read"  on nutrition_plans for select using (true);
-create policy "nutrition_plans: anon can insert"  on nutrition_plans for insert with check (true);
-create policy "nutrition_plans: anon can update"  on nutrition_plans for update using (true);
-create policy "nutrition_plans: anon can delete"  on nutrition_plans for delete using (true);
-
--- ── Relax RLS on nutrition_logs ──────────────────────────────────────────────
-drop policy if exists "nutrition_logs: athlete sees own" on nutrition_logs;
-drop policy if exists "nutrition_logs: staff with view nutrition" on nutrition_logs;
-drop policy if exists "nutrition_logs: athlete can insert own" on nutrition_logs;
-create policy "nutrition_logs: anyone can read"  on nutrition_logs for select using (true);
-create policy "nutrition_logs: anon can insert"  on nutrition_logs for insert with check (true);
-create policy "nutrition_logs: anon can update"  on nutrition_logs for update using (true);
-create policy "nutrition_logs: anon can delete"  on nutrition_logs for delete using (true);
-
--- ── Relax RLS on meal_prep_recipes ───────────────────────────────────────────
-drop policy if exists "meal_prep_recipes: org template readable by members" on meal_prep_recipes;
-drop policy if exists "meal_prep_recipes: personal readable by owner" on meal_prep_recipes;
-drop policy if exists "meal_prep_recipes: nutritionist/head_coach can manage org templates" on meal_prep_recipes;
-create policy "meal_prep_recipes: anyone can read"  on meal_prep_recipes for select using (true);
-create policy "meal_prep_recipes: anon can insert"  on meal_prep_recipes for insert with check (true);
-create policy "meal_prep_recipes: anon can update"  on meal_prep_recipes for update using (true);
-create policy "meal_prep_recipes: anon can delete"  on meal_prep_recipes for delete using (true);
-
--- ── Relax RLS on meal_prep_sessions ──────────────────────────────────────────
-drop policy if exists "meal_prep_sessions: athlete sees own" on meal_prep_sessions;
-drop policy if exists "meal_prep_sessions: staff with create_meal_prep" on meal_prep_sessions;
-create policy "meal_prep_sessions: anyone can read"  on meal_prep_sessions for select using (true);
-create policy "meal_prep_sessions: anon can insert"  on meal_prep_sessions for insert with check (true);
-create policy "meal_prep_sessions: anon can update"  on meal_prep_sessions for update using (true);
-create policy "meal_prep_sessions: anon can delete"  on meal_prep_sessions for delete using (true);
-
--- ── Relax RLS on meal_prep_session_items ─────────────────────────────────────
-drop policy if exists "meal_prep_session_items: readable via session" on meal_prep_session_items;
-create policy "meal_prep_session_items: anyone can read"  on meal_prep_session_items for select using (true);
-create policy "meal_prep_session_items: anon can insert"  on meal_prep_session_items for insert with check (true);
-create policy "meal_prep_session_items: anon can update"  on meal_prep_session_items for update using (true);
-create policy "meal_prep_session_items: anon can delete"  on meal_prep_session_items for delete using (true);
-
--- ── Relax RLS on shopping_lists ───────────────────────────────────────────────
-drop policy if exists "shopping_lists: athlete sees own" on shopping_lists;
-drop policy if exists "shopping_lists: staff with edit_shopping_list" on shopping_lists;
-drop policy if exists "shopping_lists: athlete or authorized staff can update" on shopping_lists;
-create policy "shopping_lists: anyone can read"  on shopping_lists for select using (true);
-create policy "shopping_lists: anon can insert"  on shopping_lists for insert with check (true);
-create policy "shopping_lists: anon can update"  on shopping_lists for update using (true);
-create policy "shopping_lists: anon can delete"  on shopping_lists for delete using (true);
-
--- ── Relax RLS on shopping_list_categories ────────────────────────────────────
-drop policy if exists "shopping_list_categories: readable via list access" on shopping_list_categories;
-create policy "shopping_list_categories: anyone can read"  on shopping_list_categories for select using (true);
-create policy "shopping_list_categories: anon can insert"  on shopping_list_categories for insert with check (true);
-create policy "shopping_list_categories: anon can update"  on shopping_list_categories for update using (true);
-create policy "shopping_list_categories: anon can delete"  on shopping_list_categories for delete using (true);
-
--- ── Relax RLS on shopping_list_items ─────────────────────────────────────────
-drop policy if exists "shopping_list_items: readable via list access" on shopping_list_items;
-create policy "shopping_list_items: anyone can read"  on shopping_list_items for select using (true);
-create policy "shopping_list_items: anon can insert"  on shopping_list_items for insert with check (true);
-create policy "shopping_list_items: anon can update"  on shopping_list_items for update using (true);
-create policy "shopping_list_items: anon can delete"  on shopping_list_items for delete using (true);
-
--- ── Seed mock profiles ────────────────────────────────────────────────────────
-insert into profiles (id, email, full_name, display_name, platform_role, self_coach, weight_class, federation, equipment_type, bio)
-values
-  ('00000000-0000-0000-0000-000000000001', 'superadmin@powerplus.app', 'Alex Rivera',    'Alex (Platform Admin)', 'super_admin', false, null,   null,    null,  'Platform administrator. Manages all organizations on PowerPlus.'),
-  ('00000000-0000-0000-0000-000000000002', 'admin@powerplus.app',      'Marcus Webb',    'Coach Marcus',          'user',        true,  '93kg', 'USAPL', 'raw', 'Head coach & operations. 10+ years coaching powerlifters. Still trains competitively.'),
-  ('00000000-0000-0000-0000-000000000003', 'coach@powerplus.app',      'Elena Torres',   'Coach Elena',           'user',        false, null,   'USAPL', 'raw', 'Strength coach specializing in IPF-style technique.'),
-  ('00000000-0000-0000-0000-000000000004', 'nutrition@powerplus.app',  'Dr. Priya Nair', 'Dr. Priya',             'user',        false, null,   null,    null,  'Sports dietitian with focus on strength athletes.'),
-  ('00000000-0000-0000-0000-000000000005', 'athlete@powerplus.app',    'Jordan Blake',   'Jordan',                'user',        false, '93kg', 'USAPL', 'raw', 'Competing since 2021. Current total: 672.5kg'),
-  ('00000000-0000-0000-0000-000000000006', 'sam@powerplus.app',        'Samantha Price', 'Samantha',              'user',        false, '72kg', 'USAPL', 'raw', 'Elite-level 72kg lifter. 3x USAPL nationals qualifier.')
-on conflict (id) do update set
-  full_name    = excluded.full_name,
-  display_name = excluded.display_name,
-  email        = excluded.email;
-
--- ── Seed mock organization ────────────────────────────────────────────────────
-insert into organizations (id, name, slug, federation, timezone, weight_unit, plan, status,
-  athlete_limit, staff_limit, storage_gb_limit, has_dedicated_nutritionist, athletes_can_self_manage_nutrition)
-values (
-  '00000000-0000-0000-0000-000000000010',
-  'Iron North Athletics',
-  'iron-north',
-  'USAPL',
-  'America/New_York',
-  'lbs',
-  'team_pro',
-  'active',
-  30, 5, 10,
-  true,
-  true
+create or replace function public.create_org_with_owner(
+  p_user_id    uuid,
+  p_name       text,
+  p_slug       text,
+  p_federation text default null,
+  p_timezone   text default 'UTC',
+  p_weight_unit text default 'kg'
 )
-on conflict (id) do update set name = excluded.name;
+returns uuid as $$
+declare
+  v_org_id uuid;
+begin
+  -- Create the organization
+  insert into public.organizations (name, slug, federation, timezone, weight_unit, plan, status)
+  values (p_name, p_slug, p_federation, p_timezone, p_weight_unit, 'starter', 'active')
+  returning id into v_org_id;
 
--- ── Seed org memberships ──────────────────────────────────────────────────────
-insert into org_members (id, org_id, user_id, org_role, is_self_athlete, status)
-values
-  ('00000000-0000-0000-0001-000000000001', '00000000-0000-0000-0000-000000000010', '00000000-0000-0000-0000-000000000002', 'head_coach',   true,  'active'),
-  ('00000000-0000-0000-0001-000000000002', '00000000-0000-0000-0000-000000000010', '00000000-0000-0000-0000-000000000003', 'coach',        false, 'active'),
-  ('00000000-0000-0000-0001-000000000003', '00000000-0000-0000-0000-000000000010', '00000000-0000-0000-0000-000000000004', 'nutritionist', false, 'active'),
-  ('00000000-0000-0000-0001-000000000004', '00000000-0000-0000-0000-000000000010', '00000000-0000-0000-0000-000000000005', 'athlete',      false, 'active'),
-  ('00000000-0000-0000-0001-000000000005', '00000000-0000-0000-0000-000000000010', '00000000-0000-0000-0000-000000000006', 'athlete',      false, 'active')
-on conflict (org_id, user_id) do update set org_role = excluded.org_role;
+  -- Add creator as owner
+  insert into public.org_members (org_id, user_id, org_role, status)
+  values (v_org_id, p_user_id, 'owner', 'active');
+
+  return v_org_id;
+end;
+$$ language plpgsql security definer;
