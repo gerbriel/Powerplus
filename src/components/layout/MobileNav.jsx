@@ -1,6 +1,6 @@
 import { useUIStore, useAuthStore } from '../../lib/store'
 import { cn } from '../../lib/utils'
-import { X, Zap, Dumbbell, UtensilsCrossed, MessageSquare, Calendar, Target, Trophy, BookOpen, LayoutDashboard, Users, BarChart3, Settings, Shield, Globe, Stethoscope, Eye, EyeOff, Activity, Code2 } from 'lucide-react'
+import { X, Zap, Dumbbell, UtensilsCrossed, MessageSquare, Calendar, Target, Trophy, BookOpen, LayoutDashboard, Users, BarChart3, Settings, Shield, Globe, Stethoscope, Eye, EyeOff, Activity, Code2, UserCheck } from 'lucide-react'
 import { Avatar } from '../ui/Avatar'
 import { Badge } from '../ui/Badge'
 
@@ -15,6 +15,8 @@ const STAFF_NAV = {
     { id: 'calendar', label: 'Calendar', icon: Calendar },
     { id: 'analytics', label: 'Analytics', icon: BarChart3 },
     { id: 'meets', label: 'Meets', icon: Trophy },
+    { id: 'website', label: 'Website', icon: Globe },
+    { id: 'leads', label: 'Leads', icon: UserCheck },
     { id: 'resources', label: 'Resources', icon: BookOpen },
     { id: 'settings', label: 'Settings', icon: Settings },
   ],
@@ -28,6 +30,8 @@ const STAFF_NAV = {
     { id: 'calendar', label: 'Calendar', icon: Calendar },
     { id: 'analytics', label: 'Analytics', icon: BarChart3 },
     { id: 'meets', label: 'Meets', icon: Trophy },
+    { id: 'website', label: 'Website', icon: Globe },
+    { id: 'leads', label: 'Leads', icon: UserCheck },
     { id: 'resources', label: 'Resources', icon: BookOpen },
   ],
   nutritionist: [

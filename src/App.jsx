@@ -30,6 +30,8 @@ import { ProfilePage } from './pages/ProfilePage'
 import { CheckInPage } from './pages/CheckInPage'
 import { CalculatorsPage } from './pages/CalculatorsPage'
 import { InjuryPage } from './pages/InjuryPage'
+import { WebsitePage } from './pages/WebsitePage'
+import { LeadsPage } from './pages/LeadsPage'
 
 // Page registry — keyed by the activePage value set in Sidebar/MobileNav
 const PAGE_MAP = {
@@ -50,6 +52,8 @@ const PAGE_MAP = {
   profile: ProfilePage,
   calculators: CalculatorsPage,
   injury: InjuryPage,
+  website: WebsitePage,
+  leads: LeadsPage,
 }
 
 /** Redirects /dashboard to the role-appropriate landing page */

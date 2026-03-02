@@ -1671,9 +1671,11 @@ create table org_public_pages (
   logo_url         text,
   -- Custom domain / URL
   -- When set, this is shown as the shareable link in the admin UI.
-  -- To redirect visitors, the coach configures a URL forward on their domain:
-  --   https://their-gym.com → https://<powerplus-host>/?r=<slug>
-  -- The app reads the ?r=slug param and redirects to /org/:slug automatically.
+  -- To use a custom domain, the coach sets up a GitHub Pages custom domain:
+  --   1. Add a CNAME file to the repo's public/ folder with their domain
+  --   2. Point DNS CNAME to gerbriel.github.io
+  --   3. Configure GitHub Settings → Pages → Custom Domain
+  -- This makes the entire platform available at their domain (e.g. their-gym.com).
   custom_url       text,
   -- Sections are stored as ordered JSONB array
   -- Each element: { id, type, order, visible, title, body, items[] }

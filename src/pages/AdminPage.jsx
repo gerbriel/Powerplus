@@ -80,8 +80,6 @@ export function AdminPage() {
     { id: 'team', label: 'Team Members' },
     { id: 'invitations', label: 'Invitations' },
     { id: 'roles', label: 'Roles & Permissions' },
-    { id: 'public_page', label: 'Public Page' },
-    { id: 'leads', label: 'Leads' },
     { id: 'org', label: 'Org Settings' },
     { id: 'notifications', label: 'Notifications' },
     { id: 'danger', label: 'Danger Zone' },
@@ -139,8 +137,6 @@ export function AdminPage() {
       {tab === 'team' && isHeadCoach && <TeamTab onInvite={() => setInviteOpen(true)} />}
       {tab === 'invitations' && isHeadCoach && <InvitationsTab />}
       {tab === 'org' && isHeadCoach && <OrgSettingsTab />}
-      {tab === 'public_page' && isHeadCoach && <PublicPageTab />}
-      {tab === 'leads' && isHeadCoach && <LeadsTab />}
       {tab === 'roles' && canManage && <RolesTab isSuperAdmin={isSuperAdmin} />}
       {tab === 'notifications' && <NotificationsTab />}
       {tab === 'danger' && <DangerZoneTab />}
@@ -2194,7 +2190,7 @@ function RolesTab({ isSuperAdmin }) {
 }
 
 // ─── Public Page Editor (Head Coach) ─────────────────────────────────────────
-function PublicPageTab() {
+export function PublicPageTab() {
   const { profile } = useAuthStore()
   const { orgs, updatePublicPage, addPageSection, updatePageSection, deletePageSection } = useOrgStore()
   const org = orgs.find((o) => o.id === profile?.org_id)
@@ -2889,7 +2885,7 @@ const LEAD_STATUS_META = {
   declined:   { label: 'Declined',  color: 'red'    },
 }
 
-function LeadsTab() {
+export function LeadsTab() {
   const { profile } = useAuthStore()
   const { orgs, updateLead, deleteLead } = useOrgStore()
   const org = orgs.find((o) => o.id === profile?.org_id)

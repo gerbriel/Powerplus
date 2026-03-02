@@ -6,7 +6,7 @@ import {
   LayoutDashboard, Dumbbell, UtensilsCrossed, MessageSquare,
   Calendar, BarChart3, Trophy, Users, Settings, BookOpen,
   Target, Bell, ChevronLeft, ChevronRight, Zap, Shield, Calculator,
-  Globe, Building2, Stethoscope, Eye, EyeOff, Activity,
+  Globe, Building2, Stethoscope, Eye, EyeOff, Activity, UserCheck,
 } from 'lucide-react'
 
 // Nav items per role
@@ -21,6 +21,8 @@ const STAFF_NAV = {
     { id: 'calendar', label: 'Calendar', icon: Calendar, section: 'main' },
     { id: 'analytics', label: 'Analytics', icon: BarChart3, section: 'main' },
     { id: 'meets', label: 'Meets', icon: Trophy, section: 'main' },
+    { id: 'website', label: 'Website', icon: Globe, section: 'tools' },
+    { id: 'leads', label: 'Leads', icon: UserCheck, section: 'tools' },
     { id: 'resources', label: 'Resources', icon: BookOpen, section: 'tools' },
     { id: 'calculators', label: 'Calculators', icon: Calculator, section: 'tools' },
     { id: 'settings', label: 'Settings', icon: Settings, section: 'tools' },
@@ -35,6 +37,8 @@ const STAFF_NAV = {
     { id: 'calendar', label: 'Calendar', icon: Calendar, section: 'main' },
     { id: 'analytics', label: 'Analytics', icon: BarChart3, section: 'main' },
     { id: 'meets', label: 'Meets', icon: Trophy, section: 'main' },
+    { id: 'website', label: 'Website', icon: Globe, section: 'tools' },
+    { id: 'leads', label: 'Leads', icon: UserCheck, section: 'tools' },
     { id: 'resources', label: 'Resources', icon: BookOpen, section: 'tools' },
     { id: 'calculators', label: 'Calculators', icon: Calculator, section: 'tools' },
   ],
