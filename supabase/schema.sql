@@ -1652,3 +1652,119 @@ begin
   return v_org_id;
 end;
 $$ language plpgsql security definer;
+
+-- ============================================================
+-- PUBLIC ORG PAGE  (external marketing site + intake form)
+-- Each org has exactly one public page config.
+-- Accessible at /org/:slug without authentication.
+-- ============================================================
+create table org_public_pages (
+  id             uuid primary key default uuid_generate_v4(),
+  org_id         uuid unique not null references organizations(id) on delete cascade,
+  published      boolean not null default false,
+  -- Hero section
+  hero_headline    text,
+  hero_subheadline text,
+  hero_cta         text default 'Apply to Join',
+  -- Branding
+  accent_color     text default '#a855f7',   -- CSS hex color
+  logo_url         text,
+  -- Sections are stored as ordered JSONB array
+  -- Each element: { id, type, order, visible, title, body, items[] }
+  -- type: 'about' | 'coaches' | 'highlights' | 'testimonials' | 'faq' | 'intake' | 'custom'
+  sections         jsonb not null default '[]',
+  -- Intake form field definitions
+  -- Each element: { id, label, type, required, placeholder, options[] }
+  intake_fields    jsonb not null default '[]',
+  created_at       timestamptz default now(),
+  updated_at       timestamptz default now()
+);
+
+-- RLS: anyone can read a published page (public intake form)
+alter table org_public_pages enable row level security;
+
+create policy "Public can read published pages"
+  on org_public_pages for select
+  using (published = true);
+
+create policy "Org admins can manage their page"
+  on org_public_pages for all
+  using (
+    org_id in (
+      select org_id from org_members
+      where user_id = auth.uid()
+      and org_role in ('owner', 'head_coach')
+      and status = 'active'
+    )
+  );
+
+-- ============================================================
+-- LEADS  (intake form submissions → potential athletes)
+-- ============================================================
+create type lead_status as enum ('new', 'contacted', 'onboarded', 'declined');
+
+create table leads (
+  id             uuid primary key default uuid_generate_v4(),
+  org_id         uuid not null references organizations(id) on delete cascade,
+  -- Core contact info (from intake form)
+  full_name      text not null,
+  email          text not null,
+  phone          text,
+  -- Answers to standard intake questions
+  experience     text,   -- training experience tier
+  goals          text,
+  injuries       text,
+  federation     text,
+  source         text,   -- 'Instagram' | 'Google' | 'Referral' etc
+  -- Any additional answers (flexible key/value from custom fields)
+  extra_answers  jsonb default '{}',
+  -- CRM fields
+  status         lead_status not null default 'new',
+  assigned_to    uuid references profiles(id) on delete set null,
+  notes          text,   -- internal staff notes
+  submitted_at   timestamptz default now(),
+  updated_at     timestamptz default now()
+);
+
+-- Index for fast per-org queries
+create index leads_org_id_idx on leads(org_id);
+create index leads_status_idx on leads(org_id, status);
+
+-- RLS: leads are private to the org
+alter table leads enable row level security;
+
+create policy "Org staff can view and manage leads"
+  on leads for all
+  using (
+    org_id in (
+      select org_id from org_members
+      where user_id = auth.uid()
+      and org_role in ('owner', 'head_coach', 'coach')
+      and status = 'active'
+    )
+  );
+
+-- Public insert (anyone submitting the intake form)
+create policy "Anyone can submit an intake form"
+  on leads for insert
+  with check (true);
+
+-- ============================================================
+-- Trigger: update updated_at on leads and org_public_pages
+-- ============================================================
+create or replace function set_updated_at()
+returns trigger as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$ language plpgsql;
+
+create trigger leads_updated_at
+  before update on leads
+  for each row execute procedure set_updated_at();
+
+create trigger org_public_pages_updated_at
+  before update on org_public_pages
+  for each row execute procedure set_updated_at();
+

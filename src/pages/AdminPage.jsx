@@ -7,7 +7,11 @@ import {
   Activity, TrendingUp, TrendingDown, Dumbbell, UtensilsCrossed, Target,
   Send, RotateCcw, Check, X, ToggleLeft, ToggleRight,
   CreditCard, Search, ArrowLeft, BarChart2, Zap, Heart, Moon,
-  ClipboardList, Scale, CalendarDays, Award, Flame
+  ClipboardList, Scale, CalendarDays, Award, Flame,
+  Link2, Eye, EyeOff, ExternalLink, GripVertical, Plus, FileText,
+  MessageSquare, Star, HelpCircle, Image, ChevronUp, Palette,
+  Phone, UserCheck, UserX, Clock, Filter, SlidersHorizontal, Copy,
+  CheckSquare, XSquare, ArrowUpRight, Server
 } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardSubtitle, CardBody } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
@@ -16,7 +20,7 @@ import { Badge } from '../components/ui/Badge'
 import { StatCard } from '../components/ui/StatCard'
 import { Tabs } from '../components/ui/Tabs'
 import { Modal } from '../components/ui/Modal'
-import { MOCK_ATHLETES, MOCK_USERS, MOCK_ORGS, MOCK_TRAINING_BLOCKS, PLAN_META } from '../lib/mockData'
+import { MOCK_ATHLETES, MOCK_USERS, MOCK_ORGS, MOCK_TRAINING_BLOCKS, PLAN_META, DEFAULT_INTAKE_FIELDS } from '../lib/mockData'
 import { useAuthStore, useOrgStore, useGoalsStore, useTrainingStore } from '../lib/store'
 import { cn } from '../lib/utils'
 
@@ -76,6 +80,8 @@ export function AdminPage() {
     { id: 'team', label: 'Team Members' },
     { id: 'invitations', label: 'Invitations' },
     { id: 'roles', label: 'Roles & Permissions' },
+    { id: 'public_page', label: 'Public Page' },
+    { id: 'leads', label: 'Leads' },
     { id: 'org', label: 'Org Settings' },
     { id: 'notifications', label: 'Notifications' },
     { id: 'danger', label: 'Danger Zone' },
@@ -133,6 +139,8 @@ export function AdminPage() {
       {tab === 'team' && isHeadCoach && <TeamTab onInvite={() => setInviteOpen(true)} />}
       {tab === 'invitations' && isHeadCoach && <InvitationsTab />}
       {tab === 'org' && isHeadCoach && <OrgSettingsTab />}
+      {tab === 'public_page' && isHeadCoach && <PublicPageTab />}
+      {tab === 'leads' && isHeadCoach && <LeadsTab />}
       {tab === 'roles' && canManage && <RolesTab isSuperAdmin={isSuperAdmin} />}
       {tab === 'notifications' && <NotificationsTab />}
       {tab === 'danger' && <DangerZoneTab />}
@@ -2182,6 +2190,794 @@ function RolesTab({ isSuperAdmin }) {
         </Modal>
       )}
     </div>
+  )
+}
+
+// ─── Public Page Editor (Head Coach) ─────────────────────────────────────────
+function PublicPageTab() {
+  const { profile } = useAuthStore()
+  const { orgs, updatePublicPage, addPageSection, updatePageSection, deletePageSection } = useOrgStore()
+  const org = orgs.find((o) => o.id === profile?.org_id)
+  const page = org?.public_page || {}
+  const slug = org?.slug || ''
+
+  const [activeView, setActiveView] = useState('settings') // 'settings' | 'sections' | 'intake' | 'preview_link'
+  const [saved, setSaved] = useState(false)
+
+  // Hero / settings form
+  const [heroForm, setHeroForm] = useState({
+    hero_headline:    page.hero_headline    || '',
+    hero_subheadline: page.hero_subheadline || '',
+    hero_cta:         page.hero_cta         || 'Apply to Join',
+    accent_color:     page.accent_color     || '#a855f7',
+  })
+
+  function saveHero() {
+    if (!org) return
+    updatePublicPage(org.id, heroForm)
+    setSaved(true)
+    setTimeout(() => setSaved(false), 2000)
+  }
+
+  function togglePublished() {
+    if (!org) return
+    updatePublicPage(org.id, { published: !page.published })
+  }
+
+  const publicUrl = `/org/${slug}`
+
+  const SECTION_TYPES = [
+    { type: 'about',        label: 'About',         icon: FileText },
+    { type: 'coaches',      label: 'Meet the Staff', icon: Users },
+    { type: 'highlights',   label: 'What You Get',  icon: CheckSquare },
+    { type: 'testimonials', label: 'Testimonials',  icon: MessageSquare },
+    { type: 'faq',          label: 'FAQ',           icon: HelpCircle },
+    { type: 'custom',       label: 'Custom Text',   icon: Edit2 },
+  ]
+
+  const sections = (page.sections || []).sort((a, b) => a.order - b.order)
+  const hasIntake = sections.some((s) => s.type === 'intake')
+
+  return (
+    <div className="space-y-5">
+      {/* Top bar — published toggle + link */}
+      <Card>
+        <CardBody>
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div className="flex items-center gap-3">
+              <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold border ${page.published ? 'bg-green-500/10 border-green-500/30 text-green-400' : 'bg-zinc-800 border-zinc-700 text-zinc-500'}`}>
+                <div className={`w-1.5 h-1.5 rounded-full ${page.published ? 'bg-green-400' : 'bg-zinc-600'}`} />
+                {page.published ? 'Published' : 'Draft'}
+              </div>
+              {page.published && (
+                <a
+                  href={publicUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 text-xs text-purple-400 hover:text-purple-300 transition-colors"
+                >
+                  <ExternalLink className="w-3 h-3" />
+                  {window.location.origin}{publicUrl}
+                </a>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  navigator.clipboard?.writeText(window.location.origin + publicUrl)
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-200 bg-zinc-800 border border-zinc-700 rounded-lg transition-colors"
+              >
+                <Copy className="w-3 h-3" /> Copy Link
+              </button>
+              <Button size="sm" variant={page.published ? 'ghost' : 'primary'} onClick={togglePublished}>
+                {page.published
+                  ? <><EyeOff className="w-3.5 h-3.5" /> Unpublish</>
+                  : <><Eye className="w-3.5 h-3.5" /> Publish Page</>}
+              </Button>
+            </div>
+          </div>
+        </CardBody>
+      </Card>
+
+      {/* Sub-nav */}
+      <div className="flex gap-1 bg-zinc-900 p-1 rounded-xl border border-zinc-800 w-fit">
+        {[
+          { id: 'settings', label: 'Hero & Branding' },
+          { id: 'sections', label: 'Sections' },
+          { id: 'intake',   label: 'Intake Form' },
+        ].map((v) => (
+          <button
+            key={v.id}
+            onClick={() => setActiveView(v.id)}
+            className={cn(
+              'px-4 py-2 rounded-lg text-sm font-medium transition-all',
+              activeView === v.id ? 'bg-zinc-700 text-zinc-100' : 'text-zinc-400 hover:text-zinc-200'
+            )}
+          >
+            {v.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Hero & branding */}
+      {activeView === 'settings' && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Hero & Branding</CardTitle>
+            <CardSubtitle>The first thing visitors see at the top of your public page</CardSubtitle>
+          </CardHeader>
+          <CardBody className="space-y-4">
+            {[
+              { label: 'Headline',    key: 'hero_headline',    placeholder: 'Train with Iron North Athletics' },
+              { label: 'Sub-headline', key: 'hero_subheadline', placeholder: 'Elite powerlifting coaching for serious athletes' },
+              { label: 'CTA Button',  key: 'hero_cta',         placeholder: 'Apply to Join' },
+            ].map((f) => (
+              <div key={f.key}>
+                <label className="block text-xs font-medium text-zinc-400 mb-1.5">{f.label}</label>
+                <input
+                  value={heroForm[f.key]}
+                  onChange={(e) => setHeroForm((p) => ({ ...p, [f.key]: e.target.value }))}
+                  placeholder={f.placeholder}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2.5 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-purple-500/40"
+                />
+              </div>
+            ))}
+            <div>
+              <label className="block text-xs font-medium text-zinc-400 mb-1.5">Accent Color</label>
+              <div className="flex items-center gap-3">
+                <input
+                  type="color"
+                  value={heroForm.accent_color}
+                  onChange={(e) => setHeroForm((p) => ({ ...p, accent_color: e.target.value }))}
+                  className="w-10 h-10 rounded-lg border-0 cursor-pointer bg-transparent"
+                />
+                <input
+                  value={heroForm.accent_color}
+                  onChange={(e) => setHeroForm((p) => ({ ...p, accent_color: e.target.value }))}
+                  className="w-32 bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2 text-sm text-zinc-100 font-mono focus:outline-none focus:ring-2 focus:ring-purple-500/40"
+                />
+                {/* Quick presets */}
+                <div className="flex gap-2">
+                  {['#a855f7', '#3b82f6', '#22c55e', '#f97316', '#ef4444', '#ec4899'].map((c) => (
+                    <button
+                      key={c}
+                      onClick={() => setHeroForm((p) => ({ ...p, accent_color: c }))}
+                      className="w-6 h-6 rounded-full border-2 transition-all hover:scale-110"
+                      style={{ backgroundColor: c, borderColor: heroForm.accent_color === c ? '#fff' : 'transparent' }}
+                    />
+                  ))}
+                </div>
+              </div>
+            </div>
+            <Button size="sm" onClick={saveHero}>
+              {saved ? <><Check className="w-3.5 h-3.5" /> Saved!</> : 'Save Changes'}
+            </Button>
+          </CardBody>
+        </Card>
+      )}
+
+      {/* Sections editor */}
+      {activeView === 'sections' && (
+        <div className="space-y-3">
+          <Card>
+            <CardHeader>
+              <CardTitle>Page Sections</CardTitle>
+              <CardSubtitle>Add, reorder, edit, or hide sections on your public page</CardSubtitle>
+            </CardHeader>
+            <CardBody className="space-y-2">
+              {sections.map((sec, idx) => (
+                <SectionEditorRow
+                  key={sec.id}
+                  section={sec}
+                  idx={idx}
+                  total={sections.length}
+                  orgId={org.id}
+                  sections={sections}
+                  updatePageSection={updatePageSection}
+                  deletePageSection={deletePageSection}
+                />
+              ))}
+              {sections.length === 0 && (
+                <p className="text-sm text-zinc-500 text-center py-6">No sections yet. Add one below.</p>
+              )}
+            </CardBody>
+          </Card>
+
+          {/* Add section */}
+          <Card>
+            <CardHeader><CardTitle className="text-sm">Add a Section</CardTitle></CardHeader>
+            <CardBody>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {SECTION_TYPES.map(({ type, label, icon: Icon }) => (
+                  <button
+                    key={type}
+                    onClick={() => {
+                      if (!org) return
+                      addPageSection(org.id, {
+                        type,
+                        title: label,
+                        body: '',
+                        items: type === 'highlights' ? [''] : type === 'testimonials' ? [{ author: '', role: '', text: '' }] : type === 'faq' ? [{ q: '', a: '' }] : [],
+                        order: sections.length + 1,
+                      })
+                    }}
+                    className="flex items-center gap-2 p-3 bg-zinc-800/50 border border-zinc-700 rounded-xl hover:border-purple-500/50 hover:bg-zinc-700/30 transition-all text-left"
+                  >
+                    <Icon className="w-4 h-4 text-zinc-400 flex-shrink-0" />
+                    <span className="text-sm text-zinc-300">{label}</span>
+                  </button>
+                ))}
+                {!hasIntake && (
+                  <button
+                    onClick={() => {
+                      if (!org) return
+                      addPageSection(org.id, {
+                        type: 'intake',
+                        title: 'Apply to Join',
+                        body: 'Fill out the form below and we\'ll be in touch within 48 hours.',
+                        order: sections.length + 1,
+                      })
+                    }}
+                    className="flex items-center gap-2 p-3 bg-purple-500/10 border border-purple-500/30 rounded-xl hover:bg-purple-500/20 transition-all text-left"
+                  >
+                    <ClipboardList className="w-4 h-4 text-purple-400 flex-shrink-0" />
+                    <span className="text-sm text-purple-300">Intake Form</span>
+                  </button>
+                )}
+              </div>
+            </CardBody>
+          </Card>
+        </div>
+      )}
+
+      {/* Intake form builder */}
+      {activeView === 'intake' && org && (
+        <IntakeFormBuilder org={org} page={page} />
+      )}
+    </div>
+  )
+}
+
+// ─── Section editor row ───────────────────────────────────────────────────────
+function SectionEditorRow({ section, idx, total, orgId, sections, updatePageSection, deletePageSection }) {
+  const [expanded, setExpanded] = useState(false)
+  const { reorderSections } = useOrgStore()
+  const typeLabel = { about: 'About', coaches: 'Meet the Staff', highlights: 'What You Get', testimonials: 'Testimonials', faq: 'FAQ', custom: 'Custom', intake: 'Intake Form' }
+
+  function move(dir) {
+    const newSecs = [...sections]
+    const target = idx + dir
+    if (target < 0 || target >= newSecs.length) return
+    ;[newSecs[idx], newSecs[target]] = [newSecs[target], newSecs[idx]]
+    reorderSections(orgId, newSecs.map((s, i) => ({ ...s, order: i + 1 })))
+  }
+
+  return (
+    <div className={cn('border rounded-xl overflow-hidden', section.visible ? 'border-zinc-700' : 'border-zinc-800 opacity-60')}>
+      <div className="flex items-center gap-2 px-3 py-2.5 bg-zinc-800/30">
+        <GripVertical className="w-4 h-4 text-zinc-600 flex-shrink-0" />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm font-medium text-zinc-200">{section.title}</span>
+            <Badge color="default" className="text-xs">{typeLabel[section.type] || section.type}</Badge>
+            {!section.visible && <Badge color="default" className="text-xs opacity-60">Hidden</Badge>}
+          </div>
+        </div>
+        <div className="flex items-center gap-1 flex-shrink-0">
+          <button onClick={() => move(-1)} disabled={idx === 0} className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-300 disabled:opacity-30 transition-colors"><ChevronUp className="w-3.5 h-3.5" /></button>
+          <button onClick={() => move(1)} disabled={idx === total - 1} className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-300 disabled:opacity-30 transition-colors"><ChevronDown className="w-3.5 h-3.5" /></button>
+          <button
+            onClick={() => updatePageSection(orgId, section.id, { visible: !section.visible })}
+            className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-300 transition-colors"
+          >
+            {section.visible ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+          </button>
+          <button onClick={() => setExpanded(!expanded)} className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-200 transition-colors">
+            <Edit2 className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => deletePageSection(orgId, section.id)}
+            className="p-1.5 rounded-lg text-zinc-500 hover:text-red-400 transition-colors"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+
+      {expanded && (
+        <div className="px-4 py-4 bg-zinc-900/50 border-t border-zinc-800 space-y-3">
+          <SectionContentEditor section={section} orgId={orgId} updatePageSection={updatePageSection} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Per-section content editor ──────────────────────────────────────────────
+function SectionContentEditor({ section, orgId, updatePageSection }) {
+  const [local, setLocal] = useState({ title: section.title, body: section.body, items: JSON.parse(JSON.stringify(section.items || [])) })
+  const [saved, setSaved] = useState(false)
+
+  function save() {
+    updatePageSection(orgId, section.id, local)
+    setSaved(true)
+    setTimeout(() => setSaved(false), 2000)
+  }
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <label className="block text-xs font-medium text-zinc-500 mb-1">Section Title</label>
+        <input
+          value={local.title}
+          onChange={(e) => setLocal((p) => ({ ...p, title: e.target.value }))}
+          className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-purple-500/40"
+        />
+      </div>
+
+      {(section.type === 'about' || section.type === 'custom' || section.type === 'intake') && (
+        <div>
+          <label className="block text-xs font-medium text-zinc-500 mb-1">Body Text</label>
+          <textarea
+            rows={4}
+            value={local.body}
+            onChange={(e) => setLocal((p) => ({ ...p, body: e.target.value }))}
+            className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-purple-500/40 resize-none"
+          />
+        </div>
+      )}
+
+      {section.type === 'highlights' && (
+        <div>
+          <label className="block text-xs font-medium text-zinc-500 mb-2">Bullet Points</label>
+          <div className="space-y-2">
+            {local.items.map((item, i) => (
+              <div key={i} className="flex gap-2">
+                <input
+                  value={item}
+                  onChange={(e) => {
+                    const arr = [...local.items]
+                    arr[i] = e.target.value
+                    setLocal((p) => ({ ...p, items: arr }))
+                  }}
+                  className="flex-1 bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-purple-500/40"
+                />
+                <button onClick={() => setLocal((p) => ({ ...p, items: p.items.filter((_, j) => j !== i) }))} className="p-2 text-zinc-500 hover:text-red-400 transition-colors">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
+            <button onClick={() => setLocal((p) => ({ ...p, items: [...p.items, ''] }))} className="flex items-center gap-1.5 text-xs text-purple-400 hover:text-purple-300 transition-colors">
+              <Plus className="w-3.5 h-3.5" /> Add item
+            </button>
+          </div>
+        </div>
+      )}
+
+      {section.type === 'testimonials' && (
+        <div>
+          <label className="block text-xs font-medium text-zinc-500 mb-2">Testimonials</label>
+          <div className="space-y-3">
+            {local.items.map((t, i) => (
+              <div key={i} className="p-3 bg-zinc-800/60 rounded-xl space-y-2 border border-zinc-700">
+                <div className="flex justify-between items-start">
+                  <span className="text-xs text-zinc-500 font-medium">#{i + 1}</span>
+                  <button onClick={() => setLocal((p) => ({ ...p, items: p.items.filter((_, j) => j !== i) }))} className="text-zinc-500 hover:text-red-400 transition-colors"><X className="w-3.5 h-3.5" /></button>
+                </div>
+                {[{ key: 'text', label: 'Quote', rows: 2 }, { key: 'author', label: 'Name' }, { key: 'role', label: 'Role / Weight Class' }].map((f) => (
+                  <div key={f.key}>
+                    <label className="text-xs text-zinc-600">{f.label}</label>
+                    {f.rows
+                      ? <textarea rows={f.rows} value={t[f.key] || ''} onChange={(e) => { const arr = [...local.items]; arr[i] = { ...arr[i], [f.key]: e.target.value }; setLocal((p) => ({ ...p, items: arr })) }} className="w-full mt-0.5 bg-zinc-700 border border-zinc-600 rounded-lg px-2.5 py-1.5 text-xs text-zinc-100 focus:outline-none resize-none" />
+                      : <input value={t[f.key] || ''} onChange={(e) => { const arr = [...local.items]; arr[i] = { ...arr[i], [f.key]: e.target.value }; setLocal((p) => ({ ...p, items: arr })) }} className="w-full mt-0.5 bg-zinc-700 border border-zinc-600 rounded-lg px-2.5 py-1.5 text-xs text-zinc-100 focus:outline-none" />}
+                  </div>
+                ))}
+              </div>
+            ))}
+            <button onClick={() => setLocal((p) => ({ ...p, items: [...p.items, { author: '', role: '', text: '' }] }))} className="flex items-center gap-1.5 text-xs text-purple-400 hover:text-purple-300 transition-colors">
+              <Plus className="w-3.5 h-3.5" /> Add testimonial
+            </button>
+          </div>
+        </div>
+      )}
+
+      {section.type === 'faq' && (
+        <div>
+          <label className="block text-xs font-medium text-zinc-500 mb-2">Questions</label>
+          <div className="space-y-3">
+            {local.items.map((item, i) => (
+              <div key={i} className="p-3 bg-zinc-800/60 rounded-xl space-y-2 border border-zinc-700">
+                <div className="flex justify-between items-start">
+                  <span className="text-xs text-zinc-500 font-medium">Q{i + 1}</span>
+                  <button onClick={() => setLocal((p) => ({ ...p, items: p.items.filter((_, j) => j !== i) }))} className="text-zinc-500 hover:text-red-400 transition-colors"><X className="w-3.5 h-3.5" /></button>
+                </div>
+                {[{ key: 'q', label: 'Question' }, { key: 'a', label: 'Answer', rows: 2 }].map((f) => (
+                  <div key={f.key}>
+                    <label className="text-xs text-zinc-600">{f.label}</label>
+                    {f.rows
+                      ? <textarea rows={f.rows} value={item[f.key] || ''} onChange={(e) => { const arr = [...local.items]; arr[i] = { ...arr[i], [f.key]: e.target.value }; setLocal((p) => ({ ...p, items: arr })) }} className="w-full mt-0.5 bg-zinc-700 border border-zinc-600 rounded-lg px-2.5 py-1.5 text-xs text-zinc-100 focus:outline-none resize-none" />
+                      : <input value={item[f.key] || ''} onChange={(e) => { const arr = [...local.items]; arr[i] = { ...arr[i], [f.key]: e.target.value }; setLocal((p) => ({ ...p, items: arr })) }} className="w-full mt-0.5 bg-zinc-700 border border-zinc-600 rounded-lg px-2.5 py-1.5 text-xs text-zinc-100 focus:outline-none" />}
+                  </div>
+                ))}
+              </div>
+            ))}
+            <button onClick={() => setLocal((p) => ({ ...p, items: [...p.items, { q: '', a: '' }] }))} className="flex items-center gap-1.5 text-xs text-purple-400 hover:text-purple-300 transition-colors">
+              <Plus className="w-3.5 h-3.5" /> Add question
+            </button>
+          </div>
+        </div>
+      )}
+
+      <Button size="sm" onClick={save}>{saved ? <><Check className="w-3.5 h-3.5" /> Saved!</> : 'Save Section'}</Button>
+    </div>
+  )
+}
+
+// ─── Intake form builder ──────────────────────────────────────────────────────
+function IntakeFormBuilder({ org, page }) {
+  const { updateIntakeFields } = useOrgStore()
+  const [fields, setFields] = useState(JSON.parse(JSON.stringify(page.intake_fields || [])))
+  const [saved, setSaved] = useState(false)
+
+  const FIELD_TYPES = [
+    { type: 'text',     label: 'Short Text' },
+    { type: 'email',    label: 'Email' },
+    { type: 'textarea', label: 'Long Text' },
+    { type: 'select',   label: 'Dropdown' },
+  ]
+
+  function updateField(id, updates) {
+    setFields((prev) => prev.map((f) => f.id === id ? { ...f, ...updates } : f))
+  }
+
+  function removeField(id) {
+    setFields((prev) => prev.filter((f) => f.id !== id))
+  }
+
+  function addField() {
+    setFields((prev) => [...prev, { id: `f-${Date.now()}`, label: 'New Field', type: 'text', required: false, placeholder: '' }])
+  }
+
+  function save() {
+    updateIntakeFields(org.id, fields)
+    setSaved(true)
+    setTimeout(() => setSaved(false), 2000)
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Intake Form Fields</CardTitle>
+        <CardSubtitle>Configure what information you collect from potential athletes</CardSubtitle>
+      </CardHeader>
+      <CardBody className="space-y-3">
+        {fields.map((field, idx) => (
+          <div key={field.id} className="p-3 bg-zinc-800/40 border border-zinc-700 rounded-xl space-y-2">
+            <div className="flex items-start gap-2 justify-between">
+              <div className="flex-1 grid sm:grid-cols-3 gap-2">
+                <div>
+                  <label className="block text-xs text-zinc-500 mb-1">Label</label>
+                  <input
+                    value={field.label}
+                    onChange={(e) => updateField(field.id, { label: e.target.value })}
+                    className="w-full bg-zinc-800 border border-zinc-600 rounded-lg px-2.5 py-1.5 text-xs text-zinc-100 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-zinc-500 mb-1">Type</label>
+                  <select
+                    value={field.type}
+                    onChange={(e) => updateField(field.id, { type: e.target.value })}
+                    className="w-full bg-zinc-800 border border-zinc-600 rounded-lg px-2.5 py-1.5 text-xs text-zinc-100 focus:outline-none"
+                  >
+                    {FIELD_TYPES.map((t) => <option key={t.type} value={t.type}>{t.label}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-zinc-500 mb-1">Placeholder</label>
+                  <input
+                    value={field.placeholder || ''}
+                    onChange={(e) => updateField(field.id, { placeholder: e.target.value })}
+                    className="w-full bg-zinc-800 border border-zinc-600 rounded-lg px-2.5 py-1.5 text-xs text-zinc-100 focus:outline-none"
+                  />
+                </div>
+              </div>
+              <button onClick={() => removeField(field.id)} className="mt-5 p-1.5 text-zinc-500 hover:text-red-400 transition-colors flex-shrink-0">
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            {field.type === 'select' && (
+              <div>
+                <label className="block text-xs text-zinc-500 mb-1">Options (one per line)</label>
+                <textarea
+                  rows={3}
+                  value={(field.options || []).join('\n')}
+                  onChange={(e) => updateField(field.id, { options: e.target.value.split('\n').filter(Boolean) })}
+                  className="w-full bg-zinc-800 border border-zinc-600 rounded-lg px-2.5 py-1.5 text-xs text-zinc-100 focus:outline-none resize-none font-mono"
+                />
+              </div>
+            )}
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={field.required}
+                onChange={(e) => updateField(field.id, { required: e.target.checked })}
+                className="rounded border-zinc-600"
+              />
+              <span className="text-xs text-zinc-400">Required</span>
+            </label>
+          </div>
+        ))}
+        <div className="flex gap-2 pt-1">
+          <Button size="sm" variant="ghost" onClick={addField}>
+            <Plus className="w-3.5 h-3.5" /> Add Field
+          </Button>
+          <Button size="sm" onClick={save}>
+            {saved ? <><Check className="w-3.5 h-3.5" /> Saved!</> : 'Save Form'}
+          </Button>
+        </div>
+      </CardBody>
+    </Card>
+  )
+}
+
+// ─── Leads Tab (Head Coach) ───────────────────────────────────────────────────
+const LEAD_STATUS_META = {
+  new:        { label: 'New',        color: 'blue'  },
+  contacted:  { label: 'Contacted',  color: 'yellow' },
+  onboarded:  { label: 'Onboarded', color: 'green'  },
+  declined:   { label: 'Declined',  color: 'red'    },
+}
+
+function LeadsTab() {
+  const { profile } = useAuthStore()
+  const { orgs, updateLead, deleteLead } = useOrgStore()
+  const org = orgs.find((o) => o.id === profile?.org_id)
+  const leads = org?.leads || []
+  const staff = org?.members.filter((m) => m.org_role !== 'athlete') || []
+
+  const [search, setSearch]         = useState('')
+  const [statusFilter, setStatus]   = useState('all')
+  const [selectedLead, setSelected] = useState(null)
+
+  const filtered = useMemo(() => {
+    return leads
+      .filter((l) => statusFilter === 'all' || l.status === statusFilter)
+      .filter((l) => !search || l.full_name.toLowerCase().includes(search.toLowerCase()) || l.email.toLowerCase().includes(search.toLowerCase()))
+      .sort((a, b) => new Date(b.submitted_at) - new Date(a.submitted_at))
+  }, [leads, search, statusFilter])
+
+  const counts = useMemo(() => {
+    const c = { all: leads.length, new: 0, contacted: 0, onboarded: 0, declined: 0 }
+    leads.forEach((l) => { if (c[l.status] !== undefined) c[l.status]++ })
+    return c
+  }, [leads])
+
+  return (
+    <div className="space-y-4">
+      {/* Stats row */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <StatCard label="Total Leads"   value={counts.all}       icon={Users}     color="purple" />
+        <StatCard label="New"           value={counts.new}       icon={Clock}     color="blue"   />
+        <StatCard label="Onboarded"     value={counts.onboarded} icon={UserCheck} color="green"  />
+        <StatCard label="Declined"      value={counts.declined}  icon={UserX}     color="red"    />
+      </div>
+
+      {/* Filter bar */}
+      <div className="flex flex-wrap gap-2 items-center">
+        <div className="relative flex-1 min-w-48">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search leads…"
+            className="w-full bg-zinc-800 border border-zinc-700 rounded-xl pl-9 pr-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-purple-500/40"
+          />
+        </div>
+        <div className="flex gap-1 bg-zinc-900 border border-zinc-800 rounded-xl p-1">
+          {['all', 'new', 'contacted', 'onboarded', 'declined'].map((s) => (
+            <button
+              key={s}
+              onClick={() => setStatus(s)}
+              className={cn(
+                'px-3 py-1.5 rounded-lg text-xs font-medium transition-all capitalize',
+                statusFilter === s ? 'bg-zinc-700 text-zinc-100' : 'text-zinc-400 hover:text-zinc-200'
+              )}
+            >
+              {s} {counts[s] > 0 && <span className="ml-0.5 opacity-60">({counts[s]})</span>}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Table */}
+      <Card>
+        <CardBody className="p-0">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-zinc-800">
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wide">Applicant</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wide">Experience</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wide">Source</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wide">Status</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wide">Date</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wide">Assigned</th>
+                  <th className="px-4 py-3"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((lead, i) => {
+                  const sm = LEAD_STATUS_META[lead.status] || LEAD_STATUS_META.new
+                  const assignee = staff.find((m) => m.user_id === lead.assigned_to)
+                  return (
+                    <tr
+                      key={lead.id}
+                      className={cn('border-b border-zinc-800/60 last:border-0 hover:bg-zinc-800/20 cursor-pointer transition-colors', i % 2 === 0 ? 'bg-zinc-800/10' : '')}
+                      onClick={() => setSelected(lead)}
+                    >
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2.5">
+                          <Avatar name={lead.full_name} size="xs" />
+                          <div>
+                            <p className="text-zinc-200 font-medium text-sm">{lead.full_name}</p>
+                            <p className="text-xs text-zinc-500">{lead.email}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-xs text-zinc-400">{lead.experience || '—'}</td>
+                      <td className="px-4 py-3 text-xs text-zinc-400">{lead.source || '—'}</td>
+                      <td className="px-4 py-3"><Badge color={sm.color}>{sm.label}</Badge></td>
+                      <td className="px-4 py-3 text-xs text-zinc-500">{lead.submitted_at}</td>
+                      <td className="px-4 py-3 text-xs text-zinc-400">{assignee?.full_name || '—'}</td>
+                      <td className="px-4 py-3">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setSelected(lead) }}
+                          className="p-1.5 text-zinc-500 hover:text-zinc-200 transition-colors"
+                        >
+                          <ChevronRight className="w-4 h-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
+                {filtered.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="px-4 py-12 text-center text-sm text-zinc-500">
+                      {leads.length === 0
+                        ? 'No applications yet. Publish your public page to start collecting leads.'
+                        : 'No leads match your filters.'}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </CardBody>
+      </Card>
+
+      {/* Lead detail modal */}
+      {selectedLead && (
+        <LeadDetailModal
+          lead={selectedLead}
+          staff={staff}
+          orgId={org?.id}
+          updateLead={updateLead}
+          deleteLead={deleteLead}
+          onClose={() => setSelected(null)}
+          onUpdate={(updates) => {
+            updateLead(org?.id, selectedLead.id, updates)
+            setSelected((prev) => ({ ...prev, ...updates }))
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+// ─── Lead detail / edit modal ─────────────────────────────────────────────────
+function LeadDetailModal({ lead, staff, orgId, onClose, onUpdate, deleteLead }) {
+  const [notes, setNotes] = useState(lead.notes || '')
+  const [notesSaved, setNotesSaved] = useState(false)
+
+  function saveNotes() {
+    onUpdate({ notes })
+    setNotesSaved(true)
+    setTimeout(() => setNotesSaved(false), 2000)
+  }
+
+  return (
+    <Modal open onClose={onClose} title={lead.full_name} size="lg">
+      <div className="space-y-5">
+        {/* Top row — status + assign */}
+        <div className="flex flex-wrap gap-3 items-start">
+          <div className="flex-1 min-w-40">
+            <label className="block text-xs font-medium text-zinc-500 mb-1.5">Status</label>
+            <select
+              value={lead.status}
+              onChange={(e) => onUpdate({ status: e.target.value })}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-purple-500/40"
+            >
+              {Object.entries(LEAD_STATUS_META).map(([k, v]) => (
+                <option key={k} value={k}>{v.label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex-1 min-w-40">
+            <label className="block text-xs font-medium text-zinc-500 mb-1.5">Assign To</label>
+            <select
+              value={lead.assigned_to || ''}
+              onChange={(e) => onUpdate({ assigned_to: e.target.value || null })}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-purple-500/40"
+            >
+              <option value="">Unassigned</option>
+              {staff.map((m) => <option key={m.user_id} value={m.user_id}>{m.full_name}</option>)}
+            </select>
+          </div>
+        </div>
+
+        {/* Application details */}
+        <div className="grid sm:grid-cols-2 gap-3 p-4 bg-zinc-800/40 rounded-xl border border-zinc-700">
+          {[
+            { label: 'Email',       value: lead.email },
+            { label: 'Phone',       value: lead.phone || '—' },
+            { label: 'Experience',  value: lead.experience || '—' },
+            { label: 'Federation',  value: lead.federation || '—' },
+            { label: 'Source',      value: lead.source || '—' },
+            { label: 'Applied',     value: lead.submitted_at },
+          ].map((r) => (
+            <div key={r.label}>
+              <p className="text-xs text-zinc-500 mb-0.5">{r.label}</p>
+              <p className="text-sm text-zinc-200">{r.value}</p>
+            </div>
+          ))}
+        </div>
+
+        {lead.goals && (
+          <div>
+            <p className="text-xs font-medium text-zinc-500 mb-1.5">Goals</p>
+            <p className="text-sm text-zinc-300 leading-relaxed">{lead.goals}</p>
+          </div>
+        )}
+
+        {lead.injuries && (
+          <div>
+            <p className="text-xs font-medium text-zinc-500 mb-1.5">Injuries / Health Notes</p>
+            <p className="text-sm text-zinc-300 leading-relaxed">{lead.injuries}</p>
+          </div>
+        )}
+
+        {/* Internal notes */}
+        <div>
+          <label className="block text-xs font-medium text-zinc-500 mb-1.5">Internal Notes</label>
+          <textarea
+            rows={3}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Add private notes about this applicant…"
+            className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-purple-500/40 resize-none"
+          />
+          <Button size="sm" className="mt-2" onClick={saveNotes}>
+            {notesSaved ? <><Check className="w-3.5 h-3.5" /> Saved!</> : 'Save Notes'}
+          </Button>
+        </div>
+
+        <div className="flex justify-between pt-2 border-t border-zinc-800">
+          <button
+            onClick={() => { deleteLead(orgId, lead.id); onClose() }}
+            className="flex items-center gap-1.5 text-xs text-red-400 hover:text-red-300 transition-colors"
+          >
+            <Trash2 className="w-3.5 h-3.5" /> Delete Lead
+          </button>
+          {lead.status !== 'onboarded' && (
+            <Button size="sm" onClick={() => { onUpdate({ status: 'onboarded' }); onClose() }}>
+              <UserCheck className="w-3.5 h-3.5" /> Mark as Onboarded
+            </Button>
+          )}
+        </div>
+      </div>
+    </Modal>
   )
 }
 

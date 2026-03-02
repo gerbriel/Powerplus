@@ -11,6 +11,7 @@ import { LandingPage } from './pages/LandingPage'
 import { LoginPage, SignupPage } from './pages/AuthPages'
 import DemoPage from './pages/DemoPage'
 import AuthCallbackPage from './pages/AuthCallbackPage'
+import { OrgPublicPage } from './pages/OrgPublicPage'
 
 // App pages
 import { TodayPage } from './pages/TodayPage'
@@ -122,6 +123,7 @@ function Root() {
         <Route path="/signup"        element={<SignupPage />} />
         <Route path="/demo"          element={<DemoPage />} />
         <Route path="/auth/callback" element={<AuthCallbackPage />} />
+        <Route path="/org/:slug"     element={<OrgPublicPage />} />
         <Route path="/app"           element={<ProtectedApp />} />
         {/* Fallback */}
         <Route path="*"              element={<Navigate to="/" replace />} />

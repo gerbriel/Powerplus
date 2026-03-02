@@ -558,6 +558,102 @@ export const useOrgStore = create((set, get) => ({
             }
       ),
     })),
+
+  // ── Public Page ─────────────────────────────────────────────────────────
+  // Update top-level page settings (published, hero_*, accent_color)
+  updatePublicPage: (orgId, updates) =>
+    set((s) => ({
+      orgs: s.orgs.map((o) =>
+        o.id !== orgId ? o : { ...o, public_page: { ...o.public_page, ...updates } }
+      ),
+    })),
+
+  // Add a new content section
+  addPageSection: (orgId, section) =>
+    set((s) => ({
+      orgs: s.orgs.map((o) => {
+        if (o.id !== orgId) return o
+        const sections = o.public_page?.sections || []
+        return { ...o, public_page: { ...o.public_page, sections: [...sections, { id: `sec-${Date.now()}`, order: sections.length + 1, visible: true, items: [], ...section }] } }
+      }),
+    })),
+
+  // Update an existing section
+  updatePageSection: (orgId, sectionId, updates) =>
+    set((s) => ({
+      orgs: s.orgs.map((o) =>
+        o.id !== orgId ? o : {
+          ...o,
+          public_page: {
+            ...o.public_page,
+            sections: o.public_page.sections.map((sec) =>
+              sec.id === sectionId ? { ...sec, ...updates } : sec
+            ),
+          },
+        }
+      ),
+    })),
+
+  // Delete a section
+  deletePageSection: (orgId, sectionId) =>
+    set((s) => ({
+      orgs: s.orgs.map((o) =>
+        o.id !== orgId ? o : {
+          ...o,
+          public_page: {
+            ...o.public_page,
+            sections: o.public_page.sections.filter((sec) => sec.id !== sectionId),
+          },
+        }
+      ),
+    })),
+
+  // Reorder sections (accepts full new sections array)
+  reorderSections: (orgId, sections) =>
+    set((s) => ({
+      orgs: s.orgs.map((o) =>
+        o.id !== orgId ? o : { ...o, public_page: { ...o.public_page, sections } }
+      ),
+    })),
+
+  // Update intake fields
+  updateIntakeFields: (orgId, fields) =>
+    set((s) => ({
+      orgs: s.orgs.map((o) =>
+        o.id !== orgId ? o : { ...o, public_page: { ...o.public_page, intake_fields: fields } }
+      ),
+    })),
+
+  // ── Leads ───────────────────────────────────────────────────────────────
+  // Add a new lead (from public intake form submission)
+  addLead: (orgId, lead) =>
+    set((s) => ({
+      orgs: s.orgs.map((o) =>
+        o.id !== orgId ? o : {
+          ...o,
+          leads: [
+            { id: `lead-${Date.now()}`, submitted_at: new Date().toISOString().slice(0, 10), status: 'new', notes: '', assigned_to: null, ...lead },
+            ...(o.leads || []),
+          ],
+        }
+      ),
+    })),
+
+  // Update a lead (status, notes, assigned_to)
+  updateLead: (orgId, leadId, updates) =>
+    set((s) => ({
+      orgs: s.orgs.map((o) =>
+        o.id !== orgId ? o : { ...o, leads: (o.leads || []).map((l) => l.id === leadId ? { ...l, ...updates } : l) }
+      ),
+    })),
+
+  // Delete a lead
+  deleteLead: (orgId, leadId) =>
+    set((s) => ({
+      orgs: s.orgs.map((o) =>
+        o.id !== orgId ? o : { ...o, leads: (o.leads || []).filter((l) => l.id !== leadId) }
+      ),
+    })),
 }))
 
 // ─── Shared role resolution helper ───────────────────────────────────────────

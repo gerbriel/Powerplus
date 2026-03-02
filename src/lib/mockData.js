@@ -1593,6 +1593,19 @@ export const MOCK_MEAL_PREP_LOG = [
 ]
 
 // ─── Organizations ──────────────────────────────────────────────────────────
+
+// Default intake questionnaire fields (shared starting point)
+export const DEFAULT_INTAKE_FIELDS = [
+  { id: 'f-name',       label: 'Full Name',             type: 'text',     required: true,  placeholder: 'Your full name' },
+  { id: 'f-email',      label: 'Email Address',         type: 'email',    required: true,  placeholder: 'you@email.com' },
+  { id: 'f-phone',      label: 'Phone Number',          type: 'text',     required: false, placeholder: '+1 (555) 000-0000' },
+  { id: 'f-experience', label: 'Training Experience',   type: 'select',   required: true,  options: ['Beginner (< 1 year)', 'Intermediate (1–3 years)', 'Advanced (3–5 years)', 'Elite (5+ years)'] },
+  { id: 'f-goals',      label: 'Your Goals',            type: 'textarea', required: true,  placeholder: 'Tell us about what you want to achieve…' },
+  { id: 'f-injuries',   label: 'Current Injuries / Health Concerns', type: 'textarea', required: false, placeholder: 'Any injuries we should know about?' },
+  { id: 'f-fed',        label: 'Federation (if any)',   type: 'text',     required: false, placeholder: 'USAPL, IPF, RPS, etc.' },
+  { id: 'f-hear',       label: 'How did you hear about us?', type: 'select', required: false, options: ['Instagram', 'Google', 'Referred by a friend', 'YouTube', 'Other'] },
+]
+
 export const MOCK_ORGS = [
   {
     id: MOCK_ORG_ID,
@@ -1635,6 +1648,38 @@ export const MOCK_ORGS = [
       { id: 'act-005', text: '6 athletes submitted weekly check-ins', time: '2d ago', type: 'checkin', user_id: null },
       { id: 'act-006', text: 'Samantha Price raised a pain flag (rating: 8)', time: '3d ago', type: 'flag', user_id: MOCK_USER_IDS.athlete2 },
     ],
+    // ── Public intake page ──────────────────────────────────────────────────
+    public_page: {
+      published: true,
+      hero_headline: 'Train with Iron North Athletics',
+      hero_subheadline: 'Elite powerlifting coaching for athletes who are serious about the platform.',
+      hero_cta: 'Apply to Join',
+      accent_color: '#a855f7',
+      sections: [
+        { id: 'sec-001', type: 'about',      order: 1, visible: true, title: 'About the Program',  body: 'Iron North Athletics is a USAPL-affiliated powerlifting team based in New York City. We work with intermediate to advanced lifters to develop meet-ready strength through periodized programming, weekly check-ins, and individualized coaching.' },
+        { id: 'sec-002', type: 'coaches',    order: 2, visible: true, title: 'Your Coaching Staff', body: '' },
+        { id: 'sec-003', type: 'highlights', order: 3, visible: true, title: 'What You Get',       body: '', items: ['Fully periodized 12–16 week programs', 'Weekly video call check-ins', 'Real-time messaging with your coach', 'Nutrition oversight with Dr. Priya Nair', 'Meet preparation and attempt selection', 'Access to the PowerPlus athlete app'] },
+        { id: 'sec-004', type: 'testimonials', order: 4, visible: true, title: 'Athlete Stories', body: '', items: [
+          { author: 'Jordan Blake', role: 'Athlete — 83kg', text: 'Marcus completely changed how I approach training. I hit my first 500kg total within 6 months.' },
+          { author: 'Samantha Price', role: 'Athlete — 63kg', text: 'The nutrition coaching from Dr. Priya was game-changing. I dropped a weight class and went 9 for 9 at my last meet.' },
+        ]},
+        { id: 'sec-005', type: 'faq',        order: 5, visible: true, title: 'Frequently Asked Questions', body: '', items: [
+          { q: 'Do I need to compete to join?',       a: 'No. We welcome athletes who want to train for strength, even if they never step on a platform.' },
+          { q: 'How much does coaching cost?',        a: 'Coaching packages start at $150/month. Fill out the intake form and we\'ll reach out with details.' },
+          { q: 'What equipment do you support?',      a: 'We primarily coach raw (with sleeves) and single-ply equipped lifting.' },
+          { q: 'How long is the onboarding process?', a: 'Once your application is reviewed (usually within 48 hours), onboarding takes about a week.' },
+        ]},
+        { id: 'sec-006', type: 'intake',     order: 6, visible: true, title: 'Apply to Join',      body: 'Fill out the form below and our coaching staff will be in touch within 48 hours.' },
+      ],
+      intake_fields: DEFAULT_INTAKE_FIELDS,
+    },
+    leads: [
+      { id: 'lead-001', full_name: 'Taylor Kim',     email: 'taylor.kim@email.com',   phone: '555-0101', experience: 'Intermediate (1–3 years)', goals: 'Compete USAPL nationals in 2026, break 500kg total.', status: 'new',         submitted_at: '2026-02-27', notes: '', assigned_to: null, source: 'Instagram', federation: 'USAPL', injuries: 'None' },
+      { id: 'lead-002', full_name: 'Priya Singh',    email: 'priya.singh@email.com',  phone: '',         experience: 'Beginner (< 1 year)',      goals: 'Learn powerlifting from scratch, looking for a gym community.', status: 'contacted', submitted_at: '2026-02-24', notes: 'Sent intro email. Scheduled a discovery call for March 5th.', assigned_to: MOCK_USER_IDS.coach, source: 'Google', federation: '', injuries: 'Left knee — mild patellar tendinitis' },
+      { id: 'lead-003', full_name: 'Connor Walsh',   email: 'c.walsh@email.com',      phone: '555-0303', experience: 'Advanced (3–5 years)',     goals: 'Hit 600kg total in the 93kg class within 12 months.', status: 'onboarded',  submitted_at: '2026-02-18', notes: 'Accepted. Started Block 1 Feb 25.', assigned_to: MOCK_USER_IDS.admin, source: 'Referred by a friend', federation: 'RPS', injuries: 'None' },
+      { id: 'lead-004', full_name: 'Aaliyah Brooks', email: 'abrooks@email.com',      phone: '',         experience: 'Intermediate (1–3 years)', goals: 'Improve my squat form and hit a 200kg total.', status: 'new',         submitted_at: '2026-03-01', notes: '', assigned_to: null, source: 'Instagram', federation: '', injuries: '' },
+      { id: 'lead-005', full_name: 'Liam Chen',      email: 'liam.chen@outlook.com',  phone: '555-0505', experience: 'Elite (5+ years)',         goals: 'Qualify for IPF Worlds.', status: 'declined',   submitted_at: '2026-02-10', notes: 'Already coaches himself — not a fit right now.', assigned_to: null, source: 'YouTube', federation: 'IPF', injuries: 'Shoulder impingement (managed)' },
+    ],
   },
   {
     id: 'org-002',
@@ -1653,15 +1698,12 @@ export const MOCK_ORGS = [
     storage_gb_used: 0.8,
     logo_url: null,
     address: 'Minneapolis, MN',
-    // No dedicated nutritionist — head_coach inherits nutrition permissions
     has_dedicated_nutritionist: false,
     athletes_can_self_manage_nutrition: true,
     members: [
-      // org_role 'head_coach' inherits all nutrition_permissions automatically
       { user_id: 'u-coach-ext-001', full_name: 'Chris Nakamura', email: 'chris@ironbarbell.com', org_role: 'head_coach', is_self_athlete: false, status: 'active', joined_at: '2024-06-01', athlete_count: null },
       { user_id: 'u-ath-ext-001', full_name: 'Dana Kowalski', email: 'dana@email.com', org_role: 'athlete', is_self_athlete: false, status: 'active', joined_at: '2024-06-15', athlete_count: null },
       { user_id: 'u-ath-ext-002', full_name: 'Raj Patel', email: 'raj@email.com', org_role: 'athlete', is_self_athlete: false, status: 'active', joined_at: '2024-07-01', athlete_count: null },
-      // Jordan Blake also in this org (multi-org example) as an athlete
       { user_id: MOCK_USER_IDS.athlete, full_name: 'Jordan Blake', email: 'athlete@powerplus.app', org_role: 'athlete', is_self_athlete: false, status: 'active', joined_at: '2025-01-10', athlete_count: null },
     ],
     invitations: [
@@ -1671,6 +1713,8 @@ export const MOCK_ORGS = [
       { id: 'act-007', text: 'Dana Kowalski logged a new PR — Deadlift 190kg', time: '1d ago', type: 'workout', user_id: 'u-ath-ext-001' },
       { id: 'act-008', text: 'Chris Nakamura created Block 2 program', time: '3d ago', type: 'update', user_id: 'u-coach-ext-001' },
     ],
+    public_page: { published: false, hero_headline: 'Iron North Barbell', hero_subheadline: 'Competitive powerlifting coaching in Minneapolis.', hero_cta: 'Apply Now', accent_color: '#3b82f6', sections: [{ id: 'sec-org2-001', type: 'intake', order: 1, visible: true, title: 'Apply to Join', body: '' }], intake_fields: DEFAULT_INTAKE_FIELDS },
+    leads: [],
   },
   {
     id: 'org-003',
@@ -1701,6 +1745,10 @@ export const MOCK_ORGS = [
       { id: 'act-009', text: 'Lucia Mendez updated 8 athlete nutrition plans', time: '4h ago', type: 'nutrition', user_id: 'u-nutri-ext-001' },
       { id: 'act-010', text: 'Ben Foster published new meet prep block', time: '2d ago', type: 'update', user_id: 'u-coach-ext-003' },
     ],
+    public_page: { published: true, hero_headline: 'Train with Peak Performance Lab', hero_subheadline: 'Science-based powerlifting and performance coaching in LA.', hero_cta: 'Start Your Application', accent_color: '#f97316', sections: [{ id: 'sec-org3-001', type: 'about', order: 1, visible: true, title: 'About PPL', body: 'Peak Performance Lab is an enterprise-level coaching organization working with national and international level athletes.' }, { id: 'sec-org3-002', type: 'intake', order: 2, visible: true, title: 'Apply Now', body: '' }], intake_fields: DEFAULT_INTAKE_FIELDS },
+    leads: [
+      { id: 'lead-org3-001', full_name: 'Marcus Hill', email: 'mhill@email.com', phone: '', experience: 'Elite (5+ years)', goals: 'IPF World Team qualifier.', status: 'contacted', submitted_at: '2026-02-28', notes: 'Reached out via DM. Very strong on paper.', assigned_to: 'u-coach-ext-002', source: 'Instagram', federation: 'IPF', injuries: '' },
+    ],
   },
   {
     id: 'org-004',
@@ -1726,6 +1774,8 @@ export const MOCK_ORGS = [
     ],
     invitations: [],
     activity_log: [],
+    public_page: { published: false, hero_headline: 'Atlas Strength Club', hero_subheadline: 'Powerlifting in Denver, CO.', hero_cta: 'Get Started', accent_color: '#22c55e', sections: [{ id: 'sec-org4-001', type: 'intake', order: 1, visible: true, title: 'Apply to Join', body: '' }], intake_fields: DEFAULT_INTAKE_FIELDS },
+    leads: [],
   },
 ]
 
