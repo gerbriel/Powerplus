@@ -28,18 +28,6 @@ const DEMO_ROLES = [
     emoji: '🥗',
     description: 'Meal plans, recipe library, prep logs, shopping lists.',
   },
-  {
-    id: 'sport_scientist',
-    label: 'Sport Scientist',
-    emoji: '📊',
-    description: 'Analytics dashboards, load management, readiness scores.',
-  },
-  {
-    id: 'org_admin',
-    label: 'Org Admin',
-    emoji: '🔑',
-    description: 'Members, roles, settings, integrations, subscription.',
-  },
 ]
 
 export default function DemoPage() {
