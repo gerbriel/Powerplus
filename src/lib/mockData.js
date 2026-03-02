@@ -1,9 +1,21 @@
 // Mock data for development / demo mode (used when Supabase is not configured)
 
+// ─── Stable mock UUIDs — these match the rows seeded in supabase/mock_seed.sql ───
+// Do NOT change these without re-running mock_seed.sql in your Supabase project.
+export const MOCK_USER_IDS = {
+  super_admin:  '00000000-0000-0000-0000-000000000001',
+  admin:        '00000000-0000-0000-0000-000000000002',
+  coach:        '00000000-0000-0000-0000-000000000003',
+  nutritionist: '00000000-0000-0000-0000-000000000004',
+  athlete:      '00000000-0000-0000-0000-000000000005',
+  athlete2:     '00000000-0000-0000-0000-000000000006',
+}
+export const MOCK_ORG_ID = '00000000-0000-0000-0000-000000000010'
+
 // ─── profiles: standalone, no org binding ───────────────────────────────────
 export const MOCK_USERS = {
   super_admin: {
-    id: 'u-super-001',
+    id: MOCK_USER_IDS.super_admin,
     email: 'superadmin@powerplus.app',
     full_name: 'Alex Rivera',
     display_name: 'Alex (Platform Admin)',
@@ -16,7 +28,7 @@ export const MOCK_USERS = {
     bio: 'Platform administrator. Manages all organizations on PowerPlus.',
   },
   admin: {
-    id: 'u-admin-001',
+    id: MOCK_USER_IDS.admin,
     email: 'admin@powerplus.app',
     full_name: 'Marcus Webb',
     display_name: 'Coach Marcus',
@@ -29,7 +41,7 @@ export const MOCK_USERS = {
     bio: 'Head coach & operations. 10+ years coaching powerlifters. Still trains competitively.',
   },
   coach: {
-    id: 'u-coach-001',
+    id: MOCK_USER_IDS.coach,
     email: 'coach@powerplus.app',
     full_name: 'Elena Torres',
     display_name: 'Coach Elena',
@@ -42,7 +54,7 @@ export const MOCK_USERS = {
     bio: 'Strength coach specializing in IPF-style technique.',
   },
   nutritionist: {
-    id: 'u-nutri-001',
+    id: MOCK_USER_IDS.nutritionist,
     email: 'nutrition@powerplus.app',
     full_name: 'Dr. Priya Nair',
     display_name: 'Dr. Priya',
@@ -55,7 +67,7 @@ export const MOCK_USERS = {
     bio: 'Sports dietitian with focus on strength athletes.',
   },
   athlete: {
-    id: 'u-ath-001',
+    id: MOCK_USER_IDS.athlete,
     email: 'athlete@powerplus.app',
     full_name: 'Jordan Blake',
     display_name: 'Jordan',
@@ -71,7 +83,7 @@ export const MOCK_USERS = {
 
 export const MOCK_ATHLETES = [
   {
-    id: 'u-ath-001', full_name: 'Jordan Blake', weight_class: '93kg',
+    id: MOCK_USER_IDS.athlete, full_name: 'Jordan Blake', weight_class: '93kg',
     federation: 'USAPL', member_id: 'USAPL-93-10284', equipment_type: 'raw',
     adherence: 87, e1rm_squat: 220, e1rm_bench: 155, e1rm_deadlift: 280,
     last_session: '2026-02-27', flags: [], avatar_url: null,
@@ -110,7 +122,7 @@ export const MOCK_ATHLETES = [
     nutrition_macros: { plan: { calories: 3200, protein: 200, carbs: 380, fat: 90 }, actual: { calories: 2850, protein: 178, carbs: 340, fat: 82 } },
   },
   {
-    id: 'u-ath-002', full_name: 'Samantha Price', weight_class: '72kg',
+    id: MOCK_USER_IDS.athlete2, full_name: 'Samantha Price', weight_class: '72kg',
     federation: 'USAPL', member_id: 'USAPL-72-08847', equipment_type: 'raw',
     adherence: 92, e1rm_squat: 175, e1rm_bench: 110, e1rm_deadlift: 220,
     last_session: '2026-02-27', flags: ['pain_flag'], avatar_url: null,
@@ -708,7 +720,7 @@ export const MOCK_MESSAGES = [
   {
     id: 'm2',
     channel: 'general',
-    sender: { id: 'u-ath-001', name: 'Jordan Blake', role: 'athlete' },
+    sender: { id: MOCK_USER_IDS.athlete, name: 'Jordan Blake', role: 'athlete' },
     content: 'Hit a new squat PR today – 215kg! Thanks for the programming 🙏',
     timestamp: '2026-02-28T11:30:00Z',
     reactions: [{ emoji: '🎉', count: 8 }, { emoji: '💪', count: 6 }],
@@ -967,7 +979,7 @@ export const MOCK_RESOURCES = [
 export const MOCK_INJURY_LOGS = [
   {
     id: 'inj-001',
-    athlete_id: 'u-ath-001',
+    athlete_id: MOCK_USER_IDS.athlete,
     body_area: 'Left Hip',
     pain_level: 3,
     injury_date: '2026-02-14',
@@ -986,7 +998,7 @@ export const MOCK_INJURY_LOGS = [
   },
   {
     id: 'inj-002',
-    athlete_id: 'u-ath-001',
+    athlete_id: MOCK_USER_IDS.athlete,
     body_area: 'Lower Back',
     pain_level: 0,
     injury_date: '2025-11-05',
@@ -1005,7 +1017,7 @@ export const MOCK_INJURY_LOGS = [
   },
   {
     id: 'inj-003',
-    athlete_id: 'u-ath-001',
+    athlete_id: MOCK_USER_IDS.athlete,
     body_area: 'Right Wrist',
     pain_level: 0,
     injury_date: '2025-08-20',
@@ -1583,13 +1595,13 @@ export const MOCK_MEAL_PREP_LOG = [
 // ─── Organizations ──────────────────────────────────────────────────────────
 export const MOCK_ORGS = [
   {
-    id: 'org-001',
-    name: 'Powerplus Athletics',
-    slug: 'powerplus-athletics',
+    id: MOCK_ORG_ID,
+    name: 'Iron North Athletics',
+    slug: 'iron-north',
     plan: 'team_pro',
     status: 'active',
     created_at: '2024-01-10',
-    head_coach_id: 'u-admin-001',
+    head_coach_id: MOCK_USER_IDS.admin,
     federation: 'USAPL',
     timezone: 'America/New_York',
     weight_unit: 'lbs',
@@ -1603,25 +1615,25 @@ export const MOCK_ORGS = [
     has_dedicated_nutritionist: true,
     athletes_can_self_manage_nutrition: true,
     members: [
-      { user_id: 'u-admin-001', full_name: 'Marcus Webb', email: 'admin@powerplus.app', org_role: 'head_coach', is_self_athlete: true, status: 'active', joined_at: '2024-01-10', athlete_count: null },
-      { user_id: 'u-coach-001', full_name: 'Elena Torres', email: 'coach@powerplus.app', org_role: 'coach', is_self_athlete: false, status: 'active', joined_at: '2024-01-15', athlete_count: 8 },
-      { user_id: 'u-nutri-001', full_name: 'Dr. Priya Nair', email: 'nutrition@powerplus.app', org_role: 'nutritionist', is_self_athlete: false, status: 'active', joined_at: '2024-02-10', athlete_count: 12 },
-      { user_id: 'u-coach-002', full_name: 'Mike Rivera', email: 'mike@powerplus.com', org_role: 'coach', is_self_athlete: false, status: 'active', joined_at: '2024-02-20', athlete_count: 6 },
-      { user_id: 'u-ath-001', full_name: 'Jordan Blake', email: 'athlete@powerplus.app', org_role: 'athlete', is_self_athlete: false, status: 'active', joined_at: '2024-03-01', athlete_count: null },
-      { user_id: 'u-ath-002', full_name: 'Samantha Price', email: 'sam.price@email.com', org_role: 'athlete', is_self_athlete: false, status: 'active', joined_at: '2024-03-05', athlete_count: null },
-      { user_id: 'u-ath-003', full_name: 'Devon Park', email: 'devon@email.com', org_role: 'athlete', is_self_athlete: false, status: 'active', joined_at: '2024-03-10', athlete_count: null },
+      { user_id: MOCK_USER_IDS.admin,        full_name: 'Marcus Webb',    email: 'admin@powerplus.app',      org_role: 'head_coach',   is_self_athlete: true,  status: 'active', joined_at: '2024-01-10', athlete_count: null },
+      { user_id: MOCK_USER_IDS.coach,        full_name: 'Elena Torres',   email: 'coach@powerplus.app',      org_role: 'coach',        is_self_athlete: false, status: 'active', joined_at: '2024-01-15', athlete_count: 8 },
+      { user_id: MOCK_USER_IDS.nutritionist, full_name: 'Dr. Priya Nair', email: 'nutrition@powerplus.app',  org_role: 'nutritionist', is_self_athlete: false, status: 'active', joined_at: '2024-02-10', athlete_count: 12 },
+      { user_id: 'u-coach-002',              full_name: 'Mike Rivera',     email: 'mike@powerplus.com',       org_role: 'coach',        is_self_athlete: false, status: 'active', joined_at: '2024-02-20', athlete_count: 6 },
+      { user_id: MOCK_USER_IDS.athlete,      full_name: 'Jordan Blake',   email: 'athlete@powerplus.app',    org_role: 'athlete',      is_self_athlete: false, status: 'active', joined_at: '2024-03-01', athlete_count: null },
+      { user_id: MOCK_USER_IDS.athlete2,     full_name: 'Samantha Price', email: 'sam.price@email.com',      org_role: 'athlete',      is_self_athlete: false, status: 'active', joined_at: '2024-03-05', athlete_count: null },
+      { user_id: 'u-ath-003',               full_name: 'Devon Park',      email: 'devon@email.com',          org_role: 'athlete',      is_self_athlete: false, status: 'active', joined_at: '2024-03-10', athlete_count: null },
     ],
     invitations: [
       { id: 'inv-001', email: 'alex.torres@email.com', org_role: 'coach', status: 'pending', sent_at: '2026-02-20', message: 'Hey Alex, excited to have you on board!' },
       { id: 'inv-002', email: 'newathlete@email.com', org_role: 'athlete', status: 'pending', sent_at: '2026-02-25', message: '' },
     ],
     activity_log: [
-      { id: 'act-001', text: 'Jordan Blake logged Week 8 Day 4 workout', time: '2h ago', type: 'workout', user_id: 'u-ath-001' },
-      { id: 'act-002', text: 'Coach Elena updated Devon Park\'s training block', time: '5h ago', type: 'update', user_id: 'u-coach-001' },
-      { id: 'act-003', text: 'Dr. Priya updated Samantha Price\'s nutrition plan', time: '1d ago', type: 'nutrition', user_id: 'u-nutri-001' },
-      { id: 'act-004', text: 'Marcus Webb invited Alex Torres (coach)', time: '1d ago', type: 'invite', user_id: 'u-admin-001' },
+      { id: 'act-001', text: 'Jordan Blake logged Week 8 Day 4 workout', time: '2h ago', type: 'workout', user_id: MOCK_USER_IDS.athlete },
+      { id: 'act-002', text: 'Coach Elena updated Devon Park\'s training block', time: '5h ago', type: 'update', user_id: MOCK_USER_IDS.coach },
+      { id: 'act-003', text: 'Dr. Priya updated Samantha Price\'s nutrition plan', time: '1d ago', type: 'nutrition', user_id: MOCK_USER_IDS.nutritionist },
+      { id: 'act-004', text: 'Marcus Webb invited Alex Torres (coach)', time: '1d ago', type: 'invite', user_id: MOCK_USER_IDS.admin },
       { id: 'act-005', text: '6 athletes submitted weekly check-ins', time: '2d ago', type: 'checkin', user_id: null },
-      { id: 'act-006', text: 'Samantha Price raised a pain flag (rating: 8)', time: '3d ago', type: 'flag', user_id: 'u-ath-002' },
+      { id: 'act-006', text: 'Samantha Price raised a pain flag (rating: 8)', time: '3d ago', type: 'flag', user_id: MOCK_USER_IDS.athlete2 },
     ],
   },
   {
@@ -1650,7 +1662,7 @@ export const MOCK_ORGS = [
       { user_id: 'u-ath-ext-001', full_name: 'Dana Kowalski', email: 'dana@email.com', org_role: 'athlete', is_self_athlete: false, status: 'active', joined_at: '2024-06-15', athlete_count: null },
       { user_id: 'u-ath-ext-002', full_name: 'Raj Patel', email: 'raj@email.com', org_role: 'athlete', is_self_athlete: false, status: 'active', joined_at: '2024-07-01', athlete_count: null },
       // Jordan Blake also in this org (multi-org example) as an athlete
-      { user_id: 'u-ath-001', full_name: 'Jordan Blake', email: 'athlete@powerplus.app', org_role: 'athlete', is_self_athlete: false, status: 'active', joined_at: '2025-01-10', athlete_count: null },
+      { user_id: MOCK_USER_IDS.athlete, full_name: 'Jordan Blake', email: 'athlete@powerplus.app', org_role: 'athlete', is_self_athlete: false, status: 'active', joined_at: '2025-01-10', athlete_count: null },
     ],
     invitations: [
       { id: 'inv-003', email: 'nutritionist@ironbarbell.com', org_role: 'nutritionist', status: 'pending', sent_at: '2026-02-01', message: 'Join us as our team nutritionist!' },
@@ -1720,26 +1732,26 @@ export const MOCK_ORGS = [
 // ─── Explicit multi-org memberships (mirrors org_members table) ──────────────
 // Useful for resolving "what role does this user have in org X?"
 export const MOCK_ORG_MEMBERS = [
-  // Marcus Webb: head_coach at org-001 AND acts as a self-athlete there
-  { id: 'om-001', org_id: 'org-001', user_id: 'u-admin-001', org_role: 'head_coach', is_self_athlete: true, nutrition_permissions: [], joined_at: '2024-01-10' },
-  // Elena Torres: coach at org-001 — also trains herself
-  { id: 'om-002', org_id: 'org-001', user_id: 'u-coach-001', org_role: 'coach', is_self_athlete: true, nutrition_permissions: [], joined_at: '2024-01-15' },
-  // Dr. Priya: nutritionist at org-001 — also tracks her own nutrition
-  { id: 'om-003', org_id: 'org-001', user_id: 'u-nutri-001', org_role: 'nutritionist', is_self_athlete: true, nutrition_permissions: [], joined_at: '2024-02-10' },
-  // Jordan Blake: athlete at org-001
-  { id: 'om-004', org_id: 'org-001', user_id: 'u-ath-001', org_role: 'athlete', is_self_athlete: false, nutrition_permissions: ['view_plan'], joined_at: '2024-03-01' },
+  // Marcus Webb: head_coach at primary org AND acts as a self-athlete there
+  { id: 'om-001', org_id: MOCK_ORG_ID, user_id: MOCK_USER_IDS.admin,        org_role: 'head_coach',   is_self_athlete: true,  nutrition_permissions: [], joined_at: '2024-01-10' },
+  // Elena Torres: coach
+  { id: 'om-002', org_id: MOCK_ORG_ID, user_id: MOCK_USER_IDS.coach,        org_role: 'coach',        is_self_athlete: true,  nutrition_permissions: [], joined_at: '2024-01-15' },
+  // Dr. Priya: nutritionist
+  { id: 'om-003', org_id: MOCK_ORG_ID, user_id: MOCK_USER_IDS.nutritionist, org_role: 'nutritionist', is_self_athlete: true,  nutrition_permissions: [], joined_at: '2024-02-10' },
+  // Jordan Blake: athlete at primary org
+  { id: 'om-004', org_id: MOCK_ORG_ID, user_id: MOCK_USER_IDS.athlete,      org_role: 'athlete',      is_self_athlete: false, nutrition_permissions: ['view_plan'], joined_at: '2024-03-01' },
   // Jordan Blake: ALSO an athlete at org-002 (multi-org example)
-  { id: 'om-005', org_id: 'org-002', user_id: 'u-ath-001', org_role: 'athlete', is_self_athlete: false, nutrition_permissions: ['view_plan', 'edit_plan'], joined_at: '2025-01-10' },
+  { id: 'om-005', org_id: 'org-002',   user_id: MOCK_USER_IDS.athlete,      org_role: 'athlete',      is_self_athlete: false, nutrition_permissions: ['view_plan', 'edit_plan'], joined_at: '2025-01-10' },
   // Chris Nakamura: head_coach at org-002 (no nutritionist → gets all nutrition permissions by role)
-  { id: 'om-006', org_id: 'org-002', user_id: 'u-coach-ext-001', org_role: 'head_coach', is_self_athlete: false, nutrition_permissions: [], joined_at: '2024-06-01' },
+  { id: 'om-006', org_id: 'org-002',   user_id: 'u-coach-ext-001',          org_role: 'head_coach',   is_self_athlete: false, nutrition_permissions: [], joined_at: '2024-06-01' },
 ]
 
 // ─── Staff–athlete assignments (granular per-athlete permissions) ─────────────
 export const MOCK_STAFF_ASSIGNMENTS = [
   // Dr. Priya → Jordan Blake (full nutrition access)
   {
-    id: 'saa-001', org_id: 'org-001',
-    staff_id: 'u-nutri-001', athlete_id: 'u-ath-001',
+    id: 'saa-001', org_id: MOCK_ORG_ID,
+    staff_id: MOCK_USER_IDS.nutritionist, athlete_id: MOCK_USER_IDS.athlete,
     can_view_nutrition: true, can_edit_nutrition: true,
     can_create_meal_prep: true, can_assign_meal_prep: true,
     can_edit_shopping_list: true,
@@ -1748,8 +1760,8 @@ export const MOCK_STAFF_ASSIGNMENTS = [
   },
   // Dr. Priya → Samantha Price (full nutrition access)
   {
-    id: 'saa-002', org_id: 'org-001',
-    staff_id: 'u-nutri-001', athlete_id: 'u-ath-002',
+    id: 'saa-002', org_id: MOCK_ORG_ID,
+    staff_id: MOCK_USER_IDS.nutritionist, athlete_id: MOCK_USER_IDS.athlete2,
     can_view_nutrition: true, can_edit_nutrition: true,
     can_create_meal_prep: true, can_assign_meal_prep: true,
     can_edit_shopping_list: true,
@@ -1758,8 +1770,8 @@ export const MOCK_STAFF_ASSIGNMENTS = [
   },
   // Coach Elena → Jordan Blake (workout + check-in only)
   {
-    id: 'saa-003', org_id: 'org-001',
-    staff_id: 'u-coach-001', athlete_id: 'u-ath-001',
+    id: 'saa-003', org_id: MOCK_ORG_ID,
+    staff_id: MOCK_USER_IDS.coach, athlete_id: MOCK_USER_IDS.athlete,
     can_view_nutrition: true, can_edit_nutrition: false,
     can_create_meal_prep: false, can_assign_meal_prep: false,
     can_edit_shopping_list: false,
@@ -1768,8 +1780,8 @@ export const MOCK_STAFF_ASSIGNMENTS = [
   },
   // Marcus Webb (head_coach/self-athlete) → himself — so his own data is treated as athlete data
   {
-    id: 'saa-004', org_id: 'org-001',
-    staff_id: 'u-admin-001', athlete_id: 'u-admin-001',
+    id: 'saa-004', org_id: MOCK_ORG_ID,
+    staff_id: MOCK_USER_IDS.admin, athlete_id: MOCK_USER_IDS.admin,
     can_view_nutrition: true, can_edit_nutrition: true,
     can_create_meal_prep: true, can_assign_meal_prep: true,
     can_edit_shopping_list: true,
@@ -1806,7 +1818,7 @@ function emptyWeek() {
 }
 
 export const MOCK_ATHLETE_MEAL_PLANS = {
-  'u-ath-001': {
+  [MOCK_USER_IDS.athlete]: {
     ...emptyWeek(),
     monday: {
       breakfast: [
@@ -1899,7 +1911,7 @@ export const MOCK_ATHLETE_MEAL_PLANS = {
         { id: 'amp-030', name: 'Magnesium Glycinate 400mg', calories: 0, protein: 0, carbs: 0, fat: 0, source: 'custom', servings: 1, notes: 'Recovery day — prioritize sleep' },
       ] },
   },
-  'u-ath-002': {
+  [MOCK_USER_IDS.athlete2]: {
     ...emptyWeek(),
     monday: {
       breakfast: [
@@ -1944,7 +1956,7 @@ export const MOCK_MEAL_HISTORY = [
   // ── Week 7 (Feb 16–22) — Jordan Blake ──────────────────────────────────────
   {
     id: 'mh-w7-mon',
-    athlete_id: 'u-ath-001',
+    athlete_id: MOCK_USER_IDS.athlete,
     date: '2026-02-16',
     week_label: 'Week 7 — Intensification',
     block_id: 'tb-2',
@@ -1966,7 +1978,7 @@ export const MOCK_MEAL_HISTORY = [
   },
   {
     id: 'mh-w7-tue',
-    athlete_id: 'u-ath-001',
+    athlete_id: MOCK_USER_IDS.athlete,
     date: '2026-02-17',
     week_label: 'Week 7 — Intensification',
     block_id: 'tb-2',
@@ -1988,7 +2000,7 @@ export const MOCK_MEAL_HISTORY = [
   },
   {
     id: 'mh-w7-wed',
-    athlete_id: 'u-ath-001',
+    athlete_id: MOCK_USER_IDS.athlete,
     date: '2026-02-18',
     week_label: 'Week 7 — Intensification',
     block_id: 'tb-2',
@@ -2010,7 +2022,7 @@ export const MOCK_MEAL_HISTORY = [
   },
   {
     id: 'mh-w7-fri',
-    athlete_id: 'u-ath-001',
+    athlete_id: MOCK_USER_IDS.athlete,
     date: '2026-02-20',
     week_label: 'Week 7 — Intensification',
     block_id: 'tb-2',
@@ -2032,7 +2044,7 @@ export const MOCK_MEAL_HISTORY = [
   },
   {
     id: 'mh-w7-sat',
-    athlete_id: 'u-ath-001',
+    athlete_id: MOCK_USER_IDS.athlete,
     date: '2026-02-21',
     week_label: 'Week 7 — Intensification',
     block_id: 'tb-2',
@@ -2055,7 +2067,7 @@ export const MOCK_MEAL_HISTORY = [
   // ── Week 8 (Feb 23–Mar 1) — Jordan Blake ───────────────────────────────────
   {
     id: 'mh-w8-mon',
-    athlete_id: 'u-ath-001',
+    athlete_id: MOCK_USER_IDS.athlete,
     date: '2026-02-23',
     week_label: 'Week 8 — Intensification',
     block_id: 'tb-2',
@@ -2077,7 +2089,7 @@ export const MOCK_MEAL_HISTORY = [
   },
   {
     id: 'mh-w8-tue',
-    athlete_id: 'u-ath-001',
+    athlete_id: MOCK_USER_IDS.athlete,
     date: '2026-02-24',
     week_label: 'Week 8 — Intensification',
     block_id: 'tb-2',
@@ -2099,7 +2111,7 @@ export const MOCK_MEAL_HISTORY = [
   },
   {
     id: 'mh-w8-wed',
-    athlete_id: 'u-ath-001',
+    athlete_id: MOCK_USER_IDS.athlete,
     date: '2026-02-25',
     week_label: 'Week 8 — Intensification',
     block_id: 'tb-2',
@@ -2121,7 +2133,7 @@ export const MOCK_MEAL_HISTORY = [
   },
   {
     id: 'mh-w8-fri',
-    athlete_id: 'u-ath-001',
+    athlete_id: MOCK_USER_IDS.athlete,
     date: '2026-02-27',
     week_label: 'Week 8 — Intensification',
     block_id: 'tb-2',
@@ -2144,7 +2156,7 @@ export const MOCK_MEAL_HISTORY = [
   // ── Week 7 — Samantha Price ─────────────────────────────────────────────────
   {
     id: 'mh-sam-w7-mon',
-    athlete_id: 'u-ath-002',
+    athlete_id: MOCK_USER_IDS.athlete2,
     date: '2026-02-16',
     week_label: 'Week 7 — Intensification',
     block_id: 'tb-2',
@@ -2166,7 +2178,7 @@ export const MOCK_MEAL_HISTORY = [
   },
   {
     id: 'mh-sam-w8-mon',
-    athlete_id: 'u-ath-002',
+    athlete_id: MOCK_USER_IDS.athlete2,
     date: '2026-02-23',
     week_label: 'Week 8 — Intensification',
     block_id: 'tb-2',
@@ -2193,9 +2205,9 @@ export const MOCK_MEAL_HISTORY = [
 // When assigned from a template, the recipe is a deep copy — tweaks are independent.
 // Shape per item: { id, athlete_id, source_recipe_id?, name, meal_type, macros, ingredients, instructions, tags, day_types, prep_time, cook_time, servings, is_custom_for_athlete }
 export const MOCK_ATHLETE_RECIPES = {
-  'u-ath-001': [
+  [MOCK_USER_IDS.athlete]: [
     {
-      id: 'ar-001-r1', athlete_id: 'u-ath-001', source_recipe_id: 'r1',
+      id: 'ar-001-r1', athlete_id: MOCK_USER_IDS.athlete, source_recipe_id: 'r1',
       name: 'High-Protein Overnight Oats',
       meal_type: 'breakfast', prep_time: 5, cook_time: 0, servings: 1,
       macros: { calories: 520, protein: 42, carbs: 62, fat: 10 },
@@ -2213,7 +2225,7 @@ export const MOCK_ATHLETE_RECIPES = {
       is_custom_for_athlete: false,
     },
     {
-      id: 'ar-001-r2', athlete_id: 'u-ath-001', source_recipe_id: 'r2',
+      id: 'ar-001-r2', athlete_id: MOCK_USER_IDS.athlete, source_recipe_id: 'r2',
       name: 'Chicken & Rice Power Bowl',
       meal_type: 'lunch', prep_time: 10, cook_time: 20, servings: 1,
       macros: { calories: 680, protein: 55, carbs: 72, fat: 14 },
@@ -2231,7 +2243,7 @@ export const MOCK_ATHLETE_RECIPES = {
       is_custom_for_athlete: false,
     },
     {
-      id: 'ar-001-r3', athlete_id: 'u-ath-001', source_recipe_id: 'r3',
+      id: 'ar-001-r3', athlete_id: MOCK_USER_IDS.athlete, source_recipe_id: 'r3',
       name: 'Pre-Workout Banana Oat Shake',
       meal_type: 'pre-workout', prep_time: 5, cook_time: 0, servings: 1,
       macros: { calories: 420, protein: 35, carbs: 55, fat: 6 },
@@ -2248,7 +2260,7 @@ export const MOCK_ATHLETE_RECIPES = {
       is_custom_for_athlete: false,
     },
     {
-      id: 'ar-001-r4', athlete_id: 'u-ath-001', source_recipe_id: 'r4',
+      id: 'ar-001-r4', athlete_id: MOCK_USER_IDS.athlete, source_recipe_id: 'r4',
       name: 'Salmon & Sweet Potato (Jordan)',
       meal_type: 'dinner', prep_time: 10, cook_time: 25, servings: 1,
       // Jordan tweaked: extra sweet potato for higher carbs during peak block
@@ -2267,9 +2279,9 @@ export const MOCK_ATHLETE_RECIPES = {
       is_custom_for_athlete: true,
     },
   ],
-  'u-ath-002': [
+  [MOCK_USER_IDS.athlete2]: [
     {
-      id: 'ar-002-r1', athlete_id: 'u-ath-002', source_recipe_id: 'r1',
+      id: 'ar-002-r1', athlete_id: MOCK_USER_IDS.athlete2, source_recipe_id: 'r1',
       name: 'High-Protein Overnight Oats',
       meal_type: 'breakfast', prep_time: 5, cook_time: 0, servings: 1,
       macros: { calories: 520, protein: 42, carbs: 62, fat: 10 },
@@ -2286,7 +2298,7 @@ export const MOCK_ATHLETE_RECIPES = {
       is_custom_for_athlete: false,
     },
     {
-      id: 'ar-002-r2', athlete_id: 'u-ath-002', source_recipe_id: 'r2',
+      id: 'ar-002-r2', athlete_id: MOCK_USER_IDS.athlete2, source_recipe_id: 'r2',
       name: 'Chicken & Rice Power Bowl (Samantha)',
       meal_type: 'lunch', prep_time: 10, cook_time: 20, servings: 1,
       // Samantha: lower fat — no sesame seeds, olive oil reduced for shoulder recovery anti-inflammatory focus
@@ -2305,7 +2317,7 @@ export const MOCK_ATHLETE_RECIPES = {
       is_custom_for_athlete: true,
     },
     {
-      id: 'ar-002-r5', athlete_id: 'u-ath-002', source_recipe_id: 'r5',
+      id: 'ar-002-r5', athlete_id: MOCK_USER_IDS.athlete2, source_recipe_id: 'r5',
       name: 'Turkey Egg White Scramble (Samantha)',
       meal_type: 'breakfast', prep_time: 5, cook_time: 10, servings: 1,
       // Samantha: added extra feta + cherry tomatoes for palatability
@@ -2330,9 +2342,9 @@ export const MOCK_ATHLETE_RECIPES = {
 // Meal prep sessions scoped to a specific athlete (nutritionist batches for that athlete).
 // Each item tracks servings_made / servings_consumed — remaining = made - consumed.
 export const MOCK_ATHLETE_PREP_LOG = {
-  'u-ath-001': [
+  [MOCK_USER_IDS.athlete]: [
     {
-      id: 'apl-001-w8', athlete_id: 'u-ath-001',
+      id: 'apl-001-w8', athlete_id: MOCK_USER_IDS.athlete,
       label: 'Jordan — Week 8 Prep',
       date: '2026-02-22',
       week_start: '2026-02-23', week_end: '2026-03-01',
@@ -2345,9 +2357,9 @@ export const MOCK_ATHLETE_PREP_LOG = {
       ],
     },
   ],
-  'u-ath-002': [
+  [MOCK_USER_IDS.athlete2]: [
     {
-      id: 'apl-002-w8', athlete_id: 'u-ath-002',
+      id: 'apl-002-w8', athlete_id: MOCK_USER_IDS.athlete2,
       label: 'Samantha — Week 8 Prep',
       date: '2026-02-22',
       week_start: '2026-02-23', week_end: '2026-03-01',
@@ -2370,10 +2382,10 @@ export const MOCK_ATHLETE_PREP_LOG = {
 //   categories: [{ name, icon, items: [{ id, name, amount, price, checked, recipe_ids, allergen_flag? }] }]
 // }] }
 export const MOCK_ATHLETE_SHOPPING_LISTS = {
-  'u-ath-001': [
+  [MOCK_USER_IDS.athlete]: [
     {
       id: 'asl-001-w8',
-      athlete_id: 'u-ath-001',
+      athlete_id: MOCK_USER_IDS.athlete,
       label: 'Jordan — Week 8 Shopping',
       week_start: '2026-02-23',
       week_end: '2026-03-01',
@@ -2416,10 +2428,10 @@ export const MOCK_ATHLETE_SHOPPING_LISTS = {
       ],
     },
   ],
-  'u-ath-002': [
+  [MOCK_USER_IDS.athlete2]: [
     {
       id: 'asl-002-w8',
-      athlete_id: 'u-ath-002',
+      athlete_id: MOCK_USER_IDS.athlete2,
       label: 'Samantha — Week 8 Shopping',
       week_start: '2026-02-23',
       week_end: '2026-03-01',

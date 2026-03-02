@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { MOCK_USERS, MOCK_GOALS, MOCK_TRAINING_BLOCKS, MOCK_MEETS, MOCK_ORGS, MOCK_ORG_MEMBERS, MOCK_STAFF_ASSIGNMENTS, MOCK_ATHLETE_RECIPES, MOCK_ATHLETE_PREP_LOG, MOCK_ATHLETE_SHOPPING_LISTS, MOCK_ATHLETE_MEAL_PLANS } from './mockData'
+import { upsertProfile, isSupabaseConfigured } from './supabase'
 
 export const useAuthStore = create((set, get) => ({
   user: null,
@@ -10,10 +11,11 @@ export const useAuthStore = create((set, get) => ({
   activeOrgId: null,
   isLoading: false,
 
-  // Demo login — sets role without hitting Supabase
-  loginAsDemo: (role) => {
+  // Demo login — sets role without hitting Supabase Auth.
+  // If Supabase is configured, upserts the mock profile row so the UUID
+  // exists in the profiles table for subsequent DB writes.
+  loginAsDemo: async (role) => {
     const baseProfile = MOCK_USERS[role] || MOCK_USERS.athlete
-    // Inject the role key so profile.role is always correct throughout the app
     const profile = { ...baseProfile, role: role === 'super_admin' ? 'super_admin' : role }
     const memberships = MOCK_ORG_MEMBERS.filter((m) => m.user_id === profile.id)
     const activeOrgId = memberships[0]?.org_id ?? null
@@ -22,8 +24,14 @@ export const useAuthStore = create((set, get) => ({
       profile,
       orgMemberships: memberships,
       activeOrgId,
-      viewAsAthlete: false, // always reset on login
+      viewAsAthlete: false,
     })
+    // Fire-and-forget: persist the mock profile to Supabase if configured
+    if (isSupabaseConfigured()) {
+      upsertProfile(profile).then((result) => {
+        if (result) console.log('[supabase] Profile synced:', profile.display_name)
+      })
+    }
   },
 
   logout: () => set({ user: null, profile: null, orgMemberships: [], activeOrgId: null }),
