@@ -1,0 +1,24 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>PowerPlus</title>
+    <script>
+      // GitHub Pages SPA redirect trick.
+      // When GH Pages 404s on a deep link (e.g. /Powerplus/org/iron-north),
+      // this page encodes the full path as a query param and redirects to the
+      // root index.html, which then restores it before React boots.
+      var l = window.location;
+      l.replace(
+        l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '') +
+        l.pathname.split('/').slice(0, 2).join('/') +   // keep the repo prefix: /Powerplus
+        '/?p=' + encodeURIComponent(
+          l.pathname.slice(l.pathname.split('/').slice(0, 2).join('/').length) +
+          (l.search ? l.search : '') +
+          l.hash
+        )
+      );
+    </script>
+  </head>
+  <body></body>
+</html>
