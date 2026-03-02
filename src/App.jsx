@@ -1,11 +1,18 @@
+import { useEffect } from 'react'
 import { Toaster } from 'react-hot-toast'
+import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom'
 import { useAuthStore, useUIStore, useSettingsStore } from './lib/store'
 import { Sidebar } from './components/layout/Sidebar'
 import { Topbar } from './components/layout/Topbar'
 import { MobileNav } from './components/layout/MobileNav'
-import { LoginPage } from './components/LoginPage'
 
-// Pages
+// Auth / marketing pages
+import { LandingPage } from './pages/LandingPage'
+import { LoginPage, SignupPage } from './pages/AuthPages'
+import DemoPage from './pages/DemoPage'
+import AuthCallbackPage from './pages/AuthCallbackPage'
+
+// App pages
 import { TodayPage } from './pages/TodayPage'
 import { WorkoutPage } from './pages/WorkoutPage'
 import { MessagingPage } from './pages/MessagingPage'
@@ -49,8 +56,6 @@ function DashboardRedirect() {
   const { profile } = useAuthStore()
   const { setActivePage } = useUIStore()
   const role = profile?.role || 'athlete'
-  // All roles land on 'today' — athletes see their personal dashboard,
-  // staff see the org/athlete overview dashboard
   const landingPage = role === 'super_admin' ? 'settings' : 'today'
   setTimeout(() => setActivePage(landingPage), 0)
   return null
@@ -63,15 +68,11 @@ function AppShell() {
 
   return (
     <div className={`flex h-screen overflow-hidden ${colorMode === 'light' ? 'light bg-[#FEF6ED]' : 'bg-[#0d1117]'}`}>
-      {/* Sidebar (desktop) */}
       <div className="relative">
         <Sidebar />
       </div>
-
-      {/* Main area */}
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
         <Topbar />
-
         <main className="flex-1 overflow-y-auto pb-20 md:pb-0">
           {PageComponent ? (
             <PageComponent />
@@ -82,15 +83,26 @@ function AppShell() {
           )}
         </main>
       </div>
-
-      {/* Mobile bottom nav */}
       <MobileNav />
     </div>
   )
 }
 
-export default function App() {
+/** Guards the /app route — redirects to /login if not authenticated */
+function ProtectedApp() {
   const { profile } = useAuthStore()
+  if (!profile) return <Navigate to="/login" replace />
+  return <AppShell />
+}
+
+/** Root — subscribes to Supabase auth on mount */
+function Root() {
+  const { initAuth } = useAuthStore()
+
+  useEffect(() => {
+    const unsub = initAuth()
+    return unsub
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <>
@@ -104,7 +116,25 @@ export default function App() {
           },
         }}
       />
-      {profile ? <AppShell /> : <LoginPage />}
+      <Routes>
+        <Route path="/"              element={<LandingPage />} />
+        <Route path="/login"         element={<LoginPage />} />
+        <Route path="/signup"        element={<SignupPage />} />
+        <Route path="/demo"          element={<DemoPage />} />
+        <Route path="/auth/callback" element={<AuthCallbackPage />} />
+        <Route path="/app"           element={<ProtectedApp />} />
+        {/* Fallback */}
+        <Route path="*"              element={<Navigate to="/" replace />} />
+      </Routes>
     </>
   )
 }
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <Root />
+    </BrowserRouter>
+  )
+}
+

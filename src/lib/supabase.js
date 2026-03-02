@@ -190,3 +190,87 @@ export async function deleteShoppingList(listId) {
   if (error) console.error('[supabase] deleteShoppingList:', error.message)
   return !error
 }
+
+// ── Auth helpers ─────────────────────────────────────────────────────────────
+
+/**
+ * Sign up a new user with email + password.
+ * Sends a confirmation email with a redirect link back to /auth/callback.
+ */
+export async function signUpWithEmail(email, password, fullName) {
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: {
+      data: { full_name: fullName, display_name: fullName },
+      emailRedirectTo: `${window.location.origin}/auth/callback`,
+    },
+  })
+  if (error) console.error('[supabase] signUp:', error.message)
+  return { data, error }
+}
+
+/**
+ * Sign in with email + password.
+ */
+export async function signInWithEmail(email, password) {
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+  if (error) console.error('[supabase] signIn:', error.message)
+  return { data, error }
+}
+
+/**
+ * Sign the current user out.
+ */
+export async function signOut() {
+  const { error } = await supabase.auth.signOut()
+  if (error) console.error('[supabase] signOut:', error.message)
+  return !error
+}
+
+/**
+ * Get the current session (if any).
+ */
+export async function getSession() {
+  const { data: { session }, error } = await supabase.auth.getSession()
+  if (error) console.error('[supabase] getSession:', error.message)
+  return session
+}
+
+/**
+ * Subscribe to auth state changes.
+ * Returns the Supabase subscription object — call .unsubscribe() to clean up.
+ */
+export function onAuthStateChange(callback) {
+  const { data } = supabase.auth.onAuthStateChange((event, session) => {
+    callback(event, session)
+  })
+  return data.subscription
+}
+
+/**
+ * Fetch a profile row by auth user ID.
+ */
+export async function fetchProfile(userId) {
+  if (!isSupabaseConfigured()) return null
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', userId)
+    .single()
+  if (error && error.code !== 'PGRST116') console.error('[supabase] fetchProfile:', error.message)
+  return data ?? null
+}
+
+/**
+ * Fetch org memberships for a user (joins the org name).
+ */
+export async function fetchOrgMemberships(userId) {
+  if (!isSupabaseConfigured()) return []
+  const { data, error } = await supabase
+    .from('org_members')
+    .select('*, orgs(id, name, slug, logo_url)')
+    .eq('user_id', userId)
+  if (error) { console.error('[supabase] fetchOrgMemberships:', error.message); return [] }
+  return data ?? []
+}

@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { MOCK_USERS, MOCK_GOALS, MOCK_TRAINING_BLOCKS, MOCK_MEETS, MOCK_ORGS, MOCK_ORG_MEMBERS, MOCK_STAFF_ASSIGNMENTS, MOCK_ATHLETE_RECIPES, MOCK_ATHLETE_PREP_LOG, MOCK_ATHLETE_SHOPPING_LISTS, MOCK_ATHLETE_MEAL_PLANS } from './mockData'
-import { upsertProfile, isSupabaseConfigured } from './supabase'
+import { upsertProfile, isSupabaseConfigured, onAuthStateChange, fetchProfile, fetchOrgMemberships, signOut as supabaseSignOut, getSession } from './supabase'
 
 export const useAuthStore = create((set, get) => ({
   user: null,
@@ -35,6 +35,70 @@ export const useAuthStore = create((set, get) => ({
   },
 
   logout: () => set({ user: null, profile: null, orgMemberships: [], activeOrgId: null }),
+
+  // ── Real auth ────────────────────────────────────────────────────────────
+
+  /**
+   * Called with a live Supabase session (from onAuthStateChange or callback page).
+   * Fetches the profile + org memberships from the DB and hydrates the store.
+   */
+  handleAuthSession: async (session) => {
+    if (!session?.user) {
+      set({ user: null, profile: null, orgMemberships: [], activeOrgId: null })
+      return
+    }
+    set({ isLoading: true })
+    const [profile, memberships] = await Promise.all([
+      fetchProfile(session.user.id),
+      fetchOrgMemberships(session.user.id),
+    ])
+    const activeOrgId = memberships[0]?.org_id ?? null
+    set({
+      user: session.user,
+      profile: profile ?? {
+        id: session.user.id,
+        email: session.user.email,
+        full_name: session.user.user_metadata?.full_name ?? '',
+        display_name: session.user.user_metadata?.display_name ?? session.user.email,
+        platform_role: 'user',
+      },
+      orgMemberships: memberships,
+      activeOrgId,
+      isLoading: false,
+      viewAsAthlete: false,
+    })
+  },
+
+  /**
+   * Subscribe to Supabase auth state. Call once on app mount.
+   * Returns the unsubscribe function.
+   */
+  initAuth: () => {
+    if (!isSupabaseConfigured()) return () => {}
+    // Check existing session immediately
+    const { handleAuthSession } = get()
+    getSession().then((session) => {
+      if (session) handleAuthSession(session)
+    })
+    // Listen for future changes (login, logout, token refresh)
+    const subscription = onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
+        get().handleAuthSession(session)
+      }
+      if (event === 'SIGNED_OUT') {
+        set({ user: null, profile: null, orgMemberships: [], activeOrgId: null })
+      }
+    })
+    return () => subscription.unsubscribe()
+  },
+
+  /**
+   * Sign out the real Supabase user (or just clear store for demo users).
+   */
+  handleSignOut: async () => {
+    if (isSupabaseConfigured()) await supabaseSignOut()
+    set({ user: null, profile: null, orgMemberships: [], activeOrgId: null, viewAsAthlete: false })
+  },
 
   setProfile: (profile) => set({ profile }),
 

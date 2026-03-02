@@ -1,4 +1,5 @@
 import { Bell, Search, Menu, LogOut, User, X, Users, Dumbbell, Target, Trophy, MessageSquare } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { useUIStore, useAuthStore } from '../../lib/store'
 import { Avatar } from '../ui/Avatar'
 import { Badge } from '../ui/Badge'
@@ -8,7 +9,7 @@ import { useState, useMemo, useRef, useEffect } from 'react'
 
 export function Topbar() {
   const { setMobileNavOpen, notificationsOpen, setNotificationsOpen, setActivePage } = useUIStore()
-  const { profile, logout } = useAuthStore()
+  const { profile, handleSignOut } = useAuthStore()
   const [profileOpen, setProfileOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [searchFocused, setSearchFocused] = useState(false)
@@ -202,7 +203,7 @@ export function Topbar() {
             </div>
           </button>
           {profileOpen && (
-            <ProfileDropdown onClose={() => setProfileOpen(false)} profile={profile} logout={logout} />
+            <ProfileDropdown onClose={() => setProfileOpen(false)} profile={profile} handleSignOut={handleSignOut} />
           )}
         </div>
       </div>
@@ -241,8 +242,9 @@ function NotificationsPanel({ onClose }) {
   )
 }
 
-function ProfileDropdown({ onClose, profile, logout }) {
+function ProfileDropdown({ onClose, profile, handleSignOut }) {
   const { setActivePage } = useUIStore()
+  const navigate = useNavigate()
   return (
     <div className="absolute right-0 top-full mt-2 w-48 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl z-50 overflow-hidden">
       <div className="px-4 py-3 border-b border-zinc-800">
@@ -257,7 +259,7 @@ function ProfileDropdown({ onClose, profile, logout }) {
           <User className="w-4 h-4" />Profile & Settings
         </button>
         <button
-          onClick={logout}
+          onClick={async () => { onClose(); await handleSignOut(); navigate('/') }}
           className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors"
         >
           <LogOut className="w-4 h-4" />Sign Out
