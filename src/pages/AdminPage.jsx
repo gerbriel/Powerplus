@@ -2370,63 +2370,142 @@ function PublicPageTab() {
       {activeView === 'settings' && (
         <Card>
           <CardHeader>
-            <CardTitle>Custom URL / Domain</CardTitle>
-            <CardSubtitle>Enter your own website URL so visitors from your domain land directly on your Powerplus public page.</CardSubtitle>
+            <CardTitle>Custom Domain</CardTitle>
+            <CardSubtitle>Use your own domain (e.g. ironnothathletics.com) so your public page lives there instead of the Powerplus URL.</CardSubtitle>
           </CardHeader>
-          <CardBody className="space-y-4">
+          <CardBody className="space-y-5">
+            {/* Input */}
             <div>
-              <label className="block text-xs font-medium text-zinc-400 mb-1.5">Your Website URL</label>
+              <label className="block text-xs font-medium text-zinc-400 mb-1.5">Your Domain</label>
               <div className="flex items-center gap-2">
                 <div className="relative flex-1">
                   <Link2 className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500 pointer-events-none" />
                   <input
                     value={heroForm.custom_url}
                     onChange={(e) => setHeroForm((p) => ({ ...p, custom_url: e.target.value }))}
-                    placeholder="https://your-gym.com"
+                    placeholder="ironnorthathletics.com"
                     className="w-full bg-zinc-800 border border-zinc-700 rounded-xl pl-9 pr-3 py-2.5 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-purple-500/40"
                   />
                 </div>
                 {heroForm.custom_url && (
                   <a
-                    href={heroForm.custom_url}
+                    href={`https://${heroForm.custom_url.replace(/^https?:\/\//, '')}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center gap-1.5 px-3 py-2.5 text-xs text-purple-400 hover:text-purple-300 bg-zinc-800 border border-zinc-700 rounded-xl transition-colors whitespace-nowrap"
                   >
-                    <ExternalLink className="w-3.5 h-3.5" /> Open
+                    <ExternalLink className="w-3.5 h-3.5" /> Test
                   </a>
                 )}
               </div>
-              {heroForm.custom_url ? (
-                <p className="text-xs text-zinc-500 mt-2">
-                  <span className="text-green-400">✓</span> Copy Link will share this address. Preview always opens the live Powerplus page.
-                </p>
-              ) : (
-                <p className="text-xs text-zinc-500 mt-2">
-                  Default Powerplus URL: <span className="text-zinc-400 font-mono text-xs">{window.location.origin}{internalUrl}</span>
-                </p>
-              )}
+              <p className="text-xs text-zinc-500 mt-2">
+                {heroForm.custom_url
+                  ? <><span className="text-green-400">✓</span> Save this, then follow the DNS steps below to activate it.</>
+                  : <>Default URL: <span className="font-mono text-zinc-400">{window.location.origin}{internalUrl}</span></>
+                }
+              </p>
             </div>
 
-            {/* How-to redirect instructions */}
-            <div className="bg-zinc-800/60 border border-zinc-700/60 rounded-xl p-4 space-y-3">
-              <p className="text-xs font-semibold text-zinc-300">How to redirect your domain → your Powerplus page</p>
-              <div className="space-y-2 text-xs text-zinc-400">
-                <p className="font-medium text-zinc-300">Option A — URL Redirect (easiest, no hosting needed)</p>
-                <p>In your domain registrar (GoDaddy, Namecheap, Cloudflare, etc.), create a <span className="text-zinc-200 font-mono">URL Redirect / Forward</span> record:</p>
-                <div className="bg-zinc-900 border border-zinc-700 rounded-lg p-3 font-mono text-xs space-y-1">
-                  <p><span className="text-zinc-500">Source:</span> <span className="text-zinc-200">your-gym.com</span></p>
-                  <p><span className="text-zinc-500">Destination:</span> <span className="text-zinc-200 break-all">{window.location.origin}/Powerplus/?r={slug || 'your-slug'}</span></p>
-                  <p><span className="text-zinc-500">Type:</span> <span className="text-zinc-200">301 Permanent</span></p>
+            {/* How it works explanation */}
+            <div className="bg-zinc-800/50 border border-zinc-700/60 rounded-2xl p-5 space-y-4">
+              <div className="flex items-start gap-3">
+                <div className="w-5 h-5 rounded-full bg-purple-500/20 border border-purple-500/30 flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <span className="text-purple-400 text-[10px] font-bold">?</span>
                 </div>
-                <p className="font-medium text-zinc-300 pt-1">Option B — Subdomain redirect</p>
-                <p>Create a <span className="text-zinc-200 font-mono">CNAME</span> pointing <span className="text-zinc-200 font-mono">apply.your-gym.com</span> → then redirect to the URL above via your registrar.</p>
-                <p className="text-zinc-500 pt-1">The <span className="text-zinc-400 font-mono">?r={slug || 'your-slug'}</span> parameter tells Powerplus which org page to load automatically.</p>
+                <div>
+                  <p className="text-xs font-semibold text-zinc-200 mb-1">How does this work?</p>
+                  <p className="text-xs text-zinc-400 leading-relaxed">
+                    Your public page is hosted on GitHub Pages. To make it appear at your own domain, you point your domain's DNS to GitHub Pages and tell GitHub which domain to use. Visitors to <span className="text-zinc-300 font-mono">{heroForm.custom_url || 'your-domain.com'}</span> will see your Powerplus page — no "github.io" in the URL.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Step-by-step DNS instructions */}
+            <div className="space-y-3">
+              <p className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">Setup — 3 steps</p>
+
+              {/* Step 1 */}
+              <div className="flex gap-3">
+                <div className="w-6 h-6 rounded-full bg-zinc-700 flex items-center justify-center text-xs font-bold text-zinc-300 flex-shrink-0 mt-0.5">1</div>
+                <div className="space-y-2 flex-1">
+                  <p className="text-xs font-medium text-zinc-300">Add DNS records at your registrar</p>
+                  <p className="text-xs text-zinc-500">Log into GoDaddy / Namecheap / Cloudflare / wherever you bought the domain. Add these records:</p>
+                  <div className="bg-zinc-900 border border-zinc-700 rounded-xl overflow-hidden text-xs font-mono">
+                    <div className="px-3 py-2 border-b border-zinc-700 grid grid-cols-3 text-zinc-500 uppercase text-[10px] tracking-wider">
+                      <span>Type</span><span>Name</span><span>Value</span>
+                    </div>
+                    {/* For apex/root domain */}
+                    <div className="px-3 py-2 border-b border-zinc-800 grid grid-cols-3 text-zinc-300 gap-1">
+                      <span className="text-blue-400">A</span>
+                      <span>@</span>
+                      <span className="text-zinc-400 text-[10px]">185.199.108.153</span>
+                    </div>
+                    <div className="px-3 py-2 border-b border-zinc-800 grid grid-cols-3 text-zinc-300 gap-1">
+                      <span className="text-blue-400">A</span>
+                      <span>@</span>
+                      <span className="text-zinc-400 text-[10px]">185.199.109.153</span>
+                    </div>
+                    <div className="px-3 py-2 border-b border-zinc-800 grid grid-cols-3 text-zinc-300 gap-1">
+                      <span className="text-blue-400">A</span>
+                      <span>@</span>
+                      <span className="text-zinc-400 text-[10px]">185.199.110.153</span>
+                    </div>
+                    <div className="px-3 py-2 border-b border-zinc-800 grid grid-cols-3 text-zinc-300 gap-1">
+                      <span className="text-blue-400">A</span>
+                      <span>@</span>
+                      <span className="text-zinc-400 text-[10px]">185.199.111.153</span>
+                    </div>
+                    {/* www subdomain */}
+                    <div className="px-3 py-2 grid grid-cols-3 text-zinc-300 gap-1">
+                      <span className="text-green-400">CNAME</span>
+                      <span>www</span>
+                      <span className="text-zinc-400 text-[10px]">gerbriel.github.io</span>
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-zinc-600">The 4 A records point your root domain to GitHub's servers. The CNAME handles www.</p>
+                </div>
+              </div>
+
+              {/* Step 2 */}
+              <div className="flex gap-3">
+                <div className="w-6 h-6 rounded-full bg-zinc-700 flex items-center justify-center text-xs font-bold text-zinc-300 flex-shrink-0 mt-0.5">2</div>
+                <div className="flex-1 space-y-2">
+                  <p className="text-xs font-medium text-zinc-300">Set your custom domain in GitHub repository settings</p>
+                  <p className="text-xs text-zinc-500 leading-relaxed">
+                    Go to <span className="text-zinc-300 font-mono">github.com/gerbriel/Powerplus</span> → Settings → Pages → "Custom domain" → enter your domain → Save. GitHub will verify DNS and issue a free SSL certificate (takes ~10 min).
+                  </p>
+                  <a
+                    href="https://github.com/gerbriel/Powerplus/settings/pages"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-purple-400 hover:text-purple-300 bg-zinc-800 border border-zinc-700/60 rounded-lg transition-colors"
+                  >
+                    <ExternalLink className="w-3 h-3" /> Open GitHub Pages Settings
+                  </a>
+                </div>
+              </div>
+
+              {/* Step 3 */}
+              <div className="flex gap-3">
+                <div className="w-6 h-6 rounded-full bg-zinc-700 flex items-center justify-center text-xs font-bold text-zinc-300 flex-shrink-0 mt-0.5">3</div>
+                <div className="flex-1 space-y-2">
+                  <p className="text-xs font-medium text-zinc-300">Update the Vite base path (developer step)</p>
+                  <p className="text-xs text-zinc-500 leading-relaxed">
+                    Once your domain is verified in GitHub, the app's <span className="text-zinc-300 font-mono">vite.config.js</span> base path needs to change from <span className="text-zinc-300 font-mono">'/Powerplus/'</span> to <span className="text-zinc-300 font-mono">'/'</span> — since your domain is now the root. Push the change and the deploy workflow re-builds automatically.
+                  </p>
+                  <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-3 text-xs font-mono text-zinc-400 space-y-1">
+                    <p className="text-zinc-600">{'// vite.config.js — change this line:'}</p>
+                    <p><span className="text-red-400 line-through">base: '/Powerplus/'</span></p>
+                    <p><span className="text-green-400">base: '/'</span></p>
+                  </div>
+                  <p className="text-[10px] text-zinc-600">After this change, all routes work at your-domain.com/ instead of gerbriel.github.io/Powerplus/</p>
+                </div>
               </div>
             </div>
 
             <Button size="sm" onClick={saveHero}>
-              {saved ? <><Check className="w-3.5 h-3.5" /> Saved!</> : 'Save URL'}
+              {saved ? <><Check className="w-3.5 h-3.5" /> Saved!</> : 'Save Domain'}
             </Button>
           </CardBody>
         </Card>

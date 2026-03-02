@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { Toaster } from 'react-hot-toast'
-import { BrowserRouter, Routes, Route, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom'
 import { useAuthStore, useUIStore, useSettingsStore } from './lib/store'
 import { Sidebar } from './components/layout/Sidebar'
 import { Topbar } from './components/layout/Topbar'
@@ -118,38 +118,18 @@ function Root() {
         }}
       />
       <Routes>
-        <Route path="/"              element={<LandingOrRedirect />} />
+        <Route path="/"              element={<LandingPage />} />
         <Route path="/login"         element={<LoginPage />} />
         <Route path="/signup"        element={<SignupPage />} />
         <Route path="/demo"          element={<DemoPage />} />
         <Route path="/auth/callback" element={<AuthCallbackPage />} />
         <Route path="/org/:slug"     element={<OrgPublicPage />} />
-        <Route path="/r"             element={<OrgRedirect />} />
         <Route path="/app"           element={<ProtectedApp />} />
         {/* Fallback */}
         <Route path="*"              element={<Navigate to="/" replace />} />
       </Routes>
     </>
   )
-}
-
-/** Handles ?r=slug redirect — used when a custom domain redirects to this app.
- *  e.g. https://gerbriel.github.io/Powerplus/?r=iron-north
- *  → redirects to /Powerplus/org/iron-north
- */
-function OrgRedirect() {
-  const [params] = useSearchParams()
-  const slug = params.get('r')
-  if (slug) return <Navigate to={`/org/${slug}`} replace />
-  return <Navigate to="/" replace />
-}
-
-/** Landing page that also handles ?r=slug on the root URL */
-function LandingOrRedirect() {
-  const [params] = useSearchParams()
-  const slug = params.get('r')
-  if (slug) return <Navigate to={`/org/${slug}`} replace />
-  return <LandingPage />
 }
 
 export default function App() {
