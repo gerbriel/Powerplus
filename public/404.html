@@ -9,14 +9,13 @@
       // this page encodes the full path as a query param and redirects to the
       // root index.html, which then restores it before React boots.
       var l = window.location;
+      // Repo prefix = /Powerplus  (no trailing slash)
+      var prefix = l.pathname.split('/').slice(0, 2).join('/');
+      // Everything after the prefix → the SPA path (e.g. /org/iron-north)
+      var spaPath = l.pathname.slice(prefix.length) || '/';
       l.replace(
         l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '') +
-        l.pathname.split('/').slice(0, 2).join('/') +   // keep the repo prefix: /Powerplus
-        '/?p=' + encodeURIComponent(
-          l.pathname.slice(l.pathname.split('/').slice(0, 2).join('/').length) +
-          (l.search ? l.search : '') +
-          l.hash
-        )
+        prefix + '/?p=' + encodeURIComponent(spaPath + l.search + l.hash)
       );
     </script>
   </head>

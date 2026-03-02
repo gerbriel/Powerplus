@@ -10,10 +10,9 @@
       (function () {
         var p = new URLSearchParams(window.location.search).get('p');
         if (p) {
-          window.history.replaceState(
-            null, null,
-            window.location.pathname + decodeURIComponent(p)
-          );
+          // pathname is e.g. '/Powerplus/' — strip trailing slash before appending
+          var base = window.location.pathname.replace(/\/$/, '');
+          window.history.replaceState(null, null, base + decodeURIComponent(p));
         }
       })();
     </script>
