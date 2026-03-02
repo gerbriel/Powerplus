@@ -1,15 +1,15 @@
-import { useState } from 'react'
-import { BarChart3, TrendingUp, Users, Zap, Moon, Flame, Activity, Trophy, AlertTriangle } from 'lucide-react'
+import { useState, useMemo } from 'react'
+import { BarChart3, TrendingUp, Users, Zap, Moon, Flame, Activity, Trophy, AlertTriangle, CreditCard, Building2, Globe, CheckCircle2 } from 'lucide-react'
 import { ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Legend, RadarChart, Radar, PolarGrid, PolarAngleAxis } from 'recharts'
-import { Card, CardHeader, CardTitle, CardSubtitle } from '../components/ui/Card'
+import { Card, CardHeader, CardTitle, CardSubtitle, CardBody } from '../components/ui/Card'
 import { Tabs } from '../components/ui/Tabs'
 import { StatCard } from '../components/ui/StatCard'
 import { Avatar } from '../components/ui/Avatar'
 import { Badge } from '../components/ui/Badge'
 import { ProgressBar } from '../components/ui/ProgressBar'
-import { MOCK_STRENGTH_TREND, MOCK_ADHERENCE_TREND, MOCK_TEAM_ADHERENCE, MOCK_ATHLETES } from '../lib/mockData'
+import { MOCK_STRENGTH_TREND, MOCK_ADHERENCE_TREND, MOCK_TEAM_ADHERENCE, MOCK_ATHLETES, PLAN_META } from '../lib/mockData'
 import { cn, adherenceColor } from '../lib/utils'
-import { useAuthStore } from '../lib/store'
+import { useAuthStore, useOrgStore } from '../lib/store'
 
 const CHART_COLORS = {
   squat: '#d946ef',
@@ -28,6 +28,9 @@ export function AnalyticsPage() {
   const { profile } = useAuthStore()
   const role = profile?.role || 'athlete'
   const [tab, setTab] = useState(role === 'athlete' ? 'personal' : 'team')
+
+  // Platform admins see SaaS-level analytics, not athlete data
+  if (role === 'super_admin') return <PlatformAnalyticsView />
 
   const tabs = role === 'athlete'
     ? [{ id: 'personal', label: 'My Progress' }]
@@ -49,6 +52,199 @@ export function AnalyticsPage() {
       {tab === 'personal' && <PersonalAnalytics />}
       {tab === 'team' && <TeamAnalytics />}
       {tab === 'staff' && <StaffAnalytics />}
+    </div>
+  )
+}
+
+function PlatformAnalyticsView() {
+  const { orgs } = useOrgStore()
+
+  const PLAN_MRR = { starter: 0, team_pro: 149, enterprise: 499 }
+
+  const activeOrgs  = useMemo(() => orgs.filter((o) => o.status === 'active'), [orgs])
+  const totalMRR    = useMemo(() => activeOrgs.reduce((s, o) => s + (PLAN_MRR[o.plan] || 0), 0), [activeOrgs])
+  const totalARR    = totalMRR * 12
+  const paidOrgs    = useMemo(() => activeOrgs.filter((o) => o.plan !== 'starter'), [activeOrgs])
+  const conversion  = orgs.length > 0 ? Math.round((paidOrgs.length / orgs.length) * 100) : 0
+  const totalUsers  = useMemo(() => orgs.reduce((s, o) => s + o.members.length, 0), [orgs])
+  const newThisMonth = Math.round(orgs.length * 0.18) // mock: ~18% new this month
+
+  const mrrTrend = [
+    { month: 'Sep', mrr: Math.round(totalMRR * 0.58), orgs: Math.round(orgs.length * 0.62) },
+    { month: 'Oct', mrr: Math.round(totalMRR * 0.67), orgs: Math.round(orgs.length * 0.70) },
+    { month: 'Nov', mrr: Math.round(totalMRR * 0.73), orgs: Math.round(orgs.length * 0.76) },
+    { month: 'Dec', mrr: Math.round(totalMRR * 0.80), orgs: Math.round(orgs.length * 0.82) },
+    { month: 'Jan', mrr: Math.round(totalMRR * 0.87), orgs: Math.round(orgs.length * 0.88) },
+    { month: 'Feb', mrr: Math.round(totalMRR * 0.93), orgs: Math.round(orgs.length * 0.94) },
+    { month: 'Mar', mrr: totalMRR,                    orgs: orgs.length },
+  ]
+
+  const signupTrend = [
+    { week: 'W-6', signups: 4, churned: 1 },
+    { week: 'W-5', signups: 3, churned: 0 },
+    { week: 'W-4', signups: 7, churned: 1 },
+    { week: 'W-3', signups: 5, churned: 0 },
+    { week: 'W-2', signups: 6, churned: 2 },
+    { week: 'W-1', signups: 8, churned: 1 },
+    { week: 'Now', signups: 3, churned: 0 },
+  ]
+
+  const planBreakdown = Object.keys(PLAN_META).map((p) => ({
+    plan: p,
+    meta: PLAN_META[p],
+    count: orgs.filter((o) => o.plan === p).length,
+    mrr: orgs.filter((o) => o.plan === p && o.status === 'active').reduce((s) => s + (PLAN_MRR[p] || 0), 0),
+  }))
+
+  return (
+    <div className="p-4 md:p-6 max-w-6xl mx-auto space-y-6">
+      <div>
+        <h1 className="text-xl font-bold text-zinc-100">Platform Analytics</h1>
+        <p className="text-sm text-zinc-400 mt-0.5">MRR, ARR, signups, churn, and org-level billing metrics</p>
+      </div>
+      {/* KPI row */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <StatCard label="MRR"         value={`$${totalMRR.toLocaleString()}`}  sub="monthly recurring"           icon={TrendingUp}  color="green"  trendLabel="+12% vs last month" trend={1} />
+        <StatCard label="ARR"         value={`$${totalARR.toLocaleString()}`}   sub="annualized run rate"         icon={CreditCard}  color="purple" />
+        <StatCard label="Active Orgs" value={activeOrgs.length}                 sub={`${conversion}% paid`}       icon={Building2}   color="blue"   trendLabel={`+${newThisMonth} this month`} trend={1} />
+        <StatCard label="Total Users" value={totalUsers}                        sub={`across ${orgs.length} orgs`} icon={Users}       color="yellow" />
+      </div>
+
+      {/* MRR growth line chart */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <TrendingUp className="w-4 h-4 text-green-400" /> MRR Growth
+          </CardTitle>
+          <CardSubtitle>Monthly recurring revenue and org count over the last 7 months</CardSubtitle>
+        </CardHeader>
+        <CardBody>
+          <div className="h-52">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={mrrTrend} margin={{ top: 5, right: 12, bottom: 5, left: -10 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#3f3f46" />
+                <XAxis dataKey="month" tick={{ fill: '#71717a', fontSize: 11 }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fill: '#71717a', fontSize: 11 }} axisLine={false} tickLine={false} />
+                <Tooltip {...chartTooltipStyle} />
+                <Legend wrapperStyle={{ fontSize: 11, color: '#a1a1aa' }} />
+                <Line type="monotone" dataKey="mrr"  name="MRR ($)"   stroke="#22c55e" strokeWidth={2} dot={{ fill: '#22c55e', r: 3 }} />
+                <Line type="monotone" dataKey="orgs" name="Org Count" stroke="#a855f7" strokeWidth={2} dot={{ fill: '#a855f7', r: 3 }} strokeDasharray="4 2" />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </CardBody>
+      </Card>
+
+      {/* Signups vs churn + plan mix */}
+      <div className="grid md:grid-cols-2 gap-4">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Users className="w-4 h-4 text-purple-400" /> Weekly Signups vs Churn
+            </CardTitle>
+            <CardSubtitle>Net new organizations per week</CardSubtitle>
+          </CardHeader>
+          <CardBody>
+            <div className="h-44">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={signupTrend} margin={{ top: 4, right: 8, bottom: 0, left: -10 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#3f3f46" />
+                  <XAxis dataKey="week" tick={{ fill: '#71717a', fontSize: 11 }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fill: '#71717a', fontSize: 11 }} axisLine={false} tickLine={false} />
+                  <Tooltip {...chartTooltipStyle} />
+                  <Legend wrapperStyle={{ fontSize: 11, color: '#a1a1aa' }} />
+                  <Bar dataKey="signups" name="New Signups" fill="#a855f7" radius={[3,3,0,0]} />
+                  <Bar dataKey="churned" name="Churned"     fill="#ef4444" radius={[3,3,0,0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </CardBody>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <CreditCard className="w-4 h-4 text-blue-400" /> Revenue by Plan
+            </CardTitle>
+            <CardSubtitle>MRR contribution per subscription tier</CardSubtitle>
+          </CardHeader>
+          <CardBody>
+            <div className="space-y-3">
+              {planBreakdown.map(({ plan, meta, count, mrr }) => {
+                const pct = totalMRR > 0 ? Math.round((mrr / totalMRR) * 100) : 0
+                return (
+                  <div key={plan}>
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-2">
+                        <Badge color={meta.color}>{meta.label}</Badge>
+                        <span className="text-xs text-zinc-500">{count} org{count !== 1 ? 's' : ''}</span>
+                      </div>
+                      <span className="text-xs font-semibold text-zinc-200">
+                        {mrr > 0 ? `$${mrr.toLocaleString()}/mo` : 'Free'}
+                      </span>
+                    </div>
+                    <div className="h-1.5 bg-zinc-700 rounded-full">
+                      <div
+                        className={`h-full rounded-full ${plan === 'enterprise' ? 'bg-yellow-500' : plan === 'team_pro' ? 'bg-purple-500' : 'bg-zinc-600'}`}
+                        style={{ width: `${pct || (plan === 'starter' ? 100 : 0)}%` }}
+                      />
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </CardBody>
+        </Card>
+      </div>
+
+      {/* Org table */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Globe className="w-4 h-4 text-zinc-400" /> All Organizations
+          </CardTitle>
+          <CardSubtitle>Subscription status and usage across every org</CardSubtitle>
+        </CardHeader>
+        <CardBody className="p-0">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-zinc-800">
+                  {['Organization', 'Plan', 'Status', 'Athletes', 'MRR', 'ARR'].map((h) => (
+                    <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wide">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {orgs.map((org, i) => {
+                  const planInfo = PLAN_META[org.plan] || PLAN_META.starter
+                  const mrr = PLAN_MRR[org.plan] || 0
+                  const athletes = org.members.filter((m) => m.role === 'athlete').length
+                  return (
+                    <tr key={org.id} className={`border-b border-zinc-800/60 last:border-0 ${i % 2 === 0 ? 'bg-zinc-800/10' : ''}`}>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <div className="w-7 h-7 rounded-lg bg-zinc-700 flex items-center justify-center">
+                            <Building2 className="w-3.5 h-3.5 text-zinc-400" />
+                          </div>
+                          <span className="text-sm font-medium text-zinc-200">{org.name}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3"><Badge color={planInfo.color}>{planInfo.label}</Badge></td>
+                      <td className="px-4 py-3">
+                        <Badge color={org.status === 'active' ? 'green' : 'red'} className="capitalize">{org.status}</Badge>
+                      </td>
+                      <td className="px-4 py-3 text-zinc-400">{athletes}/{org.athlete_limit}</td>
+                      <td className="px-4 py-3 text-green-400 font-medium">{mrr > 0 ? `$${mrr}` : '—'}</td>
+                      <td className="px-4 py-3 text-zinc-400">{mrr > 0 ? `$${(mrr * 12).toLocaleString()}` : '—'}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </CardBody>
+      </Card>
     </div>
   )
 }

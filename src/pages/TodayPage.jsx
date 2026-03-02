@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Zap, CheckCircle2, Circle, Clock, Flame, Droplets, Moon, Dumbbell, MessageSquare, ChevronRight, AlertCircle, Trophy, Scale, Users, TrendingUp, TrendingDown, AlertTriangle, Activity, Target, BarChart2, Shield, Stethoscope, Eye } from 'lucide-react'
+import { Zap, CheckCircle2, Circle, Clock, Flame, Droplets, Moon, Dumbbell, MessageSquare, ChevronRight, AlertCircle, Trophy, Scale, Users, TrendingUp, TrendingDown, AlertTriangle, Activity, Target, BarChart2, Shield, Stethoscope, Eye, CreditCard, Building2, Globe, Server, CheckCircle } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardSubtitle, CardBody } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { ProgressBar } from '../components/ui/ProgressBar'
@@ -7,8 +7,9 @@ import { StatCard } from '../components/ui/StatCard'
 import { Slider } from '../components/ui/Slider'
 import { Modal } from '../components/ui/Modal'
 import { Avatar } from '../components/ui/Avatar'
-import { MOCK_TODAY_WORKOUT, MOCK_NUTRITION_TODAY, MOCK_NOTIFICATIONS, MOCK_ATHLETES, MOCK_TRAINING_BLOCKS, MOCK_MEETS, MOCK_STAFF_ASSIGNMENTS } from '../lib/mockData'
-import { useAuthStore, useSettingsStore, useUIStore } from '../lib/store'
+import { Badge } from '../components/ui/Badge'
+import { MOCK_TODAY_WORKOUT, MOCK_NUTRITION_TODAY, MOCK_NOTIFICATIONS, MOCK_ATHLETES, MOCK_TRAINING_BLOCKS, MOCK_MEETS, MOCK_STAFF_ASSIGNMENTS, PLAN_META } from '../lib/mockData'
+import { useAuthStore, useSettingsStore, useUIStore, useOrgStore } from '../lib/store'
 import { resolveRole, isStaffRole } from '../lib/store'
 import { cn, macroPercent, kgToLbs } from '../lib/utils'
 
@@ -28,6 +29,9 @@ export function TodayPage() {
   const { profile, viewAsAthlete, orgMemberships, activeOrgId } = useAuthStore()
   const { weightUnit, toggleWeightUnit } = useSettingsStore()
 
+  // Platform admin gets a dedicated SaaS dashboard
+  if (profile?.role === 'super_admin') return <PlatformDashboard />
+
   const membership = orgMemberships?.find(m => m.org_id === activeOrgId)
   const canViewAsAthlete = membership?.is_self_athlete === true
   // Use resolveRole so org_role is the fallback — works even without profile.role
@@ -38,6 +42,182 @@ export function TodayPage() {
   }
 
   return <AthleteTodayPage profile={profile} weightUnit={weightUnit} toggleWeightUnit={toggleWeightUnit} />
+}
+
+// ─── Platform Dashboard (super_admin) ────────────────────────────────────────
+function PlatformDashboard() {
+  const { orgs } = useOrgStore()
+  const { setActivePage } = useUIStore()
+
+  const PLAN_MRR = { starter: 0, team_pro: 149, enterprise: 499 }
+
+  const activeOrgs  = orgs.filter((o) => o.status === 'active')
+  const totalMRR    = activeOrgs.reduce((s, o) => s + (PLAN_MRR[o.plan] || 0), 0)
+  const paidOrgs    = activeOrgs.filter((o) => o.plan !== 'starter')
+  const totalUsers  = orgs.reduce((s, o) => s + o.members.length, 0)
+  const suspendedOrgs = orgs.filter((o) => o.status === 'suspended')
+
+  // Mock recent signups (last 24 h)
+  const recentSignups = orgs.slice(0, 3).map((o, i) => ({
+    ...o,
+    hoursAgo: [2, 7, 14][i],
+  }))
+
+  const systemServices = [
+    { label: 'API',           ok: true,  latency: '43ms'  },
+    { label: 'Database',      ok: true,  latency: '12ms'  },
+    { label: 'Auth',          ok: true,  latency: '21ms'  },
+    { label: 'Storage',       ok: true,  latency: '89ms'  },
+    { label: 'Email / SMTP',  ok: true,  latency: '—'     },
+    { label: 'Edge Functions', ok: true, latency: '31ms'  },
+  ]
+
+  const quickLinks = [
+    { label: 'Billing & Plans', page: 'settings', desc: 'Subscriptions, upgrades, upsell', icon: CreditCard, color: 'text-green-400' },
+    { label: 'User Directory',  page: 'settings', desc: 'All users across every org',      icon: Users,      color: 'text-blue-400'  },
+    { label: 'Organizations',   page: 'settings', desc: 'Org details, limits, status',     icon: Building2,  color: 'text-purple-400'},
+    { label: 'Platform Analytics', page: 'analytics', desc: 'MRR, ARR, growth charts',    icon: BarChart2,  color: 'text-yellow-400'},
+  ]
+
+  const greeting = (() => {
+    const h = new Date().getHours()
+    if (h < 12) return 'Good morning'
+    if (h < 17) return 'Good afternoon'
+    return 'Good evening'
+  })()
+
+  return (
+    <div className="p-4 md:p-6 max-w-6xl mx-auto space-y-6">
+      {/* Header */}
+      <div>
+        <h1 className="text-xl font-bold text-zinc-100">{greeting}, Admin</h1>
+        <p className="text-sm text-zinc-400 mt-0.5">Platform overview · {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</p>
+      </div>
+
+      {/* KPI row */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <StatCard label="MRR"         value={`$${totalMRR.toLocaleString()}`} sub="monthly recurring"            icon={TrendingUp} color="green"  trendLabel="+12% vs last month" trend={1} />
+        <StatCard label="Active Orgs" value={activeOrgs.length}               sub={`${paidOrgs.length} paid`}    icon={Building2}  color="blue"   />
+        <StatCard label="Total Users" value={totalUsers}                      sub="across all orgs"              icon={Users}      color="purple" />
+        <StatCard label="New Today"   value={recentSignups.length}            sub="org signups (24 h)"           icon={Zap}        color="yellow" trendLabel="↑ 2 vs yesterday" trend={1} />
+      </div>
+
+      {/* Alerts + recent signups */}
+      <div className="grid md:grid-cols-2 gap-4">
+        {/* Alerts */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-yellow-400" /> Platform Alerts
+            </CardTitle>
+          </CardHeader>
+          <CardBody className="space-y-2.5">
+            {suspendedOrgs.length === 0 ? (
+              <div className="flex items-center gap-2.5 p-3 bg-green-500/5 border border-green-500/15 rounded-lg">
+                <CheckCircle className="w-4 h-4 text-green-400 flex-shrink-0" />
+                <p className="text-sm text-zinc-300">All systems healthy — no active alerts</p>
+              </div>
+            ) : (
+              suspendedOrgs.map((o) => (
+                <div key={o.id} className="flex items-center gap-2.5 p-3 bg-red-500/5 border border-red-500/15 rounded-lg">
+                  <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0" />
+                  <div>
+                    <p className="text-sm text-zinc-200 font-medium">{o.name}</p>
+                    <p className="text-xs text-red-400">Suspended · {PLAN_META[o.plan]?.label}</p>
+                  </div>
+                </div>
+              ))
+            )}
+            {orgs.filter((o) => {
+              const pct = (o.members.filter((m) => m.role === 'athlete').length / o.athlete_limit) * 100
+              return pct >= 90 && o.status === 'active'
+            }).map((o) => (
+              <div key={o.id + '-limit'} className="flex items-center gap-2.5 p-3 bg-yellow-500/5 border border-yellow-500/15 rounded-lg">
+                <Zap className="w-4 h-4 text-yellow-400 flex-shrink-0" />
+                <div>
+                  <p className="text-sm text-zinc-200 font-medium">{o.name}</p>
+                  <p className="text-xs text-yellow-400">Athlete limit ≥90% — upsell opportunity</p>
+                </div>
+              </div>
+            ))}
+          </CardBody>
+        </Card>
+
+        {/* Recent signups */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Globe className="w-4 h-4 text-blue-400" /> Recent Signups
+            </CardTitle>
+            <CardSubtitle>New organizations in the last 24 hours</CardSubtitle>
+          </CardHeader>
+          <CardBody className="space-y-3">
+            {recentSignups.map((o) => {
+              const planInfo = PLAN_META[o.plan] || PLAN_META.starter
+              return (
+                <div key={o.id} className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-zinc-700 flex items-center justify-center flex-shrink-0">
+                    <Building2 className="w-4 h-4 text-zinc-400" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-zinc-200">{o.name}</p>
+                    <p className="text-xs text-zinc-500">{o.hoursAgo}h ago · {o.members.length} member{o.members.length !== 1 ? 's' : ''}</p>
+                  </div>
+                  <Badge color={planInfo.color}>{planInfo.label}</Badge>
+                </div>
+              )
+            })}
+          </CardBody>
+        </Card>
+      </div>
+
+      {/* Quick links */}
+      <div>
+        <p className="text-xs text-zinc-500 uppercase tracking-wide font-semibold mb-3">Quick Access</p>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {quickLinks.map((link) => (
+            <button
+              key={link.label}
+              onClick={() => setActivePage(link.page)}
+              className="p-4 bg-zinc-900 border border-zinc-800 rounded-xl text-left hover:border-zinc-600 hover:bg-zinc-800/60 transition-all group"
+            >
+              <link.icon className={cn('w-5 h-5 mb-2', link.color)} />
+              <p className="text-sm font-semibold text-zinc-200 group-hover:text-zinc-100">{link.label}</p>
+              <p className="text-xs text-zinc-500 mt-0.5">{link.desc}</p>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* System status */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Server className="w-4 h-4 text-zinc-400" /> System Status
+          </CardTitle>
+          <CardSubtitle>Live health check for all platform services</CardSubtitle>
+        </CardHeader>
+        <CardBody className="p-0">
+          <div className="divide-y divide-zinc-800">
+            {systemServices.map((svc) => (
+              <div key={svc.label} className="flex items-center justify-between px-4 py-3">
+                <div className="flex items-center gap-2.5">
+                  <div className={cn('w-2 h-2 rounded-full', svc.ok ? 'bg-green-500' : 'bg-red-500')} />
+                  <span className="text-sm text-zinc-300">{svc.label}</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  {svc.latency !== '—' && (
+                    <span className="text-xs text-zinc-500">{svc.latency}</span>
+                  )}
+                  <Badge color={svc.ok ? 'green' : 'red'}>{svc.ok ? 'Operational' : 'Degraded'}</Badge>
+                </div>
+              </div>
+            ))}
+          </div>
+        </CardBody>
+      </Card>
+    </div>
+  )
 }
 
 // ─── Staff Dashboard ──────────────────────────────────────────────────────────

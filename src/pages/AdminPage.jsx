@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import { ResponsiveContainer, BarChart, Bar, CartesianGrid, XAxis, YAxis, Tooltip, Legend } from 'recharts'
 import {
   Users, Shield, Bell, Database, Settings, PlusCircle, Mail, Trash2,
   AlertTriangle, Lock, Globe, Building2, CheckCircle2,
@@ -64,10 +65,11 @@ export function AdminPage() {
   const canManage = isSuperAdmin || isHeadCoach
 
   const SUPER_TABS = [
-    { id: 'orgs', label: 'Organizations' },
-    { id: 'analytics', label: 'Analytics' },
-    { id: 'roles', label: 'Roles & Permissions' },
-    { id: 'notifications', label: 'Notifications' },
+    { id: 'orgs',      label: 'Organizations' },
+    { id: 'users',     label: 'Users' },
+    { id: 'analytics', label: 'Platform Analytics' },
+    { id: 'billing',   label: 'Billing & Plans' },
+    { id: 'system',    label: 'System' },
   ]
   const ADMIN_TABS = [
     { id: 'overview', label: 'Overview' },
@@ -99,7 +101,7 @@ export function AdminPage() {
               : <><Settings className="w-5 h-5 text-zinc-400" /> Settings</>}
           </h1>
           <p className="text-sm text-zinc-400 mt-0.5">
-            {isSuperAdmin ? 'Manage all organizations, plans, and platform-wide settings'
+            {isSuperAdmin ? 'Billing orgs, subscriptions, user accounts, platform health'
               : isHeadCoach ? 'Org settings, team management, invitations, and permissions'
               : 'Your notification preferences and account settings'}
           </p>
@@ -122,8 +124,11 @@ export function AdminPage() {
 
       <Tabs tabs={visibleTabs} activeTab={tab} onChange={setTab} />
 
-      {tab === 'orgs' && isSuperAdmin && <SuperAdminOrgsTab />}
+      {tab === 'orgs'      && isSuperAdmin && <SuperAdminOrgsTab />}
+      {tab === 'users'     && isSuperAdmin && <PlatformUsersTab />}
       {tab === 'analytics' && isSuperAdmin && <PlatformAnalyticsTab />}
+      {tab === 'billing'   && isSuperAdmin && <PlatformBillingTab />}
+      {tab === 'system'    && isSuperAdmin && <PlatformSystemTab />}
       {tab === 'overview' && isHeadCoach && <OverviewTab />}
       {tab === 'team' && isHeadCoach && <TeamTab onInvite={() => setInviteOpen(true)} />}
       {tab === 'invitations' && isHeadCoach && <InvitationsTab />}
@@ -138,116 +143,436 @@ export function AdminPage() {
 }
 
 // ─── Platform Analytics (Super Admin) ────────────────────────────────────────
+const chartTooltipStyle = {
+  contentStyle: { backgroundColor: '#27272a', border: '1px solid #3f3f46', borderRadius: '8px', color: '#f4f4f5', fontSize: '12px' },
+  labelStyle: { color: '#a1a1aa' },
+}
+
+// ─── Platform Analytics (Super Admin — SaaS metrics) ─────────────────────────
 function PlatformAnalyticsTab() {
   const { orgs } = useOrgStore()
-  const [selectedOrg, setSelectedOrg] = useState(null)
 
-  if (selectedOrg) {
-    return <OrgAnalyticsView org={selectedOrg} onBack={() => setSelectedOrg(null)} />
-  }
-
-  // Platform-level aggregates across all orgs
-  const totalAthletes = orgs.reduce((s, o) => s + o.members.filter((m) => m.role === 'athlete').length, 0)
-  const totalCoaches = orgs.reduce((s, o) => s + o.members.filter((m) => m.role === 'coach').length, 0)
-  const totalNutritionists = orgs.reduce((s, o) => s + o.members.filter((m) => m.role === 'nutritionist').length, 0)
-  const totalAdmins = orgs.reduce((s, o) => s + o.members.filter((m) => m.role === 'admin').length, 0)
+  // Derived SaaS metrics from mock org data
+  const PLAN_MRR = { starter: 0, team_pro: 149, enterprise: 499 }
+  const totalMRR = orgs
+    .filter((o) => o.status === 'active')
+    .reduce((s, o) => s + (PLAN_MRR[o.plan] || 0), 0)
+  const totalARR = totalMRR * 12
   const activeOrgs = orgs.filter((o) => o.status === 'active').length
   const suspendedOrgs = orgs.filter((o) => o.status === 'suspended').length
+  const totalUsers = orgs.reduce((s, o) => s + o.members.length, 0)
+  const paidOrgs = orgs.filter((o) => o.plan !== 'starter' && o.status === 'active').length
+  const conversionRate = orgs.length > 0 ? Math.round((paidOrgs / orgs.length) * 100) : 0
   const totalStorage = orgs.reduce((s, o) => s + (o.storage_gb_used || 0), 0)
   const planBreakdown = Object.keys(PLAN_META).map((p) => ({
-    plan: p, meta: PLAN_META[p], count: orgs.filter((o) => o.plan === p).length
+    plan: p, meta: PLAN_META[p],
+    count: orgs.filter((o) => o.plan === p).length,
+    mrr: orgs.filter((o) => o.plan === p && o.status === 'active').reduce((s) => s + (PLAN_MRR[p] || 0), 0),
   }))
 
-  // Org health scores (derived from mock data richness)
-  const orgHealth = orgs.map((o) => {
-    const athletes = o.members.filter((m) => m.role === 'athlete').length
-    const staff = o.members.filter((m) => m.role !== 'athlete').length
-    const pending = o.invitations.filter((i) => i.status === 'pending').length
-    const recentActivity = o.activity_log.length
-    // Pull real athlete data for org-001, synthetic for others
-    const orgAthletes = o.id === 'org-001' ? MOCK_ATHLETES : []
-    const avgAdherence = orgAthletes.length > 0
-      ? Math.round(orgAthletes.reduce((s, a) => s + a.adherence, 0) / orgAthletes.length)
-      : Math.floor(72 + Math.random() * 20)
-    const avgSleep = orgAthletes.length > 0
-      ? (orgAthletes.reduce((s, a) => s + a.sleep_avg, 0) / orgAthletes.length).toFixed(1)
-      : (6.5 + Math.random() * 1.5).toFixed(1)
-    const flags = orgAthletes.filter((a) => a.flags?.length > 0).length
-    return { org: o, athletes, staff, pending, recentActivity, avgAdherence, avgSleep, flags }
-  })
+  // Mock signup trend (last 8 weeks)
+  const signupTrend = [
+    { week: 'W-7', signups: 3, churned: 0, mrr: totalMRR * 0.70 },
+    { week: 'W-6', signups: 5, churned: 1, mrr: totalMRR * 0.74 },
+    { week: 'W-5', signups: 2, churned: 0, mrr: totalMRR * 0.77 },
+    { week: 'W-4', signups: 7, churned: 1, mrr: totalMRR * 0.82 },
+    { week: 'W-3', signups: 4, churned: 0, mrr: totalMRR * 0.88 },
+    { week: 'W-2', signups: 6, churned: 2, mrr: totalMRR * 0.92 },
+    { week: 'W-1', signups: 8, churned: 1, mrr: totalMRR * 0.97 },
+    { week: 'Now',  signups: 3, churned: 0, mrr: totalMRR },
+  ]
 
   return (
     <div className="space-y-6">
-      {/* Platform stats */}
+      {/* Top-line SaaS KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <StatCard label="Total Orgs" value={orgs.length} sub={`${activeOrgs} active · ${suspendedOrgs} suspended`} icon={Building2} color="purple" />
-        <StatCard label="Total Athletes" value={totalAthletes} icon={Users} color="blue" />
-        <StatCard label="Coaches + Staff" value={totalCoaches + totalNutritionists + totalAdmins} sub={`${totalCoaches} coaches · ${totalNutritionists} nutritionists`} icon={Shield} color="green" />
-        <StatCard label="Storage Used" value={`${totalStorage.toFixed(1)}GB`} icon={Database} color="yellow" />
+        <StatCard label="MRR" value={`$${totalMRR.toLocaleString()}`} sub="monthly recurring" icon={TrendingUp} color="green" trendLabel="+12% vs last month" trend={1} />
+        <StatCard label="ARR" value={`$${totalARR.toLocaleString()}`} sub="annualized" icon={CreditCard} color="purple" />
+        <StatCard label="Paying Orgs" value={paidOrgs} sub={`${conversionRate}% conversion`} icon={Building2} color="blue" />
+        <StatCard label="Total Users" value={totalUsers} sub={`across ${activeOrgs} active orgs`} icon={Users} color="yellow" />
       </div>
 
-      {/* Plan breakdown */}
+      {/* MRR + signups trend */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2"><CreditCard className="w-4 h-4 text-purple-400" /> Plan Distribution</CardTitle>
-          <CardSubtitle>Subscription breakdown across all organizations</CardSubtitle>
+          <CardTitle className="flex items-center gap-2"><TrendingUp className="w-4 h-4 text-green-400" /> Growth Trend</CardTitle>
+          <CardSubtitle>Weekly new signups, churn, and MRR over the last 8 weeks</CardSubtitle>
+        </CardHeader>
+        <CardBody>
+          <div className="h-48">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={signupTrend} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#3f3f46" />
+                <XAxis dataKey="week" tick={{ fill: '#71717a', fontSize: 11 }} />
+                <YAxis tick={{ fill: '#71717a', fontSize: 11 }} />
+                <Tooltip {...chartTooltipStyle} />
+                <Legend wrapperStyle={{ fontSize: 11, color: '#a1a1aa' }} />
+                <Bar dataKey="signups" name="New Signups" fill="#a855f7" radius={[3,3,0,0]} />
+                <Bar dataKey="churned" name="Churned"     fill="#ef4444" radius={[3,3,0,0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </CardBody>
+      </Card>
+
+      {/* Revenue by plan */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><CreditCard className="w-4 h-4 text-purple-400" /> Revenue by Plan</CardTitle>
+          <CardSubtitle>MRR contribution per subscription tier</CardSubtitle>
         </CardHeader>
         <CardBody>
           <div className="grid grid-cols-3 gap-4">
-            {planBreakdown.map(({ plan, meta, count }) => (
-              <div key={plan} className="text-center p-4 bg-zinc-800/40 rounded-xl border border-zinc-700">
+            {planBreakdown.map(({ plan, meta, count, mrr }) => (
+              <div key={plan} className="p-4 bg-zinc-800/40 rounded-xl border border-zinc-700 text-center">
                 <Badge color={meta.color} className="mb-2">{meta.label}</Badge>
                 <p className="text-2xl font-bold text-zinc-100 mt-1">{count}</p>
-                <p className="text-xs text-zinc-500 mt-0.5">org{count !== 1 ? 's' : ''}</p>
-                <p className="text-xs text-zinc-600 mt-1.5">{meta.price}</p>
+                <p className="text-xs text-zinc-500">org{count !== 1 ? 's' : ''}</p>
+                <p className="text-sm font-semibold text-green-400 mt-2">
+                  {mrr > 0 ? `$${mrr.toLocaleString()}/mo` : 'Free'}
+                </p>
+                <p className="text-xs text-zinc-600 mt-0.5">{meta.price}</p>
               </div>
             ))}
           </div>
         </CardBody>
       </Card>
 
-      {/* Org health list */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2"><BarChart2 className="w-4 h-4 text-blue-400" /> Organization Health</CardTitle>
-          <CardSubtitle>Click any org to drill into coaches, nutritionists, and athletes</CardSubtitle>
-        </CardHeader>
-        <CardBody className="p-0">
-          <div className="divide-y divide-zinc-800">
-            {orgHealth.map(({ org, athletes, staff, avgAdherence, avgSleep, flags, pending }) => {
-              const planInfo = PLAN_META[org.plan] || PLAN_META.starter
-              const healthScore = Math.round((avgAdherence * 0.5) + (parseFloat(avgSleep) / 9 * 30) + (flags === 0 ? 20 : Math.max(0, 20 - flags * 5)))
-              const scoreColor = healthScore >= 75 ? 'text-green-400' : healthScore >= 55 ? 'text-yellow-400' : 'text-red-400'
+      {/* Health + churn risk */}
+      <div className="grid md:grid-cols-2 gap-4">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><Activity className="w-4 h-4 text-blue-400" /> Platform Health</CardTitle>
+          </CardHeader>
+          <CardBody className="space-y-3">
+            {[
+              { label: 'Active orgs',           value: activeOrgs,      of: orgs.length,     color: 'bg-green-500' },
+              { label: 'Paid conversion rate',  value: paidOrgs,        of: orgs.length,     color: 'bg-purple-500' },
+              { label: 'Storage utilisation',   value: Math.round(totalStorage), of: orgs.length * 2, color: 'bg-yellow-500', suffix: 'GB' },
+            ].map((item) => {
+              const pct = Math.min((item.value / item.of) * 100, 100) || 0
               return (
-                <button
-                  key={org.id}
-                  onClick={() => setSelectedOrg(org)}
-                  className="w-full flex items-center gap-4 px-5 py-4 hover:bg-zinc-800/40 transition-colors text-left group"
-                >
-                  <div className="w-10 h-10 rounded-xl bg-zinc-700 flex items-center justify-center flex-shrink-0"><Activity className="w-5 h-5 text-zinc-400" /></div>
+                <div key={item.label}>
+                  <div className="flex justify-between mb-1">
+                    <span className="text-xs text-zinc-400">{item.label}</span>
+                    <span className="text-xs text-zinc-300 font-medium">{item.value}{item.suffix || ''} / {item.of}{item.suffix || ''}</span>
+                  </div>
+                  <div className="h-1.5 bg-zinc-700 rounded-full">
+                    <div className={`h-full rounded-full ${item.color}`} style={{ width: `${pct}%` }} />
+                  </div>
+                </div>
+              )
+            })}
+          </CardBody>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-yellow-400" /> Churn Risk</CardTitle>
+            <CardSubtitle>Orgs flagged for low usage or approaching limits</CardSubtitle>
+          </CardHeader>
+          <CardBody className="space-y-2.5">
+            {orgs.filter((o) => o.status === 'suspended').length === 0 ? (
+              <p className="text-sm text-zinc-500 text-center py-3">No suspended orgs</p>
+            ) : (
+              orgs.filter((o) => o.status === 'suspended').map((o) => (
+                <div key={o.id} className="flex items-center gap-3 p-2 bg-red-500/5 border border-red-500/15 rounded-lg">
+                  <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0" />
+                  <div>
+                    <p className="text-sm text-zinc-200 font-medium">{o.name}</p>
+                    <p className="text-xs text-red-400">Suspended · {PLAN_META[o.plan]?.label}</p>
+                  </div>
+                </div>
+              ))
+            )}
+            {orgs.filter((o) => {
+              const athletePct = (o.members.filter((m) => m.role === 'athlete').length / o.athlete_limit) * 100
+              return athletePct >= 90 && o.status === 'active'
+            }).map((o) => (
+              <div key={o.id + '-limit'} className="flex items-center gap-3 p-2 bg-yellow-500/5 border border-yellow-500/15 rounded-lg">
+                <Zap className="w-4 h-4 text-yellow-400 flex-shrink-0" />
+                <div>
+                  <p className="text-sm text-zinc-200 font-medium">{o.name}</p>
+                  <p className="text-xs text-yellow-400">Athlete limit almost reached — upsell opportunity</p>
+                </div>
+              </div>
+            ))}
+          </CardBody>
+        </Card>
+      </div>
+    </div>
+  )
+}
+
+// ─── Platform Users (Super Admin) ─────────────────────────────────────────────
+function PlatformUsersTab() {
+  const { orgs } = useOrgStore()
+  const [search, setSearch] = useState('')
+
+  // Flatten all unique users across orgs
+  const allUsers = useMemo(() => {
+    const seen = new Set()
+    const users = []
+    orgs.forEach((org) => {
+      org.members.forEach((m) => {
+        if (!seen.has(m.user_id)) {
+          seen.add(m.user_id)
+          users.push({
+            ...m,
+            orgs: orgs.filter((o) => o.members.some((mm) => mm.user_id === m.user_id)).map((o) => o.name),
+          })
+        }
+      })
+    })
+    return users
+  }, [orgs])
+
+  const filtered = allUsers.filter(
+    (u) =>
+      u.full_name.toLowerCase().includes(search.toLowerCase()) ||
+      u.email.toLowerCase().includes(search.toLowerCase())
+  )
+
+  const totalPlatformUsers = allUsers.length
+  const staffCount = allUsers.filter((u) => u.role !== 'athlete').length
+  const athleteCount = allUsers.filter((u) => u.role === 'athlete').length
+
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-3 gap-3">
+        <StatCard label="Total Users" value={totalPlatformUsers} icon={Users} color="purple" />
+        <StatCard label="Staff / Coaches" value={staffCount} icon={Shield} color="blue" />
+        <StatCard label="Athletes" value={athleteCount} icon={Activity} color="green" />
+      </div>
+
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search users by name or email…"
+          className="w-full bg-zinc-800 border border-zinc-700 rounded-xl pl-9 pr-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-purple-500/40"
+        />
+      </div>
+
+      <Card>
+        <CardBody className="p-0">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-zinc-800">
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wide">User</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wide">Role</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wide">Organization(s)</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wide">Joined</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((u, i) => (
+                  <tr key={u.user_id} className={`border-b border-zinc-800/60 last:border-0 ${i % 2 === 0 ? 'bg-zinc-800/10' : ''}`}>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2.5">
+                        <Avatar name={u.full_name} size="xs" />
+                        <div>
+                          <p className="text-zinc-200 font-medium text-sm">{u.full_name}</p>
+                          <p className="text-xs text-zinc-500">{u.email}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <Badge color={roleBadge(u.role)} className="capitalize">
+                        {u.role === 'admin' ? 'Head Coach' : u.role}
+                      </Badge>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-wrap gap-1">
+                        {u.orgs.map((name) => (
+                          <span key={name} className="text-xs text-zinc-400 bg-zinc-800 px-2 py-0.5 rounded-md">{name}</span>
+                        ))}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-xs text-zinc-500">{u.joined_at}</td>
+                  </tr>
+                ))}
+                {filtered.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="px-4 py-10 text-center text-sm text-zinc-500">No users found</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </CardBody>
+      </Card>
+    </div>
+  )
+}
+
+// ─── Platform Billing (Super Admin) ──────────────────────────────────────────
+function PlatformBillingTab() {
+  const { orgs } = useOrgStore()
+  const PLAN_MRR = { starter: 0, team_pro: 149, enterprise: 499 }
+
+  const paidOrgs = orgs.filter((o) => o.plan !== 'starter')
+
+  return (
+    <div className="space-y-5">
+      <p className="text-xs text-zinc-500 uppercase tracking-wide font-semibold">Subscription accounts</p>
+
+      {paidOrgs.length === 0 ? (
+        <Card>
+          <CardBody className="py-12 text-center text-zinc-500">
+            <CreditCard className="w-8 h-8 mx-auto mb-3 opacity-40" />
+            <p className="text-sm">No paid subscriptions yet</p>
+          </CardBody>
+        </Card>
+      ) : (
+        <div className="space-y-3">
+          {paidOrgs.map((org) => {
+            const planInfo = PLAN_META[org.plan] || PLAN_META.starter
+            const mrr = PLAN_MRR[org.plan] || 0
+            const athletes = org.members.filter((m) => m.role === 'athlete').length
+            return (
+              <Card key={org.id}>
+                <div className="flex items-center gap-4">
+                  <div className="w-10 h-10 rounded-xl bg-zinc-700 flex items-center justify-center flex-shrink-0">
+                    <CreditCard className="w-5 h-5 text-zinc-400" />
+                  </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-sm font-semibold text-zinc-100">{org.name}</span>
                       <Badge color={planInfo.color}>{planInfo.label}</Badge>
-                      <Badge color={ORG_STATUS_BADGE[org.status]?.color || 'default'}>{ORG_STATUS_BADGE[org.status]?.label}</Badge>
-                      {pending > 0 && <Badge color="yellow">{pending} pending</Badge>}
+                      <Badge color={org.status === 'active' ? 'green' : 'red'} className="capitalize">{org.status}</Badge>
                     </div>
-                    <div className="flex items-center gap-4 mt-1.5 text-xs text-zinc-500">
-                      <span className="flex items-center gap-1"><Users className="w-3 h-3" />{athletes} athletes</span>
-                      <span className="flex items-center gap-1"><Shield className="w-3 h-3" />{staff} staff</span>
-                      <span className="flex items-center gap-1"><Activity className="w-3 h-3" />{avgAdherence}% adherence</span>
-                      <span className="flex items-center gap-1"><Moon className="w-3 h-3" />{avgSleep}h sleep</span>
-                      {flags > 0 && <span className="flex items-center gap-1 text-red-400"><AlertTriangle className="w-3 h-3" />{flags} flags</span>}
+                    <div className="flex items-center gap-4 mt-1 text-xs text-zinc-500">
+                      <span>{athletes} athletes</span>
+                      <span>Created {org.created_at}</span>
+                      <span>{org.federation || 'No federation'}</span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-4 flex-shrink-0">
-                    <div className="text-right hidden md:block">
-                      <p className={`text-lg font-bold ${scoreColor}`}>{healthScore}</p>
-                      <p className="text-xs text-zinc-600">health score</p>
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-zinc-600 group-hover:text-zinc-300 transition-colors" />
+                  <div className="text-right flex-shrink-0">
+                    <p className="text-base font-bold text-green-400">${mrr}/mo</p>
+                    <p className="text-xs text-zinc-500">${(mrr * 12).toLocaleString()}/yr</p>
                   </div>
-                </button>
+                </div>
+              </Card>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Upgrade prompts for free orgs */}
+      <div>
+        <p className="text-xs text-zinc-500 uppercase tracking-wide font-semibold mb-3">Free tier — upsell candidates</p>
+        <div className="space-y-2">
+          {orgs.filter((o) => o.plan === 'starter').map((org) => {
+            const athletes = org.members.filter((m) => m.role === 'athlete').length
+            const pct = (athletes / org.athlete_limit) * 100
+            return (
+              <div key={org.id} className="flex items-center gap-4 p-3 bg-zinc-900 border border-zinc-700 rounded-xl">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-zinc-200 font-medium">{org.name}</span>
+                    <Badge color="default">Starter</Badge>
+                  </div>
+                  <div className="flex items-center gap-2 mt-1.5">
+                    <div className="flex-1 h-1.5 bg-zinc-700 rounded-full">
+                      <div className={`h-full rounded-full ${pct >= 90 ? 'bg-red-500' : pct >= 70 ? 'bg-yellow-500' : 'bg-green-500'}`} style={{ width: `${pct}%` }} />
+                    </div>
+                    <span className="text-xs text-zinc-500 flex-shrink-0">{athletes}/{org.athlete_limit} athletes</span>
+                  </div>
+                </div>
+                {pct >= 70 && (
+                  <Badge color="yellow">Upsell</Badge>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Platform System (Super Admin) ────────────────────────────────────────────
+function PlatformSystemTab() {
+  const { orgs } = useOrgStore()
+  const totalStorage = orgs.reduce((s, o) => s + (o.storage_gb_used || 0), 0)
+  const totalStorageLimit = orgs.reduce((s, o) => s + (o.storage_gb_limit || 0), 0)
+  const storagePct = totalStorageLimit > 0 ? Math.round((totalStorage / totalStorageLimit) * 100) : 0
+
+  const systemItems = [
+    { label: 'API',           status: 'operational', latency: '43ms' },
+    { label: 'Database',      status: 'operational', latency: '12ms' },
+    { label: 'Auth',          status: 'operational', latency: '21ms' },
+    { label: 'Storage',       status: 'operational', latency: '89ms' },
+    { label: 'Email / SMTP',  status: 'operational', latency: '—'    },
+    { label: 'Edge Functions', status: 'operational', latency: '31ms' },
+  ]
+
+  return (
+    <div className="space-y-5">
+      {/* Service status */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Activity className="w-4 h-4 text-green-400" /> Service Status
+          </CardTitle>
+          <CardSubtitle>All systems nominal</CardSubtitle>
+        </CardHeader>
+        <CardBody className="p-0">
+          <div className="divide-y divide-zinc-800">
+            {systemItems.map((item) => (
+              <div key={item.label} className="flex items-center justify-between px-5 py-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-2 h-2 rounded-full bg-green-400" />
+                  <span className="text-sm text-zinc-200">{item.label}</span>
+                </div>
+                <div className="flex items-center gap-4 text-xs text-zinc-500">
+                  {item.latency !== '—' && <span>{item.latency}</span>}
+                  <Badge color="green">Operational</Badge>
+                </div>
+              </div>
+            ))}
+          </div>
+        </CardBody>
+      </Card>
+
+      {/* Storage across all orgs */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Database className="w-4 h-4 text-yellow-400" /> Storage Across All Orgs
+          </CardTitle>
+          <CardSubtitle>{totalStorage.toFixed(1)} GB used of {totalStorageLimit} GB allocated</CardSubtitle>
+        </CardHeader>
+        <CardBody className="space-y-3">
+          <div>
+            <div className="flex justify-between mb-1.5">
+              <span className="text-xs text-zinc-400">Total utilisation</span>
+              <span className="text-xs text-zinc-300 font-medium">{storagePct}%</span>
+            </div>
+            <div className="h-2 bg-zinc-700 rounded-full">
+              <div
+                className={`h-full rounded-full transition-all ${storagePct > 85 ? 'bg-red-500' : storagePct > 65 ? 'bg-yellow-500' : 'bg-green-500'}`}
+                style={{ width: `${storagePct}%` }}
+              />
+            </div>
+          </div>
+
+          <div className="divide-y divide-zinc-800/60">
+            {orgs.map((org) => {
+              const pct = Math.round((org.storage_gb_used / org.storage_gb_limit) * 100)
+              return (
+                <div key={org.id} className="py-2.5 flex items-center gap-3">
+                  <span className="text-sm text-zinc-300 flex-1">{org.name}</span>
+                  <div className="flex items-center gap-2 w-40">
+                    <div className="flex-1 h-1.5 bg-zinc-700 rounded-full">
+                      <div className={`h-full rounded-full ${pct > 85 ? 'bg-red-500' : pct > 65 ? 'bg-yellow-500' : 'bg-green-500'}`} style={{ width: `${pct}%` }} />
+                    </div>
+                    <span className="text-xs text-zinc-500 w-16 text-right">{org.storage_gb_used}/{org.storage_gb_limit}GB</span>
+                  </div>
+                </div>
               )
             })}
           </div>

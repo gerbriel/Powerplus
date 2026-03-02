@@ -64,8 +64,9 @@ const ATHLETE_NAV = [
 
 const NAV_ITEMS = {
   super_admin: [
-    { id: 'settings', label: 'Organizations', icon: Globe, section: 'main' },
-    { id: 'analytics', label: 'Platform Analytics', icon: BarChart3, section: 'main' },
+    { id: 'today',     label: 'Platform Dashboard', icon: Globe,       section: 'main' },
+    { id: 'settings',  label: 'Organizations',      icon: Building2,   section: 'main' },
+    { id: 'analytics', label: 'Platform Analytics', icon: BarChart3,   section: 'main' },
   ],
   admin: STAFF_NAV.admin,
   coach: STAFF_NAV.coach,
