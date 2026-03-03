@@ -12,7 +12,7 @@ import {
   Send, Hash, MessageSquare, Plus, Smile, Pin, X,
   Edit2, Trash2, Check, Bold, Italic, Underline,
   Image as ImageIcon, Video, Search, Lock, Globe, Volume2,
-  MoreHorizontal, UserPlus, Film,
+  MoreHorizontal, UserPlus, Film, Users, Eye,
 } from 'lucide-react'
 import { Avatar } from '../components/ui/Avatar'
 import { Badge } from '../components/ui/Badge'
@@ -88,7 +88,7 @@ export function MessagingPage() {
     channels, messagesByThread, directMessages,
     initMessaging, createChannel, updateChannel, deleteChannel,
     sendMessage, editMessage, deleteMessage, reactToMessage,
-    openDM, markRead,
+    openDM, openGroupMessage, markRead,
   } = useMessagingStore()
 
   const org    = orgs.find((o) => o.id === (activeOrgId || profile?.org_id))
@@ -101,11 +101,12 @@ export function MessagingPage() {
   const [activeThread, setActiveThread] = useState(null)
   const [threadType, setThreadType]     = useState('channel')
 
-  const [createCh, setCreateCh]     = useState(false)
-  const [editCh, setEditCh]         = useState(null)
-  const [deleteCh, setDeleteCh]     = useState(null)
-  const [newDMOpen, setNewDMOpen]   = useState(false)
-  const [membersOpen, setMembersOpen] = useState(false)
+  const [createCh, setCreateCh]         = useState(false)
+  const [editCh, setEditCh]             = useState(null)
+  const [deleteCh, setDeleteCh]         = useState(null)
+  const [newDMOpen, setNewDMOpen]       = useState(false)
+  const [newGroupOpen, setNewGroupOpen] = useState(false)
+  const [membersOpen, setMembersOpen]   = useState(false)
 
   useEffect(() => {
     if (userId && orgId) initMessaging(isDemo, orgId, userId)
@@ -127,8 +128,20 @@ export function MessagingPage() {
     )
   }, [channels, isAdmin, orgId, userId])
 
+  // Admins see ALL DMs and group messages (observer mode); others see only their own
+  const visibleDMs     = useMemo(() => directMessages.filter((dm) =>
+    dm.type !== 'group' && (isAdmin || dm.participants.includes(userId))
+  ), [directMessages, isAdmin, userId])
+
+  const visibleGroups  = useMemo(() => directMessages.filter((dm) =>
+    dm.type === 'group' && (isAdmin || dm.participants.includes(userId))
+  ), [directMessages, isAdmin, userId])
+
   const activeChannel = visibleChannels.find((ch) => ch.id === activeThread)
   const activeDM      = directMessages.find((dm) => dm.id === activeThread)
+
+  // Is the current user an observer (admin viewing a thread they're not part of)?
+  const isObserver = isAdmin && activeDM && !activeDM.participants.includes(userId)
 
   function selectChannel(id) { setActiveThread(id); setThreadType('channel'); markRead(id, userId) }
   function selectDM(id) { setActiveThread(id); setThreadType('dm'); markRead(id, userId) }
@@ -141,6 +154,10 @@ export function MessagingPage() {
   function handleOpenDM(tId, tName, tRole) {
     const id = openDM(userId, tId, tName, tRole)
     setNewDMOpen(false); setActiveThread(id); setThreadType('dm')
+  }
+  function handleOpenGroup(participantIds, groupName) {
+    const id = openGroupMessage(userId, participantIds, groupName)
+    setNewGroupOpen(false); setActiveThread(id); setThreadType('dm')
   }
 
   return (
@@ -180,9 +197,10 @@ export function MessagingPage() {
                 <Plus className="w-3.5 h-3.5" />
               </button>
             </div>
-            {directMessages.length === 0 && <p className="px-3 text-xs text-zinc-600 italic">No DMs yet</p>}
-            {directMessages.map((dm) => {
-              const unread = dm.unread?.[userId] || 0
+            {visibleDMs.length === 0 && <p className="px-3 text-xs text-zinc-600 italic">No DMs yet</p>}
+            {visibleDMs.map((dm) => {
+              const unread    = dm.unread?.[userId] || 0
+              const isObs     = isAdmin && !dm.participants.includes(userId)
               return (
                 <button key={dm.id} onClick={() => selectDM(dm.id)} className={cn('w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg mx-0.5 text-sm transition-colors', activeThread === dm.id ? 'bg-zinc-700 text-zinc-100' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800')}>
                   <div className="relative flex-shrink-0">
@@ -190,6 +208,32 @@ export function MessagingPage() {
                     <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 bg-green-500 rounded-full border border-zinc-900" />
                   </div>
                   <span className="truncate flex-1 text-left">{dm.display_name}</span>
+                  {isObs && <Eye className="w-3 h-3 text-purple-400 flex-shrink-0" title="Admin observer" />}
+                  {unread > 0 && <span className="w-4 h-4 bg-purple-500 rounded-full text-[10px] text-white flex items-center justify-center font-bold">{unread}</span>}
+                </button>
+              )
+            })}
+          </div>
+
+          {/* Group Messages */}
+          <div>
+            <div className="flex items-center justify-between px-3 mb-1">
+              <span className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Group Messages</span>
+              <button onClick={() => setNewGroupOpen(true)} className="p-0.5 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-700 rounded transition-colors" title="New group">
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            {visibleGroups.length === 0 && <p className="px-3 text-xs text-zinc-600 italic">No groups yet</p>}
+            {visibleGroups.map((gm) => {
+              const unread = gm.unread?.[userId] || 0
+              const isObs  = isAdmin && !gm.participants.includes(userId)
+              return (
+                <button key={gm.id} onClick={() => selectDM(gm.id)} className={cn('w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg mx-0.5 text-sm transition-colors', activeThread === gm.id ? 'bg-zinc-700 text-zinc-100' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800')}>
+                  <div className="relative flex-shrink-0 w-6 h-6 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center flex-shrink-0">
+                    <Users className="w-3 h-3 text-white" />
+                  </div>
+                  <span className="truncate flex-1 text-left">{gm.display_name}</span>
+                  {isObs && <Eye className="w-3 h-3 text-purple-400 flex-shrink-0" title="Admin observer" />}
                   {unread > 0 && <span className="w-4 h-4 bg-purple-500 rounded-full text-[10px] text-white flex items-center justify-center font-bold">{unread}</span>}
                 </button>
               )
@@ -209,6 +253,8 @@ export function MessagingPage() {
           messages={messagesByThread[activeThread] || []}
           profile={profile}
           isAdmin={isAdmin}
+          isObserver={isObserver}
+          orgMembers={members}
           onSend={(payload) => sendMessage(activeThread, { ...payload, senderId: userId, senderName: profile?.full_name || 'You', senderRole: role })}
           onEdit={(msgId, c) => editMessage(activeThread, msgId, c)}
           onDelete={(msgId) => deleteMessage(activeThread, msgId)}
@@ -241,6 +287,7 @@ export function MessagingPage() {
         </Modal>
       )}
       {newDMOpen && <NewDMModal members={members.filter((m) => m.user_id !== userId)} onClose={() => setNewDMOpen(false)} onSelect={handleOpenDM} />}
+      {newGroupOpen && <NewGroupModal members={members.filter((m) => m.user_id !== userId)} onClose={() => setNewGroupOpen(false)} onSave={handleOpenGroup} />}
       {membersOpen && activeChannel && <MemberListModal channel={activeChannel} members={members} onClose={() => setMembersOpen(false)} />}
     </div>
   )
@@ -273,7 +320,7 @@ function SidebarChannelItem({ channel, active, isAdmin, onSelect, onEdit, onDele
 }
 
 // ── Chat area ─────────────────────────────────────────────────────────────────
-function ChatArea({ threadId, threadType, channel, dm, messages, profile, isAdmin, onSend, onEdit, onDelete, onReact, onOpenMembers }) {
+function ChatArea({ threadId, threadType, channel, dm, messages, profile, isAdmin, isObserver, orgMembers, onSend, onEdit, onDelete, onReact, onOpenMembers }) {
   const endRef       = useRef(null)
   const fileImgRef   = useRef(null)
   const fileVidRef   = useRef(null)
@@ -289,8 +336,19 @@ function ChatArea({ threadId, threadType, channel, dm, messages, profile, isAdmi
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages.length])
 
-  const displayName  = channel ? `#${channel.name}` : dm?.display_name || 'DM'
-  const description  = channel?.description || ''
+  const isGroup     = dm?.type === 'group'
+  const displayName = channel
+    ? `#${channel.name}`
+    : isGroup
+      ? dm?.display_name || 'Group'
+      : dm?.display_name || 'DM'
+  const description  = channel?.description || (isGroup ? `${dm?.participants?.length || 0} members` : '')
+
+  // Resolve participant names for group header
+  const groupParticipants = useMemo(() => {
+    if (!isGroup || !dm) return []
+    return dm.participants.map((pid) => orgMembers?.find((m) => m.user_id === pid)).filter(Boolean)
+  }, [isGroup, dm, orgMembers])
 
   function send() {
     const trimmed = text.trim()
@@ -325,10 +383,26 @@ function ChatArea({ threadId, threadType, channel, dm, messages, profile, isAdmi
     <div className="flex-1 flex flex-col min-w-0 bg-zinc-950">
       {/* Header */}
       <div className="h-14 bg-zinc-900/90 border-b border-zinc-800 flex items-center px-4 gap-3 flex-shrink-0">
-        {channel ? (channel.type === 'private' ? <Lock className="w-4 h-4 text-zinc-400" /> : channel.type === 'announcement' ? <Volume2 className="w-4 h-4 text-zinc-400" /> : <Hash className="w-4 h-4 text-zinc-400" />) : <MessageSquare className="w-4 h-4 text-zinc-400" />}
+        {channel
+          ? (channel.type === 'private' ? <Lock className="w-4 h-4 text-zinc-400" /> : channel.type === 'announcement' ? <Volume2 className="w-4 h-4 text-zinc-400" /> : <Hash className="w-4 h-4 text-zinc-400" />)
+          : isGroup
+            ? <div className="w-7 h-7 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center flex-shrink-0"><Users className="w-3.5 h-3.5 text-white" /></div>
+            : <MessageSquare className="w-4 h-4 text-zinc-400" />
+        }
         <div className="flex-1 min-w-0">
           <span className="font-semibold text-zinc-200 text-sm">{displayName}</span>
           {description && <span className="text-xs text-zinc-500 ml-2 hidden sm:inline">{description}</span>}
+          {/* Group: show participant avatar stack */}
+          {isGroup && groupParticipants.length > 0 && (
+            <div className="flex items-center gap-0.5 mt-0.5">
+              {groupParticipants.slice(0, 5).map((m) => (
+                <div key={m.user_id} title={m.full_name} className="w-4 h-4 rounded-full border border-zinc-900">
+                  <Avatar name={m.full_name} role={m.org_role} size="xs" />
+                </div>
+              ))}
+              {groupParticipants.length > 5 && <span className="text-[10px] text-zinc-500 ml-1">+{groupParticipants.length - 5}</span>}
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-1.5">
           {pinnedMsgs.length > 0 && (
@@ -336,15 +410,28 @@ function ChatArea({ threadId, threadType, channel, dm, messages, profile, isAdmi
               <Pin className="w-3 h-3" /> {pinnedMsgs.length} pinned
             </span>
           )}
+          {isObserver && (
+            <span className="flex items-center gap-1.5 px-2.5 py-1 text-xs text-purple-300 bg-purple-500/10 border border-purple-500/20 rounded-lg font-medium">
+              <Eye className="w-3.5 h-3.5" /> Admin view
+            </span>
+          )}
           {channel && <button onClick={onOpenMembers} className="p-1.5 text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 rounded-lg transition-colors" title="Members"><UserPlus className="w-4 h-4" /></button>}
         </div>
       </div>
+
+      {/* Observer notice bar */}
+      {isObserver && (
+        <div className="px-4 py-2 bg-purple-500/5 border-b border-purple-500/10 flex items-center gap-2">
+          <Eye className="w-3.5 h-3.5 text-purple-400 flex-shrink-0" />
+          <p className="text-xs text-purple-300">You're viewing this conversation as an admin. Messages are read-only.</p>
+        </div>
+      )}
 
       {/* Messages list */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-0.5">
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-48 text-zinc-600 gap-2">
-            {channel ? <Hash className="w-8 h-8 opacity-30" /> : <MessageSquare className="w-8 h-8 opacity-30" />}
+            {channel ? <Hash className="w-8 h-8 opacity-30" /> : isGroup ? <Users className="w-8 h-8 opacity-30" /> : <MessageSquare className="w-8 h-8 opacity-30" />}
             <p className="text-sm">Start of {displayName}</p>
           </div>
         )}
@@ -370,72 +457,78 @@ function ChatArea({ threadId, threadType, channel, dm, messages, profile, isAdmi
               emojiFor={emojiFor}
               setEmojiFor={setEmojiFor}
               userId={profile?.id}
+              isObserver={isObserver}
             />
           )
         })}
         <div ref={endRef} />
       </div>
 
-      {/* Giphy picker */}
-      {showGiphy && <GiphyPicker onSelect={handleGif} onClose={() => setShowGiphy(false)} />}
+      {/* Input area — hidden for observers */}
+      {!isObserver && (
+        <>
+          {/* Giphy picker */}
+          {showGiphy && <GiphyPicker onSelect={handleGif} onClose={() => setShowGiphy(false)} />}
 
-      {/* Emoji insert picker */}
-      {showEmoji && (
-        <div className="mx-4 mb-1 p-3 bg-zinc-800 border border-zinc-700 rounded-xl shadow-xl z-20">
-          {Object.entries(EMOJI_CATEGORIES).map(([cat, emojis]) => (
-            <div key={cat} className="mb-2">
-              <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider mb-1">{cat}</p>
-              <div className="flex flex-wrap gap-1">
-                {emojis.map((e) => (
-                  <button key={e} onClick={() => { setText((p) => p + e); setShowEmoji(false) }} className="text-lg hover:scale-125 transition-transform leading-none p-0.5">{e}</button>
-                ))}
-              </div>
+          {/* Emoji insert picker */}
+          {showEmoji && (
+            <div className="mx-4 mb-1 p-3 bg-zinc-800 border border-zinc-700 rounded-xl shadow-xl z-20">
+              {Object.entries(EMOJI_CATEGORIES).map(([cat, emojis]) => (
+                <div key={cat} className="mb-2">
+                  <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider mb-1">{cat}</p>
+                  <div className="flex flex-wrap gap-1">
+                    {emojis.map((e) => (
+                      <button key={e} onClick={() => { setText((p) => p + e); setShowEmoji(false) }} className="text-lg hover:scale-125 transition-transform leading-none p-0.5">{e}</button>
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          )}
+
+          {/* Formatting toolbar + attachment buttons */}
+          <div className="px-4 pt-2 flex items-center gap-1 flex-shrink-0">
+            {[['bold', Bold, 'Bold (**text**)'], ['italic', Italic, 'Italic (_text_)'], ['underline', Underline, 'Underline (__text__)']].map(([tag, Icon, title]) => (
+              <button key={tag} title={title} onClick={() => applyFmt(tag)} className={cn('p-1.5 rounded-lg text-xs transition-colors', fmt[tag] ? 'bg-purple-600 text-white' : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800')}>
+                <Icon className="w-3.5 h-3.5" />
+              </button>
+            ))}
+            <div className="h-4 w-px bg-zinc-700 mx-1" />
+            <button onClick={() => { setShowEmoji((p) => !p); setShowGiphy(false) }} className={cn('p-1.5 rounded-lg transition-colors', showEmoji ? 'bg-zinc-700 text-zinc-200' : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800')} title="Emoji"><Smile className="w-3.5 h-3.5" /></button>
+            <button onClick={() => { setShowGiphy((p) => !p); setShowEmoji(false) }} className={cn('p-1.5 rounded-lg transition-colors', showGiphy ? 'bg-zinc-700 text-zinc-200' : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800')} title="GIF"><Film className="w-3.5 h-3.5" /></button>
+            <button onClick={() => fileImgRef.current?.click()} className="p-1.5 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 rounded-lg transition-colors" title="Image"><ImageIcon className="w-3.5 h-3.5" /></button>
+            <button onClick={() => fileVidRef.current?.click()} className="p-1.5 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 rounded-lg transition-colors" title="Video"><Video className="w-3.5 h-3.5" /></button>
+            <input ref={fileImgRef} type="file" accept="image/*" className="hidden" onChange={(e) => handleFile(e, 'image')} />
+            <input ref={fileVidRef} type="file" accept="video/*" className="hidden" onChange={(e) => handleFile(e, 'video')} />
+          </div>
+
+          {/* Input */}
+          <div className="p-4 pt-2 border-t border-zinc-800 flex-shrink-0">
+            <div className="flex items-end gap-2 bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2 focus-within:border-zinc-500 transition-colors">
+              <textarea
+                id={`msg-${threadId}`}
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } if (e.key === 'Escape') { setShowEmoji(false); setShowGiphy(false) } }}
+                placeholder={`Message ${displayName}`}
+                rows={1}
+                style={{ fontWeight: fmt.bold ? 'bold' : 'normal', fontStyle: fmt.italic ? 'italic' : 'normal', textDecoration: fmt.underline ? 'underline' : 'none' }}
+                className="flex-1 bg-transparent text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none resize-none max-h-40"
+              />
+              <button onClick={send} disabled={!text.trim()} className="p-1.5 bg-purple-600 hover:bg-purple-500 disabled:opacity-40 rounded-lg text-white transition-colors mb-0.5 flex-shrink-0">
+                <Send className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <p className="text-[10px] text-zinc-600 mt-1 px-1">Enter to send · Shift+Enter for new line · **bold** · _italic_ · __underline__</p>
+          </div>
+        </>
       )}
-
-      {/* Formatting toolbar + attachment buttons */}
-      <div className="px-4 pt-2 flex items-center gap-1 flex-shrink-0">
-        {[['bold', Bold, 'Bold (**text**)'], ['italic', Italic, 'Italic (_text_)'], ['underline', Underline, 'Underline (__text__)']].map(([tag, Icon, title]) => (
-          <button key={tag} title={title} onClick={() => applyFmt(tag)} className={cn('p-1.5 rounded-lg text-xs transition-colors', fmt[tag] ? 'bg-purple-600 text-white' : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800')}>
-            <Icon className="w-3.5 h-3.5" />
-          </button>
-        ))}
-        <div className="h-4 w-px bg-zinc-700 mx-1" />
-        <button onClick={() => { setShowEmoji((p) => !p); setShowGiphy(false) }} className={cn('p-1.5 rounded-lg transition-colors', showEmoji ? 'bg-zinc-700 text-zinc-200' : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800')} title="Emoji"><Smile className="w-3.5 h-3.5" /></button>
-        <button onClick={() => { setShowGiphy((p) => !p); setShowEmoji(false) }} className={cn('p-1.5 rounded-lg transition-colors', showGiphy ? 'bg-zinc-700 text-zinc-200' : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800')} title="GIF"><Film className="w-3.5 h-3.5" /></button>
-        <button onClick={() => fileImgRef.current?.click()} className="p-1.5 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 rounded-lg transition-colors" title="Image"><ImageIcon className="w-3.5 h-3.5" /></button>
-        <button onClick={() => fileVidRef.current?.click()} className="p-1.5 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 rounded-lg transition-colors" title="Video"><Video className="w-3.5 h-3.5" /></button>
-        <input ref={fileImgRef} type="file" accept="image/*" className="hidden" onChange={(e) => handleFile(e, 'image')} />
-        <input ref={fileVidRef} type="file" accept="video/*" className="hidden" onChange={(e) => handleFile(e, 'video')} />
-      </div>
-
-      {/* Input */}
-      <div className="p-4 pt-2 border-t border-zinc-800 flex-shrink-0">
-        <div className="flex items-end gap-2 bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2 focus-within:border-zinc-500 transition-colors">
-          <textarea
-            id={`msg-${threadId}`}
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } if (e.key === 'Escape') { setShowEmoji(false); setShowGiphy(false) } }}
-            placeholder={`Message ${displayName}`}
-            rows={1}
-            style={{ fontWeight: fmt.bold ? 'bold' : 'normal', fontStyle: fmt.italic ? 'italic' : 'normal', textDecoration: fmt.underline ? 'underline' : 'none' }}
-            className="flex-1 bg-transparent text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none resize-none max-h-40"
-          />
-          <button onClick={send} disabled={!text.trim()} className="p-1.5 bg-purple-600 hover:bg-purple-500 disabled:opacity-40 rounded-lg text-white transition-colors mb-0.5 flex-shrink-0">
-            <Send className="w-3.5 h-3.5" />
-          </button>
-        </div>
-        <p className="text-[10px] text-zinc-600 mt-1 px-1">Enter to send · Shift+Enter for new line · **bold** · _italic_ · __underline__</p>
-      </div>
     </div>
   )
 }
 
 // ── Message bubble ────────────────────────────────────────────────────────────
-function MessageBubble({ msg, isOwn, grouped, isPinned, isEditing, editText, onEditChange, onCommitEdit, onCancelEdit, onEdit, onDelete, onPin, onReact, emojiFor, setEmojiFor, userId }) {
+function MessageBubble({ msg, isOwn, grouped, isPinned, isEditing, editText, onEditChange, onCommitEdit, onCancelEdit, onEdit, onDelete, onPin, onReact, emojiFor, setEmojiFor, userId, isObserver }) {
   return (
     <div className={cn('group relative flex items-start gap-3 px-2 py-1 rounded-xl hover:bg-zinc-900/60 transition-colors', isPinned && 'bg-yellow-500/5 border-l-2 border-yellow-500/30 pl-3')}>
       {!grouped ? <Avatar name={msg.sender.name} role={msg.sender.role} size="sm" className="flex-shrink-0 mt-0.5" /> : <div className="w-8 flex-shrink-0" />}
@@ -490,7 +583,8 @@ function MessageBubble({ msg, isOwn, grouped, isPinned, isEditing, editText, onE
         )}
       </div>
 
-      {/* Hover action bar */}
+      {/* Hover action bar — hidden for admin observers */}
+      {!isObserver && (
       <div className="opacity-0 group-hover:opacity-100 transition-opacity absolute right-2 top-1 flex items-center gap-0.5 bg-zinc-800 border border-zinc-700 rounded-xl px-1.5 py-1 shadow-lg z-10">
         {QUICK_REACTIONS.map((e) => (
           <button key={e} onClick={() => onReact(e)} className="text-sm hover:scale-125 transition-transform leading-none px-0.5">{e}</button>
@@ -517,6 +611,7 @@ function MessageBubble({ msg, isOwn, grouped, isPinned, isEditing, editText, onE
           <button onClick={onDelete} className="p-1 text-red-500 hover:text-red-400 hover:bg-zinc-700 rounded-lg" title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
         </>}
       </div>
+      )}
     </div>
   )
 }
@@ -658,6 +753,74 @@ function NewDMModal({ members, onClose, onSelect }) {
               </div>
             </button>
           ))}
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+// ── New Group Message modal ───────────────────────────────────────────────────
+function NewGroupModal({ members, onClose, onSave }) {
+  const [q, setQ]         = useState('')
+  const [name, setName]   = useState('')
+  const [sel, setSel]     = useState([])
+  const toggle = (uid) => setSel((p) => p.includes(uid) ? p.filter((id) => id !== uid) : [...p, uid])
+  const filtered = members.filter((m) => !q || m.full_name?.toLowerCase().includes(q.toLowerCase()))
+
+  return (
+    <Modal open onClose={onClose} title="New Group Message" size="md">
+      <div className="space-y-4">
+        <div>
+          <label className="block text-xs font-medium text-zinc-400 mb-1">Group Name *</label>
+          <input
+            autoFocus
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g. Sprint Group, Nutrition Team…"
+            className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-purple-500/40"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-zinc-400 mb-2">
+            Add Members <span className="text-zinc-600 font-normal">({sel.length} selected)</span>
+          </label>
+          <div className="relative mb-2">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search members…" className="w-full bg-zinc-800 border border-zinc-700 rounded-xl pl-9 pr-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-purple-500/40" />
+          </div>
+          {sel.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              {sel.map((uid) => {
+                const m = members.find((x) => x.user_id === uid)
+                if (!m) return null
+                return (
+                  <span key={uid} className="flex items-center gap-1 px-2 py-0.5 bg-purple-500/20 border border-purple-500/30 rounded-full text-xs text-purple-300">
+                    {m.full_name}
+                    <button onClick={() => toggle(uid)} className="hover:text-white transition-colors"><X className="w-3 h-3" /></button>
+                  </span>
+                )
+              })}
+            </div>
+          )}
+          <div className="max-h-48 overflow-y-auto space-y-0.5 border border-zinc-700 rounded-xl p-2 bg-zinc-800/50">
+            {filtered.length === 0 && <p className="text-sm text-zinc-500 text-center py-3">No members found</p>}
+            {filtered.map((m) => (
+              <label key={m.user_id} className="flex items-center gap-2.5 p-1.5 rounded-lg hover:bg-zinc-700/50 cursor-pointer transition-colors">
+                <input type="checkbox" checked={sel.includes(m.user_id)} onChange={() => toggle(m.user_id)} className="accent-purple-500" />
+                <Avatar name={m.full_name} role={m.org_role} size="xs" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-zinc-200 truncate">{m.full_name}</p>
+                  <p className="text-[10px] text-zinc-500 capitalize">{m.org_role}</p>
+                </div>
+              </label>
+            ))}
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 pt-1">
+          <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
+          <Button size="sm" disabled={!name.trim() || sel.length < 1} onClick={() => onSave(sel, name.trim())}>
+            <Users className="w-3.5 h-3.5" /> Create Group
+          </Button>
         </div>
       </div>
     </Modal>

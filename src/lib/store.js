@@ -912,6 +912,7 @@ export const useMessagingStore = create((set, get) => ({
   // ── Direct Messages ────────────────────────────────────────────────────
   openDM: (currentUserId, targetUserId, targetName, targetRole) => {
     const existing = get().directMessages.find((dm) =>
+      dm.type !== 'group' &&
       dm.participants.includes(currentUserId) && dm.participants.includes(targetUserId)
     )
     if (existing) return existing.id
@@ -919,9 +920,30 @@ export const useMessagingStore = create((set, get) => ({
     set((s) => ({
       directMessages: [...s.directMessages, {
         id,
+        type: 'dm',
         participants: [currentUserId, targetUserId],
         display_name: targetName,
         display_role: targetRole,
+        last_message: '',
+        last_at: new Date().toISOString(),
+        unread: {},
+      }],
+    }))
+    return id
+  },
+
+  // ── Group Messages ──────────────────────────────────────────────────────
+  // participantIds = [userId, ...], groupName = string
+  openGroupMessage: (currentUserId, participantIds, groupName) => {
+    const allIds = [...new Set([currentUserId, ...participantIds])]
+    const id = `gm-${Date.now()}`
+    set((s) => ({
+      directMessages: [...s.directMessages, {
+        id,
+        type: 'group',
+        participants: allIds,
+        display_name: groupName,
+        display_role: null,
         last_message: '',
         last_at: new Date().toISOString(),
         unread: {},
