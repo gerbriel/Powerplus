@@ -694,14 +694,14 @@ function WeightMgmtTab() {
   // ── Lose Weight inputs ───────────────────────────────────────────
   const [age, setAge]           = useState(25)
   const [heightCm, setHeightCm] = useState(175)
-  const [heightUnit, setHeightUnit] = useState('cm') // 'cm' | 'in'
-  // display ↔ storage helpers
-  const heightDisplay = heightUnit === 'in' ? Math.round(heightCm / 2.54 * 10) / 10 : heightCm
-  const onHeightChange = (v) => setHeightCm(heightUnit === 'in' ? Math.round(v * 2.54) : v)
-  const onHeightUnitToggle = (u) => {
-    setHeightUnit(u)
-    // value stays the same cm internally — display just recalculates
-  }
+  const [heightUnit, setHeightUnit] = useState('cm') // 'cm' | 'ft'
+  // Imperial: separate ft + in spinners; stored internally as cm
+  const totalInches = heightCm / 2.54
+  const heightFtDisplay = Math.floor(totalInches / 12)
+  const heightInDisplay = Math.round(totalInches % 12)
+  const onHeightFtChange = (v) => setHeightCm(Math.round((v * 12 + heightInDisplay) * 2.54))
+  const onHeightInChange = (v) => setHeightCm(Math.round((heightFtDisplay * 12 + v) * 2.54))
+  const onHeightUnitToggle = (u) => setHeightUnit(u)
   const [goalBW, setGoalBW]     = useState(isLbs ? 187 : 85)
   const [activity, setActivity] = useState('moderate')
   const [deficit, setDeficit]   = useState(500) // kcal/day
@@ -1035,12 +1035,12 @@ function WeightMgmtTab() {
             <CardBody className="space-y-4">
               <h3 className="text-sm font-semibold text-zinc-200">Body & Goal Inputs</h3>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                {/* Height with cm/in toggle */}
+                {/* Height with cm / ft+in toggle */}
                 <div className="flex flex-col gap-1">
                   <div className="flex items-center justify-between">
                     <label className="text-xs font-medium text-zinc-400">Height</label>
                     <div className="flex gap-0.5 bg-zinc-700 rounded-md p-0.5">
-                      {['cm', 'in'].map((u) => (
+                      {['cm', 'ft'].map((u) => (
                         <button
                           key={u}
                           onClick={() => onHeightUnitToggle(u)}
@@ -1054,14 +1054,43 @@ function WeightMgmtTab() {
                       ))}
                     </div>
                   </div>
-                  <input
-                    type="number"
-                    min={heightUnit === 'in' ? 40 : 100}
-                    step={heightUnit === 'in' ? 0.5 : 1}
-                    value={heightDisplay}
-                    onChange={(e) => onHeightChange(Number(e.target.value))}
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-purple-500"
-                  />
+                  {heightUnit === 'cm' ? (
+                    <input
+                      type="number"
+                      min={100}
+                      step={1}
+                      value={heightCm}
+                      onChange={(e) => setHeightCm(Number(e.target.value))}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-purple-500"
+                    />
+                  ) : (
+                    <div className="flex gap-1">
+                      <div className="flex-1 relative">
+                        <input
+                          type="number"
+                          min={3}
+                          max={8}
+                          step={1}
+                          value={heightFtDisplay}
+                          onChange={(e) => onHeightFtChange(Number(e.target.value))}
+                          className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-purple-500 pr-7"
+                        />
+                        <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-zinc-500">ft</span>
+                      </div>
+                      <div className="flex-1 relative">
+                        <input
+                          type="number"
+                          min={0}
+                          max={11}
+                          step={1}
+                          value={heightInDisplay}
+                          onChange={(e) => onHeightInChange(Number(e.target.value))}
+                          className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-purple-500 pr-7"
+                        />
+                        <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-zinc-500">in</span>
+                      </div>
+                    </div>
+                  )}
                 </div>
                 <NumInput
                   label={`Goal Weight (${unit})`}
@@ -1236,12 +1265,12 @@ function WeightMgmtTab() {
             <CardBody className="space-y-4">
               <h3 className="text-sm font-semibold text-zinc-200">Bulk Inputs</h3>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                {/* Height with cm/in toggle */}
+                {/* Height with cm / ft+in toggle */}
                 <div className="flex flex-col gap-1">
                   <div className="flex items-center justify-between">
                     <label className="text-xs font-medium text-zinc-400">Height</label>
                     <div className="flex gap-0.5 bg-zinc-700 rounded-md p-0.5">
-                      {['cm', 'in'].map((u) => (
+                      {['cm', 'ft'].map((u) => (
                         <button
                           key={u}
                           onClick={() => onHeightUnitToggle(u)}
@@ -1255,14 +1284,43 @@ function WeightMgmtTab() {
                       ))}
                     </div>
                   </div>
-                  <input
-                    type="number"
-                    min={heightUnit === 'in' ? 40 : 100}
-                    step={heightUnit === 'in' ? 0.5 : 1}
-                    value={heightDisplay}
-                    onChange={(e) => onHeightChange(Number(e.target.value))}
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-purple-500"
-                  />
+                  {heightUnit === 'cm' ? (
+                    <input
+                      type="number"
+                      min={100}
+                      step={1}
+                      value={heightCm}
+                      onChange={(e) => setHeightCm(Number(e.target.value))}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-purple-500"
+                    />
+                  ) : (
+                    <div className="flex gap-1">
+                      <div className="flex-1 relative">
+                        <input
+                          type="number"
+                          min={3}
+                          max={8}
+                          step={1}
+                          value={heightFtDisplay}
+                          onChange={(e) => onHeightFtChange(Number(e.target.value))}
+                          className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-purple-500 pr-7"
+                        />
+                        <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-zinc-500">ft</span>
+                      </div>
+                      <div className="flex-1 relative">
+                        <input
+                          type="number"
+                          min={0}
+                          max={11}
+                          step={1}
+                          value={heightInDisplay}
+                          onChange={(e) => onHeightInChange(Number(e.target.value))}
+                          className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-purple-500 pr-7"
+                        />
+                        <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-zinc-500">in</span>
+                      </div>
+                    </div>
+                  )}
                 </div>
                 <NumInput
                   label={`Goal Weight (${unit})`}
