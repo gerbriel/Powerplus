@@ -295,13 +295,16 @@ export async function createOrgWithOwner({ userId, name, slug, federation, timez
 }
 
 /**
- * Marks a profile's onboarding as complete.
+ * Marks a profile's onboarding as complete, and optionally sets the role.
+ * role: 'athlete' | 'head_coach'
  */
-export async function markOnboardingComplete(userId) {
+export async function markOnboardingComplete(userId, role) {
   if (!isSupabaseConfigured()) return
+  const update = { onboarding_complete: true }
+  if (role) update.role = role
   const { error } = await supabase
     .from('profiles')
-    .update({ onboarding_complete: true })
+    .update(update)
     .eq('id', userId)
   if (error) console.error('[supabase] markOnboardingComplete:', error.message)
 }

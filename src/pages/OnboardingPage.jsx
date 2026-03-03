@@ -317,13 +317,13 @@ export default function OnboardingPage() {
       setLoading(false)
       return
     }
-    await markOnboardingComplete(user.id)
+    await markOnboardingComplete(user.id, 'head_coach')
     // Re-fetch memberships so the store has the new org
     const memberships = await fetchOrgMemberships(user.id)
     useAuthStore.setState({
       orgMemberships: memberships,
       activeOrgId: orgId,
-      profile: { ...profile, onboarding_complete: true },
+      profile: { ...profile, onboarding_complete: true, role: 'head_coach' },
     })
     setLoading(false)
     toast.success(`${orgName} created!`)
@@ -334,9 +334,9 @@ export default function OnboardingPage() {
   const finishAthlete = async () => {
     if (!user?.id) { toast.error('Not signed in.'); return }
     setLoading(true)
-    await markOnboardingComplete(user.id)
+    await markOnboardingComplete(user.id, 'athlete')
     useAuthStore.setState({
-      profile: { ...profile, onboarding_complete: true },
+      profile: { ...profile, onboarding_complete: true, role: 'athlete' },
     })
     setLoading(false)
     navigate('/app', { replace: true })

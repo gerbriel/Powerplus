@@ -61,6 +61,9 @@ create table if not exists profiles (
   display_name text,
   avatar_url text,
   platform_role platform_role not null default 'user',
+  -- Standalone role: set during onboarding ('athlete' | 'head_coach' | 'coach' | 'nutritionist')
+  -- Used by resolveRole() when no org membership exists yet.
+  role text default 'athlete',
   -- Athletic identity fields (personal to the human, not the org)
   phone text,
   date_of_birth date,
@@ -1680,16 +1683,20 @@ create policy "audit_logs: super_admin only"
 -- (passed during signUp: { data: { full_name: '...' } }).
 -- ============================================================
 
+-- Add role column to existing installs (idempotent)
+alter table public.profiles add column if not exists role text default 'athlete';
+
 create or replace function public.handle_new_user()
 returns trigger as $$
 begin
-  insert into public.profiles (id, email, full_name, display_name, platform_role)
+  insert into public.profiles (id, email, full_name, display_name, platform_role, role)
   values (
     new.id,
     new.email,
     coalesce(new.raw_user_meta_data->>'full_name', split_part(new.email, '@', 1)),
     coalesce(new.raw_user_meta_data->>'display_name', new.raw_user_meta_data->>'full_name', split_part(new.email, '@', 1)),
-    'user'
+    'user',
+    coalesce(new.raw_user_meta_data->>'role', 'athlete')
   )
   on conflict (id) do nothing;
   return new;

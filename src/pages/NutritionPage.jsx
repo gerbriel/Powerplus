@@ -5677,14 +5677,19 @@ function AthleteNutritionProfile({ athlete, onClose, isAdmin, canEdit: canEditPr
 
   const [profileTab, setProfileTab] = useState('plan') // 'plan' | 'meals' | 'shopping' | 'notes'
 
+  // ── Safe macro defaults (real users may not have nutrition_macros yet) ──
+  const macroDefaults = { calories: 0, protein: 0, carbs: 0, fat: 0 }
+  const safeMacroPlan   = athlete.nutrition_macros?.plan   ?? macroDefaults
+  const safeMacroActual = athlete.nutrition_macros?.actual ?? macroDefaults
+
   // ── Plan state ──
   const [plan, setPlan] = useState({
-    training: { ...athlete.nutrition_macros.plan },
+    training: { ...safeMacroPlan },
     rest: {
-      calories: Math.round(athlete.nutrition_macros.plan.calories * 0.88),
-      protein:  athlete.nutrition_macros.plan.protein,
-      carbs:    Math.round(athlete.nutrition_macros.plan.carbs * 0.79),
-      fat:      athlete.nutrition_macros.plan.fat,
+      calories: Math.round((safeMacroPlan.calories || 0) * 0.88),
+      protein:  safeMacroPlan.protein || 0,
+      carbs:    Math.round((safeMacroPlan.carbs || 0) * 0.79),
+      fat:      safeMacroPlan.fat || 0,
     },
     notes: athlete.coach_notes ?? '',
   })
@@ -5957,10 +5962,10 @@ function AthleteNutritionProfile({ athlete, onClose, isAdmin, canEdit: canEditPr
                 </p>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {[
-                    { label: 'Calories', plan: plan.training.calories, actual: athlete.nutrition_macros.actual.calories, unit: 'kcal', color: 'orange' },
-                    { label: 'Protein',  plan: plan.training.protein,  actual: athlete.nutrition_macros.actual.protein,  unit: 'g', color: 'blue' },
-                    { label: 'Carbs',    plan: plan.training.carbs,    actual: athlete.nutrition_macros.actual.carbs,    unit: 'g', color: 'purple' },
-                    { label: 'Fat',      plan: plan.training.fat,      actual: athlete.nutrition_macros.actual.fat,      unit: 'g', color: 'yellow' },
+                    { label: 'Calories', plan: plan.training.calories, actual: safeMacroActual.calories, unit: 'kcal', color: 'orange' },
+                    { label: 'Protein',  plan: plan.training.protein,  actual: safeMacroActual.protein,  unit: 'g', color: 'blue' },
+                    { label: 'Carbs',    plan: plan.training.carbs,    actual: safeMacroActual.carbs,    unit: 'g', color: 'purple' },
+                    { label: 'Fat',      plan: plan.training.fat,      actual: safeMacroActual.fat,      unit: 'g', color: 'yellow' },
                   ].map(m => {
                     const pct = Math.round((m.actual / m.plan) * 100)
                     const barColor = pct >= 90 ? m.color : pct >= 70 ? 'yellow' : 'red'
@@ -7535,6 +7540,7 @@ function StaffRoster({ isAdmin }) {
   const mockAthletes = isDemo ? MOCK_ATHLETES : []
   const mockStaffAssignments = isDemo ? MOCK_STAFF_ASSIGNMENTS : []
   const mockMealPlans = isDemo ? MOCK_ATHLETE_MEAL_PLANS : {}
+  const macroDefaults = { calories: 0, protein: 0, carbs: 0, fat: 0 }
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all') // 'all' | 'flags' | 'low_compliance'
   const [profileAthleteId, setProfileAthleteId] = useState(null)
@@ -7654,12 +7660,16 @@ function StaffRoster({ isAdmin }) {
 
                   {/* Macro targets vs actuals */}
                   <div className="mt-2 grid grid-cols-4 gap-2">
-                    {[
-                      { label: 'Calories', plan: athlete.nutrition_macros.plan.calories, actual: athlete.nutrition_macros.actual.calories, unit: 'kcal', barColor: 'bg-orange-500' },
-                      { label: 'Protein',  plan: athlete.nutrition_macros.plan.protein,  actual: athlete.nutrition_macros.actual.protein,  unit: 'g',    barColor: 'bg-blue-500'   },
-                      { label: 'Carbs',    plan: athlete.nutrition_macros.plan.carbs,    actual: athlete.nutrition_macros.actual.carbs,    unit: 'g',    barColor: 'bg-yellow-500' },
-                      { label: 'Fat',      plan: athlete.nutrition_macros.plan.fat,      actual: athlete.nutrition_macros.actual.fat,      unit: 'g',    barColor: 'bg-pink-500'   },
-                    ].map(m => {
+                    {(() => {
+                      const mp = athlete.nutrition_macros?.plan   ?? macroDefaults
+                      const ma = athlete.nutrition_macros?.actual ?? macroDefaults
+                      return [
+                        { label: 'Calories', plan: mp.calories, actual: ma.calories, unit: 'kcal', barColor: 'bg-orange-500' },
+                        { label: 'Protein',  plan: mp.protein,  actual: ma.protein,  unit: 'g',    barColor: 'bg-blue-500'   },
+                        { label: 'Carbs',    plan: mp.carbs,    actual: ma.carbs,    unit: 'g',    barColor: 'bg-yellow-500' },
+                        { label: 'Fat',      plan: mp.fat,      actual: ma.fat,      unit: 'g',    barColor: 'bg-pink-500'   },
+                      ]
+                    })().map(m => {
                       const pct = m.plan > 0 ? Math.min(100, Math.round((m.actual / m.plan) * 100)) : 0
                       const valColor = pct >= 90 ? 'text-green-400' : pct >= 70 ? 'text-yellow-400' : 'text-red-400'
                       return (
@@ -7720,16 +7730,19 @@ function StaffPlans({ isAdmin }) {
   const [editingAthleteId, setEditingAthleteId] = useState(null)
   const [planFilter, setPlanFilter] = useState('all') // 'all' | 'low_compliance' | 'no_plan'
   const [plans, setPlans] = useState(() =>
-    Object.fromEntries(mockAthletes.map(a => [a.id, {
-      training: { ...a.nutrition_macros.plan },
-      rest: {
-        calories: Math.round(a.nutrition_macros.plan.calories * 0.88),
-        protein:  a.nutrition_macros.plan.protein,
-        carbs:    Math.round(a.nutrition_macros.plan.carbs * 0.79),
-        fat:      a.nutrition_macros.plan.fat,
-      },
-      notes: a.coach_notes ?? 'No notes yet.',
-    }]))
+    Object.fromEntries(mockAthletes.map(a => {
+      const mp = a.nutrition_macros?.plan ?? { calories: 0, protein: 0, carbs: 0, fat: 0 }
+      return [a.id, {
+        training: { ...mp },
+        rest: {
+          calories: Math.round((mp.calories || 0) * 0.88),
+          protein:  mp.protein || 0,
+          carbs:    Math.round((mp.carbs || 0) * 0.79),
+          fat:      mp.fat || 0,
+        },
+        notes: a.coach_notes ?? 'No notes yet.',
+      }]
+    }))
   )
 
   // Admin sees ALL athletes; other staff see only their assignments
@@ -7816,13 +7829,16 @@ function StaffPlans({ isAdmin }) {
 
                 {/* Macro summary */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
-                  {[
-                    { label: 'Calories', plan: plan.training.calories, actual: athlete.nutrition_macros.actual.calories, unit: 'kcal' },
-                    { label: 'Protein',  plan: plan.training.protein,  actual: athlete.nutrition_macros.actual.protein,  unit: 'g' },
-                    { label: 'Carbs',    plan: plan.training.carbs,    actual: athlete.nutrition_macros.actual.carbs,    unit: 'g' },
-                    { label: 'Fat',      plan: plan.training.fat,      actual: athlete.nutrition_macros.actual.fat,      unit: 'g' },
-                  ].map(m => {
-                    const pct = Math.round((m.actual / m.plan) * 100)
+                  {(() => {
+                    const ma = athlete.nutrition_macros?.actual ?? { calories: 0, protein: 0, carbs: 0, fat: 0 }
+                    return [
+                      { label: 'Calories', plan: plan?.training?.calories ?? 0, actual: ma.calories, unit: 'kcal' },
+                      { label: 'Protein',  plan: plan?.training?.protein  ?? 0, actual: ma.protein,  unit: 'g' },
+                      { label: 'Carbs',    plan: plan?.training?.carbs    ?? 0, actual: ma.carbs,    unit: 'g' },
+                      { label: 'Fat',      plan: plan?.training?.fat      ?? 0, actual: ma.fat,      unit: 'g' },
+                    ]
+                  })().map(m => {
+                    const pct = m.plan > 0 ? Math.round((m.actual / m.plan) * 100) : 0
                     return (
                       <div key={m.label} className="bg-zinc-700/30 rounded-xl p-2">
                         <p className="text-xs text-zinc-500">{m.label}</p>
