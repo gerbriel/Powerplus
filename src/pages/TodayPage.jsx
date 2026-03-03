@@ -552,7 +552,7 @@ function StaffDashboard({ profile, membership }) {
           </div>
         </CardHeader>
         <CardBody className="space-y-2">
-          {[
+          {isDemo ? [
             { from: 'Jordan Blake', msg: 'Hip felt a bit tight during squats, should I reduce intensity?', time: '1h ago', unread: true, role: 'athlete' },
             { from: 'Samantha Price', msg: 'Shoulder is feeling better today, can I return to full pressing?', time: '3h ago', unread: true, role: 'athlete' },
             { from: 'Devon Cruz', msg: 'Sorry for missing Wednesday — work emergency. Will double up this week.', time: '5h ago', unread: false, role: 'athlete' },
@@ -570,7 +570,12 @@ function StaffDashboard({ profile, membership }) {
               </div>
               {m.unread && <span className="w-2 h-2 rounded-full bg-blue-400 mt-1 flex-shrink-0" />}
             </div>
-          ))}
+          )) : (
+            <div className="text-center py-6 space-y-1">
+              <MessageSquare className="w-8 h-8 text-zinc-700 mx-auto" />
+              <p className="text-xs text-zinc-500">No recent messages</p>
+            </div>
+          )}
         </CardBody>
       </Card>
     </div>
@@ -747,7 +752,7 @@ function AthleteTodayPage({ profile, weightUnit, toggleWeightUnit }) {
         <Card>
           <CardHeader><CardTitle className="flex items-center gap-2"><Clock className="w-4 h-4 text-yellow-400" />Reminders</CardTitle></CardHeader>
           <div className="space-y-2">
-            {[
+            {isDemo ? [
               { icon: Dumbbell, text: 'Workout starts at 4:00 PM', urgent: true },
               { icon: Flame, text: 'Log nutrition by 8:00 PM', urgent: false },
               { icon: Moon, text: 'Sleep check-in tomorrow morning', urgent: false },
@@ -757,7 +762,11 @@ function AthleteTodayPage({ profile, weightUnit, toggleWeightUnit }) {
                 <r.icon className={cn('w-3.5 h-3.5 flex-shrink-0', r.urgent ? 'text-yellow-400' : 'text-zinc-400')} />
                 <span className={r.urgent ? 'text-yellow-200 font-medium' : 'text-zinc-300'}>{r.text}</span>
               </div>
-            ))}
+            )) : (
+              <div className="text-center py-4">
+                <p className="text-xs text-zinc-600">No reminders for today</p>
+              </div>
+            )}
           </div>
         </Card>
 
@@ -769,7 +778,7 @@ function AthleteTodayPage({ profile, weightUnit, toggleWeightUnit }) {
             </div>
           </CardHeader>
           <div className="space-y-2">
-            {[
+            {isDemo ? [
               { from: 'Coach Elena', msg: 'Great job on that top set! Video form looks solid.', time: '11:00 AM', unread: true },
               { from: 'Dr. Priya', msg: 'Don\'t forget your nutrition check-in tonight', time: 'Yesterday', unread: false },
             ].map((m, i) => (
@@ -785,7 +794,12 @@ function AthleteTodayPage({ profile, weightUnit, toggleWeightUnit }) {
                   <p className="text-zinc-400 truncate mt-0.5">{m.msg}</p>
                 </div>
               </div>
-            ))}
+            )) : (
+              <div className="text-center py-4 space-y-1">
+                <MessageSquare className="w-7 h-7 text-zinc-700 mx-auto" />
+                <p className="text-xs text-zinc-600">No recent messages</p>
+              </div>
+            )}
           </div>
         </Card>
       </div>

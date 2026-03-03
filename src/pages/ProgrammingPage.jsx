@@ -23,6 +23,7 @@ const SAMPLE_TEMPLATES = [
 ]
 
 export function ProgrammingPage() {
+  const { isDemo } = useAuthStore()
   const [tab, setTab] = useState('templates')
   const [newTemplateOpen, setNewTemplateOpen] = useState(false)
 
@@ -40,7 +41,7 @@ export function ProgrammingPage() {
 
       <Tabs tabs={TABS} activeTab={tab} onChange={setTab} />
 
-      {tab === 'templates' && <TemplatesList onNew={() => setNewTemplateOpen(true)} />}
+      {tab === 'templates' && <TemplatesList onNew={() => setNewTemplateOpen(true)} isDemo={isDemo} />}
       {tab === 'builder' && <WorkoutBuilder />}
       {tab === 'exercises' && <ExerciseLibrary />}
 
@@ -85,10 +86,11 @@ export function ProgrammingPage() {
   )
 }
 
-function TemplatesList({ onNew }) {
+function TemplatesList({ onNew, isDemo }) {
+  const templates = isDemo ? SAMPLE_TEMPLATES : []
   return (
     <div className="space-y-3">
-      {SAMPLE_TEMPLATES.map((t) => (
+      {templates.map((t) => (
         <Card key={t.id} className="hover:border-zinc-600 transition-all">
           <div className="flex items-start gap-4">
             <div className="w-10 h-10 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center flex-shrink-0">
@@ -127,9 +129,10 @@ function WorkoutBuilder() {
   const exercises = isDemo ? MOCK_EXERCISES : []
   const [blocks, setBlocks] = useState([
     { type: 'warmup', label: 'Warm-Up', exercises: [] },
-    { type: 'main', label: 'Main Lift', exercises: [
-      { id: 1, name: 'Back Squat', sets: 5, reps: '3', intensity: 'RPE 8', rest: 180, notes: '' }
-    ]},
+    { type: 'main', label: 'Main Lift', exercises: isDemo
+      ? [{ id: 1, name: 'Back Squat', sets: 5, reps: '3', intensity: 'RPE 8', rest: 180, notes: '' }]
+      : []
+    },
     { type: 'accessory', label: 'Accessory Work', exercises: [] },
   ])
   const [expandedBlock, setExpandedBlock] = useState('main')

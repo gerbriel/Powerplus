@@ -333,7 +333,7 @@ function AthleteWorkoutPage() {
               const mediaCount = blocks.flatMap(b => b.exercises ?? []).flatMap(e => e.sets_logged ?? []).flatMap(sl => sl.media ?? []).length
               const hasPR = blocks.flatMap(b => b.exercises ?? []).flatMap(e => e.sets_logged ?? []).some(sl => sl.is_top_set)
               const mainExercises = [...new Set(blocks.filter(b => b.type === 'main').flatMap(b => b.exercises ?? []).map(e => e.name))]
-              const block = s.linked_block_id ? MOCK_TRAINING_BLOCKS.find(b => b.id === s.linked_block_id) : null
+              const block = s.linked_block_id ? (isDemo ? MOCK_TRAINING_BLOCKS : []).find(b => b.id === s.linked_block_id) : null
               return (
                 <button
                   key={s.id}
@@ -1028,8 +1028,9 @@ function WeekScheduleCard({ weightUnit, onStartWorkout, onViewWorkout }) {
 
 // ─── Scheduled Workout Preview Modal ────────────────────────────────────────
 function ScheduledWorkoutModal({ session, weightUnit, onClose }) {
+  const { isDemo } = useAuthStore()
   if (!session) return null
-  const block = session.linked_block_id ? MOCK_TRAINING_BLOCKS.find(b => b.id === session.linked_block_id) : null
+  const block = session.linked_block_id ? (isDemo ? MOCK_TRAINING_BLOCKS : []).find(b => b.id === session.linked_block_id) : null
   const conv = (kg) => weightUnit === 'lbs' ? `${Math.round(kgToLbs(kg))} lbs` : `${kg} kg`
 
   // For completed sessions, gather top sets
@@ -1621,6 +1622,7 @@ function PainFlagModal({ open, onClose }) {
 
 // ─── History Detail View ─────────────────────────────────────────────────────
 function HistoryDetailView({ session, weightUnit, onBack, onEdit, editModal, onCloseEdit }) {
+  const { isDemo } = useAuthStore()
   const allMedia = session.blocks
     .flatMap(b => b.exercises)
     .flatMap(e => (e.sets_logged || []).flatMap(s => (s.media || []).map(m => ({ ...m, exercise: e.name, set: s.set }))))
@@ -1636,7 +1638,7 @@ function HistoryDetailView({ session, weightUnit, onBack, onEdit, editModal, onC
 
   const convertW = (kg) => weightUnit === 'lbs' ? kgToLbs(kg) : kg
 
-  const block = session.linked_block_id ? MOCK_TRAINING_BLOCKS.find(b => b.id === session.linked_block_id) : null
+  const block = session.linked_block_id ? (isDemo ? MOCK_TRAINING_BLOCKS : []).find(b => b.id === session.linked_block_id) : null
   const totalSets = session.total_sets || session.blocks.flatMap(b => b.exercises).flatMap(e => e.sets_logged || []).length
 
   return (
@@ -2190,7 +2192,7 @@ function StaffTrainingPage({ profile, membership }) {
       {/* Blocks tab */}
       {tab === 'blocks' && (
         <div className="space-y-3">
-          {MOCK_TRAINING_BLOCKS.map(b => (
+          {trainingBlocks.map(b => (
             <Card key={b.id}>
               <CardHeader>
                 <div className="flex items-center justify-between">

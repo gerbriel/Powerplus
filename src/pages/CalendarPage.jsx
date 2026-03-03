@@ -36,7 +36,7 @@ const SAMPLE_EVENTS = {
 }
 
 export function CalendarPage() {
-  const { profile } = useAuthStore()
+  const { profile, isDemo } = useAuthStore()
   const [year, setYear] = useState(2026)
   const [month, setMonth] = useState(1) // 0-indexed, Feb
   const [selectedDay, setSelectedDay] = useState(null)
@@ -99,7 +99,7 @@ export function CalendarPage() {
               {cells.map((day, i) => {
                 if (!day) return <div key={`empty-${i}`} className="h-20 border-b border-r border-zinc-800/50" />
                 const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-                const events = SAMPLE_EVENTS[dateKey] || []
+                const events = (isDemo ? SAMPLE_EVENTS[dateKey] : null) || []
                 const isToday = dateKey === '2026-02-28'
                 const isSelected = selectedDay === dateKey
                 return (
@@ -159,7 +159,7 @@ export function CalendarPage() {
           <Card>
             <CardHeader><CardTitle>Upcoming</CardTitle></CardHeader>
             <div className="space-y-2.5">
-              {[
+              {isDemo ? [
                 { date: 'Today', label: 'Heavy Squat', time: '4:00 PM', icon: Dumbbell, color: 'text-purple-400' },
                 { date: 'Mar 10', label: '1:1 with Coach', time: '9:00 AM', icon: Users, color: 'text-blue-400' },
                 { date: 'Mar 15', label: 'Meet Registration Due', time: 'Deadline', icon: Trophy, color: 'text-red-400' },
@@ -174,7 +174,9 @@ export function CalendarPage() {
                     <p className="text-xs text-zinc-500">{e.date} · {e.time}</p>
                   </div>
                 </div>
-              ))}
+              )) : (
+                <p className="text-xs text-zinc-600 text-center py-4">No upcoming events</p>
+              )}
             </div>
           </Card>
         </div>
