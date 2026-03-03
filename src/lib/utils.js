@@ -189,3 +189,77 @@ export function calcSessionsTonnage(sessions) {
   })
   return Math.round(total)
 }
+
+// ─── Weight Management Utilities ──────────────────────────────────────────────
+
+/**
+ * Mifflin-St Jeor BMR (kcal/day).
+ * weight in kg, height in cm, age in years.
+ */
+export function calcBMR(weightKg, heightCm, age, isMale) {
+  if (!weightKg || !heightCm || !age) return 0
+  const base = 10 * weightKg + 6.25 * heightCm - 5 * age
+  return Math.round(isMale ? base + 5 : base - 161)
+}
+
+/**
+ * TDEE from BMR × activity multiplier.
+ * activityLevel: 'sedentary' | 'light' | 'moderate' | 'active' | 'very_active'
+ */
+export function calcTDEE(bmr, activityLevel) {
+  const multipliers = {
+    sedentary:   1.2,
+    light:       1.375,
+    moderate:    1.55,
+    active:      1.725,
+    very_active: 1.9,
+  }
+  return Math.round(bmr * (multipliers[activityLevel] ?? 1.55))
+}
+
+/**
+ * Recommended macro split for a given calorie target and bodyweight (kg).
+ * Returns { protein, fat, carbs } in grams.
+ * Uses 2.2g/kg protein for lifters, 25% fat floor, rest carbs.
+ */
+export function calcMacrosFromCalories(calories, weightKg) {
+  const protein = Math.round(2.2 * weightKg)           // 2.2g/kg
+  const proteinCals = protein * 4
+  const fatCals = Math.max(Math.round(calories * 0.25), 40 * 9) // ≥25% or 40g min
+  const fat = Math.round(fatCals / 9)
+  const carbCals = Math.max(0, calories - proteinCals - fatCals)
+  const carbs = Math.round(carbCals / 4)
+  return { protein, fat, carbs }
+}
+
+/**
+ * Build a week-by-week weight projection array.
+ * Returns an array of { week, weight } objects (kg, rounded to 1dp).
+ */
+export function calcWeightProjection(startKg, weeklyDeficitKg, totalWeeks) {
+  const arr = []
+  for (let w = 0; w <= Math.min(totalWeeks, 52); w++) {
+    arr.push({ week: w, weight: Math.round((startKg - weeklyDeficitKg * w) * 10) / 10 })
+  }
+  return arr
+}
+
+// IPF weight classes (raw, equipped uses same boundaries)
+export const IPF_WEIGHT_CLASSES_MALE   = [59, 66, 74, 83, 93, 105, 120, 9999]
+export const IPF_WEIGHT_CLASSES_FEMALE = [47, 52, 57, 63, 69, 76, 84, 9999]
+
+/** Return the label for a weight class ceiling (kg). */
+export function weightClassLabel(ceiling) {
+  return ceiling >= 9999 ? '120+ kg' : `≤${ceiling} kg`
+}
+
+/** Given a bodyweight (kg) and sex, return { current, next } weight classes. */
+export function getWeightClassInfo(bodyweightKg, isMale) {
+  const classes = isMale ? IPF_WEIGHT_CLASSES_MALE : IPF_WEIGHT_CLASSES_FEMALE
+  const currentIdx = classes.findIndex((c) => bodyweightKg <= c)
+  const ci = currentIdx === -1 ? classes.length - 1 : currentIdx
+  return {
+    current: classes[ci],
+    below:   ci > 0 ? classes[ci - 1] : null,
+  }
+}

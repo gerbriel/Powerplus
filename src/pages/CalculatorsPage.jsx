@@ -1,20 +1,21 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine,
 } from 'recharts'
-import { Calculator, TrendingUp, Target, Layers, ChevronDown } from 'lucide-react'
+import { Calculator, TrendingUp, Target, Layers, ChevronDown, Scale, Flame, Droplets, AlertTriangle, CheckCircle } from 'lucide-react'
 import { Card, CardBody } from '../components/ui/Card'
 import { Badge } from '../components/ui/Badge'
-import { cn, calcE1RM, calcE1RMBrzycki, calcE1RMLombardi, calcDotsScore, calcWilks, calcGlossbrenner, calcAttemptSuggestions, calcTonnage, convertWeight } from '../lib/utils'
+import { cn, calcE1RM, calcE1RMBrzycki, calcE1RMLombardi, calcDotsScore, calcWilks, calcGlossbrenner, calcAttemptSuggestions, calcTonnage, convertWeight, lbsToKg, kgToLbs, calcBMR, calcTDEE, calcMacrosFromCalories, calcWeightProjection, IPF_WEIGHT_CLASSES_MALE, IPF_WEIGHT_CLASSES_FEMALE, weightClassLabel, getWeightClassInfo } from '../lib/utils'
 import { useSettingsStore, useAuthStore } from '../lib/store'
 import { MOCK_EXERCISE_HISTORY, MOCK_ATHLETES } from '../lib/mockData'
 
 // ─── Tab definitions ────────────────────────────────────────────────────────
 const TABS = [
-  { id: 'e1rm',     label: 'e1RM',            icon: TrendingUp },
-  { id: 'scores',   label: 'Score Calculator', icon: Calculator },
-  { id: 'attempts', label: 'Attempt Selection', icon: Target },
-  { id: 'tonnage',  label: 'Volume & Tonnage',  icon: Layers },
+  { id: 'e1rm',       label: 'e1RM',            icon: TrendingUp },
+  { id: 'scores',     label: 'Score Calculator', icon: Calculator },
+  { id: 'attempts',   label: 'Attempt Selection', icon: Target },
+  { id: 'tonnage',    label: 'Volume & Tonnage',  icon: Layers },
+  { id: 'weightmgmt', label: 'Weight Management', icon: Scale },
 ]
 
 // ─── Shared Number Input ─────────────────────────────────────────────────────
@@ -633,6 +634,536 @@ function TonnageTab() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// TAB 5 — Weight Management (Make Weight + General Weight Loss)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const ACTIVITY_LEVELS = [
+  { id: 'sedentary',   label: 'Sedentary',    sub: 'Desk job, little exercise' },
+  { id: 'light',       label: 'Light',        sub: '1–3 days/week training' },
+  { id: 'moderate',    label: 'Moderate',     sub: '3–5 days/week training' },
+  { id: 'active',      label: 'Active',       sub: '6–7 days hard training' },
+  { id: 'very_active', label: 'Very Active',  sub: '2x/day or physical job' },
+]
+
+function MacroBar({ label, grams, calories, color, pct }) {
+  return (
+    <div className="space-y-1">
+      <div className="flex justify-between text-xs">
+        <span className="text-zinc-400">{label}</span>
+        <span className="text-zinc-200 font-medium">{grams}g <span className="text-zinc-500">({calories} kcal)</span></span>
+      </div>
+      <div className="h-2 bg-zinc-800 rounded-full overflow-hidden">
+        <div className={cn('h-full rounded-full transition-all duration-500', color)} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  )
+}
+
+function InfoRow({ label, value, color = 'text-zinc-100', sub }) {
+  return (
+    <div className="flex items-center justify-between py-2 border-b border-zinc-800 last:border-0">
+      <span className="text-xs text-zinc-400">{label}</span>
+      <div className="text-right">
+        <span className={cn('text-sm font-semibold', color)}>{value}</span>
+        {sub && <div className="text-xs text-zinc-500">{sub}</div>}
+      </div>
+    </div>
+  )
+}
+
+function WeightMgmtTab() {
+  const { weightUnit } = useSettingsStore()
+  const isLbs = weightUnit === 'lbs'
+  const toDisplay = (kg) => isLbs ? Math.round(kgToLbs(kg) * 10) / 10 : kg
+  const toKgLocal = (v) => isLbs ? lbsToKg(v) : v
+  const unit = isLbs ? 'lbs' : 'kg'
+
+  // ── Mode toggle ──────────────────────────────────────────────────
+  const [mode, setMode] = useState('makeweight') // 'makeweight' | 'loseweight'
+
+  // ── Shared inputs ────────────────────────────────────────────────
+  const [isMale, setIsMale]   = useState(true)
+  const [currentBW, setCurrentBW] = useState(isLbs ? 198 : 90)
+
+  // ── Make Weight inputs ───────────────────────────────────────────
+  const classes = isMale ? IPF_WEIGHT_CLASSES_MALE : IPF_WEIGHT_CLASSES_FEMALE
+  const [targetClass, setTargetClass] = useState(isLbs ? 83 : 83) // kg
+  const [meetWeeks, setMeetWeeks]     = useState(12)
+  const [hasWaterCut, setHasWaterCut] = useState(true)
+
+  // ── Lose Weight inputs ───────────────────────────────────────────
+  const [age, setAge]           = useState(25)
+  const [heightCm, setHeightCm] = useState(175)
+  const [goalBW, setGoalBW]     = useState(isLbs ? 187 : 85)
+  const [activity, setActivity] = useState('moderate')
+  const [deficit, setDeficit]   = useState(500) // kcal/day
+
+  // ── Make Weight calculations ─────────────────────────────────────
+  const mwResults = useMemo(() => {
+    const currentKg  = toKgLocal(currentBW)
+    const targetKg   = targetClass
+    const totalToLose = currentKg - targetKg
+    if (totalToLose <= 0) return { status: 'already_in', totalToLose: 0 }
+
+    const dietLoss  = hasWaterCut ? Math.max(0, totalToLose - 3) : totalToLose // reserve up to 3 kg for water cut
+    const weeklyRate = meetWeeks > 0 ? dietLoss / meetWeeks : 0
+    const dailyDeficit = Math.round(weeklyRate * 7700 / 7) // 7700 kcal ≈ 1 kg fat
+    const isSafe = weeklyRate <= 1.0  // > 1 kg/week is aggressive for strength athletes
+    const waterCutNeeded = hasWaterCut ? Math.min(3, totalToLose) : 0
+    const waterCutPct = currentKg > 0 ? (waterCutNeeded / currentKg) * 100 : 0
+    const waterCutFeasible = waterCutPct <= 5  // < 5% BW water cut is considered manageable
+
+    const projection = []
+    for (let w = 0; w <= meetWeeks; w++) {
+      projection.push({ week: w, weight: Math.round((currentKg - weeklyRate * w) * 10) / 10 })
+    }
+
+    return {
+      status: isSafe ? 'safe' : 'aggressive',
+      currentKg, targetKg, totalToLose, dietLoss, weeklyRate: Math.round(weeklyRate * 100) / 100,
+      dailyDeficit, waterCutNeeded: Math.round(waterCutNeeded * 10) / 10,
+      waterCutFeasible, waterCutPct: Math.round(waterCutPct * 10) / 10,
+      projection,
+    }
+  }, [currentBW, targetClass, meetWeeks, hasWaterCut, isMale, weightUnit])
+
+  // ── Lose Weight calculations ─────────────────────────────────────
+  const lwResults = useMemo(() => {
+    const currentKg = toKgLocal(currentBW)
+    const goalKg    = toKgLocal(goalBW)
+    const bmr  = calcBMR(currentKg, heightCm, age, isMale)
+    const tdee = calcTDEE(bmr, activity)
+    const targetCals = Math.max(1200, tdee - deficit)
+    const macros = calcMacrosFromCalories(targetCals, goalKg)
+    const totalToLoseKg = Math.max(0, currentKg - goalKg)
+    const weeklyLossKg = deficit * 7 / 7700
+    const weeksNeeded = weeklyLossKg > 0 ? Math.ceil(totalToLoseKg / weeklyLossKg) : 0
+    const projection = calcWeightProjection(currentKg, weeklyLossKg, weeksNeeded)
+    const proteinCals = macros.protein * 4
+    const carbCals    = macros.carbs * 4
+    const fatCals     = macros.fat * 9
+    return {
+      bmr, tdee, targetCals, macros, totalToLoseKg: Math.round(totalToLoseKg * 10) / 10,
+      weeklyLossKg: Math.round(weeklyLossKg * 100) / 100, weeksNeeded, projection,
+      proteinCals, carbCals, fatCals, isSafe: deficit <= 750,
+    }
+  }, [currentBW, goalBW, heightCm, age, isMale, activity, deficit, weightUnit])
+
+  return (
+    <div className="space-y-5">
+      {/* Mode toggle */}
+      <div className="flex gap-1 bg-zinc-800 rounded-xl p-1 w-fit">
+        {[
+          { id: 'makeweight', label: '⚖️ Make Weight' },
+          { id: 'loseweight', label: '🔥 Lose Weight' },
+        ].map(({ id, label }) => (
+          <button
+            key={id}
+            onClick={() => setMode(id)}
+            className={cn(
+              'px-4 py-1.5 rounded-lg text-sm font-medium transition-colors',
+              mode === id ? 'bg-purple-600 text-white shadow' : 'text-zinc-400 hover:text-zinc-200'
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* Shared: Sex + Current BW */}
+      <Card>
+        <CardBody className="space-y-4">
+          <h3 className="text-sm font-semibold text-zinc-200">Athlete Info</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {/* Sex toggle */}
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium text-zinc-400">Sex</label>
+              <div className="flex gap-1 bg-zinc-800 rounded-lg p-0.5">
+                {['Male', 'Female'].map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => {
+                      setIsMale(s === 'Male')
+                      setTargetClass(s === 'Male' ? 83 : 69)
+                    }}
+                    className={cn(
+                      'flex-1 py-1.5 rounded-md text-xs font-medium transition-colors',
+                      (s === 'Male') === isMale ? 'bg-purple-600 text-white' : 'text-zinc-400 hover:text-zinc-200'
+                    )}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <NumInput
+              label={`Current Bodyweight (${unit})`}
+              value={currentBW}
+              onChange={setCurrentBW}
+              step={isLbs ? 0.5 : 0.1}
+              min={isLbs ? 80 : 35}
+            />
+            {mode === 'loseweight' && (
+              <NumInput
+                label="Age"
+                value={age}
+                onChange={setAge}
+                min={13}
+                step={1}
+              />
+            )}
+          </div>
+        </CardBody>
+      </Card>
+
+      {/* ── MAKE WEIGHT MODE ─────────────────────────────────────── */}
+      {mode === 'makeweight' && (
+        <>
+          <Card>
+            <CardBody className="space-y-4">
+              <h3 className="text-sm font-semibold text-zinc-200">Meet Prep Inputs</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                {/* Weight class selector */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-medium text-zinc-400">Target Weight Class</label>
+                  <select
+                    value={targetClass}
+                    onChange={(e) => setTargetClass(Number(e.target.value))}
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-purple-500"
+                  >
+                    {classes.map((c) => (
+                      <option key={c} value={c}>{weightClassLabel(c)}</option>
+                    ))}
+                  </select>
+                </div>
+                <NumInput
+                  label="Weeks Until Meet"
+                  value={meetWeeks}
+                  onChange={setMeetWeeks}
+                  min={1}
+                  step={1}
+                />
+                {/* Water cut toggle */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-medium text-zinc-400">Planning a Water Cut?</label>
+                  <div className="flex gap-1 bg-zinc-800 rounded-lg p-0.5">
+                    {['Yes', 'No'].map((s) => (
+                      <button
+                        key={s}
+                        onClick={() => setHasWaterCut(s === 'Yes')}
+                        className={cn(
+                          'flex-1 py-1.5 rounded-md text-xs font-medium transition-colors',
+                          (s === 'Yes') === hasWaterCut ? 'bg-purple-600 text-white' : 'text-zinc-400 hover:text-zinc-200'
+                        )}
+                      >
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </CardBody>
+          </Card>
+
+          {/* Results */}
+          {mwResults.status === 'already_in' ? (
+            <Card className="border-green-500/30">
+              <CardBody className="flex items-center gap-3">
+                <CheckCircle className="w-5 h-5 text-green-400 flex-shrink-0" />
+                <div>
+                  <p className="text-sm font-semibold text-green-400">Already in weight class</p>
+                  <p className="text-xs text-zinc-400 mt-0.5">Your current bodyweight is at or below the target class. No cut needed.</p>
+                </div>
+              </CardBody>
+            </Card>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <ResultBox
+                  label="Total to Lose"
+                  value={`${toDisplay(mwResults.totalToLose)} ${unit}`}
+                  color="text-orange-400"
+                />
+                <ResultBox
+                  label="Diet Loss"
+                  value={`${toDisplay(mwResults.dietLoss)} ${unit}`}
+                  color="text-yellow-400"
+                  sub="via caloric deficit"
+                />
+                <ResultBox
+                  label="Weekly Loss Rate"
+                  value={`${toDisplay(mwResults.weeklyRate)} ${unit}/wk`}
+                  color={mwResults.status === 'safe' ? 'text-green-400' : 'text-red-400'}
+                />
+                <ResultBox
+                  label="Daily Deficit Needed"
+                  value={`${mwResults.dailyDeficit} kcal`}
+                  color={mwResults.dailyDeficit < 750 ? 'text-teal-400' : 'text-orange-400'}
+                />
+              </div>
+
+              {hasWaterCut && (
+                <Card className={cn('border', mwResults.waterCutFeasible ? 'border-blue-500/30' : 'border-red-500/40')}>
+                  <CardBody className="flex items-start gap-3">
+                    <Droplets className={cn('w-4 h-4 mt-0.5 flex-shrink-0', mwResults.waterCutFeasible ? 'text-blue-400' : 'text-red-400')} />
+                    <div className="space-y-0.5">
+                      <p className={cn('text-sm font-semibold', mwResults.waterCutFeasible ? 'text-blue-300' : 'text-red-400')}>
+                        Water Cut: {toDisplay(mwResults.waterCutNeeded)} {unit} ({mwResults.waterCutPct}% BW)
+                      </p>
+                      <p className="text-xs text-zinc-400">
+                        {mwResults.waterCutFeasible
+                          ? 'This is within the manageable range (≤5% BW). Ensure 24–48 hr rehydration window before lifting.'
+                          : '⚠️ This water cut exceeds 5% bodyweight — risky for performance and health. Consider cutting to a higher weight class or extending your diet phase.'}
+                      </p>
+                    </div>
+                  </CardBody>
+                </Card>
+              )}
+
+              {mwResults.status === 'aggressive' && (
+                <Card className="border-red-500/30">
+                  <CardBody className="flex items-start gap-3">
+                    <AlertTriangle className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <p className="text-sm font-semibold text-red-400">Aggressive cut — performance risk</p>
+                      <p className="text-xs text-zinc-400 mt-0.5">Losing more than 1 kg/week significantly increases muscle loss risk for strength athletes. Consider targeting a higher weight class or extending the prep timeline.</p>
+                    </div>
+                  </CardBody>
+                </Card>
+              )}
+
+              {/* Week-by-week chart */}
+              <Card>
+                <CardBody className="space-y-3">
+                  <h3 className="text-sm font-semibold text-zinc-200">Weight Projection (Diet Phase)</h3>
+                  <div className="h-52">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={mwResults.projection.map(d => ({ ...d, weight: toDisplay(d.weight) }))}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
+                        <XAxis dataKey="week" tick={{ fontSize: 10, fill: '#71717a' }} label={{ value: 'Week', position: 'insideBottom', offset: -2, fontSize: 10, fill: '#71717a' }} />
+                        <YAxis tick={{ fontSize: 10, fill: '#71717a' }} domain={['auto', 'auto']} unit={` ${unit}`} />
+                        <Tooltip
+                          contentStyle={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: 8, fontSize: 12 }}
+                          formatter={(val) => [`${val} ${unit}`, 'Bodyweight']}
+                          labelFormatter={(w) => `Week ${w}`}
+                        />
+                        <ReferenceLine y={toDisplay(mwResults.targetKg)} stroke="#a78bfa" strokeDasharray="4 4" label={{ value: `Target: ${toDisplay(mwResults.targetKg)} ${unit}`, fontSize: 10, fill: '#a78bfa', position: 'insideTopRight' }} />
+                        <Line type="monotone" dataKey="weight" stroke="#fb923c" strokeWidth={2} dot={{ r: 2, fill: '#fb923c' }} activeDot={{ r: 4 }} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </CardBody>
+              </Card>
+
+              {/* Guidance notes */}
+              <Card>
+                <CardBody>
+                  <h3 className="text-sm font-semibold text-zinc-200 mb-3">Meet Prep Guidelines</h3>
+                  <div className="grid sm:grid-cols-2 gap-3 text-xs text-zinc-400">
+                    <div className="space-y-1.5 bg-zinc-800/40 rounded-lg p-3">
+                      <p className="font-semibold text-zinc-300">Diet Phase</p>
+                      <p>• Max safe rate: 0.5–1% BW/week for strength athletes</p>
+                      <p>• Keep protein high (≥2g/kg) to preserve muscle</p>
+                      <p>• Reduce carbs before fat — protect training energy</p>
+                    </div>
+                    <div className="space-y-1.5 bg-zinc-800/40 rounded-lg p-3">
+                      <p className="font-semibold text-zinc-300">Water Cut</p>
+                      <p>• ≤3% BW: safe with 24 hr rehydration</p>
+                      <p>• 3–5% BW: manageable, requires careful rehydration protocol</p>
+                      <p>• &gt;5% BW: not recommended — significant strength loss</p>
+                    </div>
+                  </div>
+                </CardBody>
+              </Card>
+            </>
+          )}
+        </>
+      )}
+
+      {/* ── LOSE WEIGHT MODE ─────────────────────────────────────── */}
+      {mode === 'loseweight' && (
+        <>
+          <Card>
+            <CardBody className="space-y-4">
+              <h3 className="text-sm font-semibold text-zinc-200">Body & Goal Inputs</h3>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <NumInput
+                  label="Height (cm)"
+                  value={heightCm}
+                  onChange={setHeightCm}
+                  min={100}
+                  step={1}
+                />
+                <NumInput
+                  label={`Goal Weight (${unit})`}
+                  value={goalBW}
+                  onChange={setGoalBW}
+                  step={isLbs ? 0.5 : 0.1}
+                  min={isLbs ? 80 : 35}
+                />
+                <div className="col-span-2 sm:col-span-1">
+                  <label className="text-xs font-medium text-zinc-400 block mb-1">Daily Deficit (kcal)</label>
+                  <input
+                    type="range"
+                    min={200}
+                    max={1000}
+                    step={50}
+                    value={deficit}
+                    onChange={(e) => setDeficit(Number(e.target.value))}
+                    className="w-full accent-purple-500"
+                  />
+                  <div className="flex justify-between text-xs text-zinc-500 mt-0.5">
+                    <span>200</span>
+                    <span className="text-purple-400 font-semibold">{deficit} kcal/day</span>
+                    <span>1000</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Activity level */}
+              <div>
+                <label className="text-xs font-medium text-zinc-400 block mb-2">Activity Level</label>
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5">
+                  {ACTIVITY_LEVELS.map(({ id, label, sub }) => (
+                    <button
+                      key={id}
+                      onClick={() => setActivity(id)}
+                      className={cn(
+                        'flex flex-col items-start px-3 py-2 rounded-lg border text-left transition-colors',
+                        activity === id
+                          ? 'border-purple-500 bg-purple-500/10 text-purple-300'
+                          : 'border-zinc-700 bg-zinc-800/40 text-zinc-400 hover:border-zinc-600'
+                      )}
+                    >
+                      <span className="text-xs font-semibold">{label}</span>
+                      <span className="text-xs opacity-70 mt-0.5 leading-tight">{sub}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </CardBody>
+          </Card>
+
+          {/* TDEE & deficit results */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <ResultBox label="BMR" value={`${lwResults.bmr.toLocaleString()} kcal`} color="text-zinc-300" sub="at rest" />
+            <ResultBox label="TDEE" value={`${lwResults.tdee.toLocaleString()} kcal`} color="text-blue-400" sub="maintenance" />
+            <ResultBox label="Target Intake" value={`${lwResults.targetCals.toLocaleString()} kcal`} color="text-purple-400" sub={`−${deficit} deficit`} />
+            <ResultBox
+              label="Weekly Loss"
+              value={`${toDisplay(lwResults.weeklyLossKg)} ${unit}/wk`}
+              color={lwResults.isSafe ? 'text-green-400' : 'text-orange-400'}
+              sub={lwResults.isSafe ? 'sustainable' : 'aggressive'}
+            />
+          </div>
+
+          {/* Macro breakdown */}
+          <Card>
+            <CardBody className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-zinc-200">Macro Breakdown at Target Calories</h3>
+                <div className="flex items-center gap-1.5 text-xs text-zinc-400">
+                  <Flame className="w-3.5 h-3.5 text-orange-400" />
+                  {lwResults.targetCals.toLocaleString()} kcal/day
+                </div>
+              </div>
+              <div className="space-y-3">
+                <MacroBar
+                  label="Protein"
+                  grams={lwResults.macros.protein}
+                  calories={lwResults.proteinCals}
+                  color="bg-blue-500"
+                  pct={Math.round((lwResults.proteinCals / lwResults.targetCals) * 100)}
+                />
+                <MacroBar
+                  label="Carbohydrates"
+                  grams={lwResults.macros.carbs}
+                  calories={lwResults.carbCals}
+                  color="bg-teal-500"
+                  pct={Math.round((lwResults.carbCals / lwResults.targetCals) * 100)}
+                />
+                <MacroBar
+                  label="Fat"
+                  grams={lwResults.macros.fat}
+                  calories={lwResults.fatCals}
+                  color="bg-yellow-500"
+                  pct={Math.round((lwResults.fatCals / lwResults.targetCals) * 100)}
+                />
+              </div>
+              <div className="grid grid-cols-3 gap-2 pt-1">
+                {[
+                  { label: 'Protein', pct: Math.round((lwResults.proteinCals / lwResults.targetCals) * 100), color: 'text-blue-400' },
+                  { label: 'Carbs',   pct: Math.round((lwResults.carbCals   / lwResults.targetCals) * 100), color: 'text-teal-400' },
+                  { label: 'Fat',     pct: Math.round((lwResults.fatCals    / lwResults.targetCals) * 100), color: 'text-yellow-400' },
+                ].map(({ label, pct, color }) => (
+                  <div key={label} className="bg-zinc-800/40 rounded-lg p-2 text-center">
+                    <div className={cn('text-lg font-bold', color)}>{pct}%</div>
+                    <div className="text-xs text-zinc-500">{label}</div>
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-zinc-500">Protein set at 2.2g/kg goal bodyweight to preserve muscle during a deficit. Fat floored at 25% of calories. Remaining calories assigned to carbs.</p>
+            </CardBody>
+          </Card>
+
+          {/* Projection chart */}
+          {lwResults.weeksNeeded > 0 && lwResults.weeksNeeded <= 52 && (
+            <Card>
+              <CardBody className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-zinc-200">Weight Loss Projection</h3>
+                  <Badge color="purple">{lwResults.weeksNeeded} weeks to goal</Badge>
+                </div>
+                <div className="h-52">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={lwResults.projection.map(d => ({ ...d, weight: toDisplay(d.weight) }))}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
+                      <XAxis dataKey="week" tick={{ fontSize: 10, fill: '#71717a' }} label={{ value: 'Week', position: 'insideBottom', offset: -2, fontSize: 10, fill: '#71717a' }} />
+                      <YAxis tick={{ fontSize: 10, fill: '#71717a' }} domain={['auto', 'auto']} unit={` ${unit}`} />
+                      <Tooltip
+                        contentStyle={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: 8, fontSize: 12 }}
+                        formatter={(val) => [`${val} ${unit}`, 'Bodyweight']}
+                        labelFormatter={(w) => `Week ${w}`}
+                      />
+                      <ReferenceLine y={toDisplay(toKgLocal(goalBW))} stroke="#a78bfa" strokeDasharray="4 4" label={{ value: `Goal: ${goalBW} ${unit}`, fontSize: 10, fill: '#a78bfa', position: 'insideTopRight' }} />
+                      <Line type="monotone" dataKey="weight" stroke="#22d3ee" strokeWidth={2} dot={{ r: 2, fill: '#22d3ee' }} activeDot={{ r: 4 }} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardBody>
+            </Card>
+          )}
+
+          {/* Summary stats */}
+          <Card>
+            <CardBody className="space-y-0">
+              <h3 className="text-sm font-semibold text-zinc-200 mb-2">Summary</h3>
+              <InfoRow
+                label="Total Weight to Lose"
+                value={`${toDisplay(lwResults.totalToLoseKg)} ${unit}`}
+                color={lwResults.totalToLoseKg > 0 ? 'text-orange-400' : 'text-green-400'}
+              />
+              <InfoRow
+                label="Estimated Timeline"
+                value={lwResults.weeksNeeded > 0 ? `~${lwResults.weeksNeeded} weeks` : '—'}
+                sub={lwResults.weeksNeeded > 0 ? `≈ ${Math.round(lwResults.weeksNeeded / 4.33)} months` : undefined}
+              />
+              <InfoRow
+                label="Caloric Deficit"
+                value={`${deficit.toLocaleString()} kcal/day`}
+                color={lwResults.isSafe ? 'text-green-400' : 'text-orange-400'}
+                sub={lwResults.isSafe ? 'Sustainable for strength athletes' : 'High — monitor strength closely'}
+              />
+              <InfoRow label="Formula" value="Mifflin-St Jeor BMR" sub="Industry standard for active individuals" />
+            </CardBody>
+          </Card>
+        </>
+      )}
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // Main Page
 // ═══════════════════════════════════════════════════════════════════════════════
 export function CalculatorsPage() {
@@ -644,6 +1175,7 @@ export function CalculatorsPage() {
     scores: <ScoresTab />,
     attempts: <AttemptsTab />,
     tonnage: <TonnageTab />,
+    weightmgmt: <WeightMgmtTab />,
   }
 
   return (
