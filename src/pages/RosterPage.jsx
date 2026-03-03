@@ -66,7 +66,7 @@ export function RosterPage() {
               tab === 'queue' ? 'bg-zinc-700 text-zinc-100' : 'text-zinc-400 hover:text-zinc-200')}
           >
             Review Queue
-            <span className="text-xs bg-orange-500 text-white px-1.5 py-0.5 rounded-full font-bold">3</span>
+            {mockReviewQueue.length > 0 && <span className="text-xs bg-orange-500 text-white px-1.5 py-0.5 rounded-full font-bold">{mockReviewQueue.length}</span>}
           </button>
         </div>
       </div>
@@ -74,10 +74,10 @@ export function RosterPage() {
       {tab === 'queue' && (
         <div className="space-y-4">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <StatCard label="Trained Today" value="4/6" icon={CheckCircle2} color="green" />
-            <StatCard label="Videos Pending" value="2" icon={Eye} color="purple" />
-            <StatCard label="Pain Flags" value="1" icon={AlertTriangle} color="red" />
-            <StatCard label="Missed This Week" value="1" icon={Clock} color="orange" />
+            <StatCard label="Trained Today" value={isDemo ? '4/6' : `0/${mockAthletes.length}`} icon={CheckCircle2} color="green" />
+            <StatCard label="Videos Pending" value={isDemo ? '2' : '0'} icon={Eye} color="purple" />
+            <StatCard label="Pain Flags" value={isDemo ? '1' : '0'} icon={AlertTriangle} color="red" />
+            <StatCard label="Missed This Week" value={isDemo ? '1' : '0'} icon={Clock} color="orange" />
           </div>
           <Card>
             <CardHeader><CardTitle>Today's Review Queue</CardTitle></CardHeader>
