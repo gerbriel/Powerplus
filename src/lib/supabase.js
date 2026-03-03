@@ -203,7 +203,7 @@ export async function signUpWithEmail(email, password, fullName) {
     password,
     options: {
       data: { full_name: fullName, display_name: fullName },
-      emailRedirectTo: `${window.location.origin}/auth/callback`,
+      emailRedirectTo: `${window.location.origin}${import.meta.env.BASE_URL}auth/callback`,
     },
   })
   if (error) console.error('[supabase] signUp:', error.message)

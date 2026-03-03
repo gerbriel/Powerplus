@@ -103,7 +103,7 @@ export function LoginPage() {
     if (!isSupabaseConfigured()) { toast.error('Supabase not configured.'); return }
     setLoading(true)
     const { error } = await supabase.auth.resetPasswordForEmail(resetEmail, {
-      redirectTo: `${window.location.origin}/auth/callback?type=recovery`,
+      redirectTo: `${window.location.origin}${import.meta.env.BASE_URL}auth/callback?type=recovery`,
     })
     setLoading(false)
     if (error) { toast.error(error.message); return }
@@ -214,7 +214,7 @@ export function SignupPage() {
       password,
       options: {
         data: { full_name: fullName, display_name: fullName },
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
+        emailRedirectTo: `${window.location.origin}${import.meta.env.BASE_URL}auth/callback`,
       },
     })
     setLoading(false)
