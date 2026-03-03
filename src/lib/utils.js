@@ -263,3 +263,30 @@ export function getWeightClassInfo(bodyweightKg, isMale) {
     below:   ci > 0 ? classes[ci - 1] : null,
   }
 }
+
+/**
+ * Recommended macro split for a bulk (caloric surplus).
+ * Uses 2.0g/kg protein, 30% fat, rest carbs.
+ * Returns { protein, fat, carbs } in grams.
+ */
+export function calcBulkMacros(calories, weightKg) {
+  const protein = Math.round(2.0 * weightKg)         // 2.0g/kg
+  const proteinCals = protein * 4
+  const fatCals = Math.round(calories * 0.30)         // 30% fat
+  const fat = Math.round(fatCals / 9)
+  const carbCals = Math.max(0, calories - proteinCals - fatCals)
+  const carbs = Math.round(carbCals / 4)
+  return { protein, fat, carbs }
+}
+
+/**
+ * Build a week-by-week weight GAIN projection array.
+ * Returns an array of { week, weight } objects (kg, 1dp).
+ */
+export function calcWeightGainProjection(startKg, weeklyGainKg, totalWeeks) {
+  const arr = []
+  for (let w = 0; w <= Math.min(totalWeeks, 52); w++) {
+    arr.push({ week: w, weight: Math.round((startKg + weeklyGainKg * w) * 10) / 10 })
+  }
+  return arr
+}

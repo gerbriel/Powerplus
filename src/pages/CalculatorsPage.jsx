@@ -5,7 +5,7 @@ import {
 import { Calculator, TrendingUp, Target, Layers, ChevronDown, Scale, Flame, Droplets, AlertTriangle, CheckCircle } from 'lucide-react'
 import { Card, CardBody } from '../components/ui/Card'
 import { Badge } from '../components/ui/Badge'
-import { cn, calcE1RM, calcE1RMBrzycki, calcE1RMLombardi, calcDotsScore, calcWilks, calcGlossbrenner, calcAttemptSuggestions, calcTonnage, convertWeight, lbsToKg, kgToLbs, calcBMR, calcTDEE, calcMacrosFromCalories, calcWeightProjection, IPF_WEIGHT_CLASSES_MALE, IPF_WEIGHT_CLASSES_FEMALE, weightClassLabel, getWeightClassInfo } from '../lib/utils'
+import { cn, calcE1RM, calcE1RMBrzycki, calcE1RMLombardi, calcDotsScore, calcWilks, calcGlossbrenner, calcAttemptSuggestions, calcTonnage, convertWeight, lbsToKg, kgToLbs, calcBMR, calcTDEE, calcMacrosFromCalories, calcBulkMacros, calcWeightProjection, calcWeightGainProjection, IPF_WEIGHT_CLASSES_MALE, IPF_WEIGHT_CLASSES_FEMALE, weightClassLabel, getWeightClassInfo } from '../lib/utils'
 import { useSettingsStore, useAuthStore } from '../lib/store'
 import { MOCK_EXERCISE_HISTORY, MOCK_ATHLETES } from '../lib/mockData'
 
@@ -679,7 +679,7 @@ function WeightMgmtTab() {
   const unit = isLbs ? 'lbs' : 'kg'
 
   // ── Mode toggle ──────────────────────────────────────────────────
-  const [mode, setMode] = useState('makeweight') // 'makeweight' | 'loseweight'
+  const [mode, setMode] = useState('makeweight') // 'makeweight' | 'loseweight' | 'bulkgain'
 
   // ── Shared inputs ────────────────────────────────────────────────
   const [isMale, setIsMale]   = useState(true)
@@ -697,6 +697,12 @@ function WeightMgmtTab() {
   const [goalBW, setGoalBW]     = useState(isLbs ? 187 : 85)
   const [activity, setActivity] = useState('moderate')
   const [deficit, setDeficit]   = useState(500) // kcal/day
+
+  // ── Bulk / Gain inputs ───────────────────────────────────────────
+  const [bulkGoalBW, setBulkGoalBW]       = useState(isLbs ? 220 : 100)
+  const [bulkActivity, setBulkActivity]   = useState('active')
+  const [surplus, setSurplus]             = useState(300) // kcal/day above TDEE
+  const [bulkType, setBulkType]           = useState('lean') // 'lean' | 'aggressive'
 
   // ── Make Weight calculations ─────────────────────────────────────
   const mwResults = useMemo(() => {
@@ -749,6 +755,39 @@ function WeightMgmtTab() {
     }
   }, [currentBW, goalBW, heightCm, age, isMale, activity, deficit, weightUnit])
 
+  // ── Bulk / Gain calculations ─────────────────────────────────────
+  const bgResults = useMemo(() => {
+    const currentKg = toKgLocal(currentBW)
+    const goalKg    = toKgLocal(bulkGoalBW)
+    const bmr  = calcBMR(currentKg, heightCm, age, isMale)
+    const tdee = calcTDEE(bmr, bulkActivity)
+    // Lean bulk: 200–300 kcal surplus; aggressive: 500+ kcal surplus
+    const effectiveSurplus = bulkType === 'lean' ? Math.min(surplus, 400) : surplus
+    const targetCals = tdee + effectiveSurplus
+    const macros = calcBulkMacros(targetCals, goalKg)
+    // ~0.45 kg muscle/week max natural for lean bulk; fat gain is faster at higher surplus
+    const weeklyGainKg = effectiveSurplus * 7 / 7700
+    const totalToGainKg = Math.max(0, goalKg - currentKg)
+    const weeksNeeded = weeklyGainKg > 0 ? Math.ceil(totalToGainKg / weeklyGainKg) : 0
+    const projection = calcWeightGainProjection(currentKg, weeklyGainKg, weeksNeeded)
+    const proteinCals = macros.protein * 4
+    const carbCals    = macros.carbs * 4
+    const fatCals     = macros.fat * 9
+    // Fat gain estimate: at lean bulk ~20-30% of gain is fat; aggressive ~40-50%
+    const fatGainPct  = bulkType === 'lean' ? 0.25 : 0.45
+    const estimatedMusclePct = 1 - fatGainPct
+    // Next weight class up
+    const nextClasses = isMale ? IPF_WEIGHT_CLASSES_MALE : IPF_WEIGHT_CLASSES_FEMALE
+    const nextClass = nextClasses.find((c) => c > currentKg) ?? null
+    return {
+      bmr, tdee, targetCals, macros, totalToGainKg: Math.round(totalToGainKg * 10) / 10,
+      weeklyGainKg: Math.round(weeklyGainKg * 100) / 100, weeksNeeded, projection,
+      proteinCals, carbCals, fatCals, effectiveSurplus,
+      fatGainPct, estimatedMusclePct, nextClass,
+      isSafe: bulkType === 'lean' || effectiveSurplus <= 500,
+    }
+  }, [currentBW, bulkGoalBW, heightCm, age, isMale, bulkActivity, surplus, bulkType, weightUnit])
+
   return (
     <div className="space-y-5">
       {/* Mode toggle */}
@@ -756,6 +795,7 @@ function WeightMgmtTab() {
         {[
           { id: 'makeweight', label: '⚖️ Make Weight' },
           { id: 'loseweight', label: '🔥 Lose Weight' },
+          { id: 'bulkgain',   label: '💪 Bulk / Gain' },
         ].map(({ id, label }) => (
           <button
             key={id}
@@ -803,7 +843,7 @@ function WeightMgmtTab() {
               step={isLbs ? 0.5 : 0.1}
               min={isLbs ? 80 : 35}
             />
-            {mode === 'loseweight' && (
+            {(mode === 'loseweight' || mode === 'bulkgain') && (
               <NumInput
                 label="Age"
                 value={age}
@@ -1155,6 +1195,307 @@ function WeightMgmtTab() {
                 sub={lwResults.isSafe ? 'Sustainable for strength athletes' : 'High — monitor strength closely'}
               />
               <InfoRow label="Formula" value="Mifflin-St Jeor BMR" sub="Industry standard for active individuals" />
+            </CardBody>
+          </Card>
+        </>
+      )}
+
+      {/* ── BULK / GAIN MODE ─────────────────────────────────────── */}
+      {mode === 'bulkgain' && (
+        <>
+          <Card>
+            <CardBody className="space-y-4">
+              <h3 className="text-sm font-semibold text-zinc-200">Bulk Inputs</h3>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <NumInput
+                  label="Height (cm)"
+                  value={heightCm}
+                  onChange={setHeightCm}
+                  min={100}
+                  step={1}
+                />
+                <NumInput
+                  label={`Goal Weight (${unit})`}
+                  value={bulkGoalBW}
+                  onChange={setBulkGoalBW}
+                  step={isLbs ? 0.5 : 0.1}
+                  min={isLbs ? 80 : 35}
+                />
+                {/* Bulk type */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-medium text-zinc-400">Bulk Type</label>
+                  <div className="flex gap-1 bg-zinc-800 rounded-lg p-0.5">
+                    {[
+                      { id: 'lean',       label: 'Lean' },
+                      { id: 'aggressive', label: 'Aggressive' },
+                    ].map(({ id, label }) => (
+                      <button
+                        key={id}
+                        onClick={() => {
+                          setBulkType(id)
+                          setSurplus(id === 'lean' ? 300 : 600)
+                        }}
+                        className={cn(
+                          'flex-1 py-1.5 rounded-md text-xs font-medium transition-colors',
+                          bulkType === id ? 'bg-purple-600 text-white' : 'text-zinc-400 hover:text-zinc-200'
+                        )}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {/* Surplus slider */}
+                <div className="col-span-2 sm:col-span-1">
+                  <label className="text-xs font-medium text-zinc-400 block mb-1">Daily Surplus (kcal)</label>
+                  <input
+                    type="range"
+                    min={100}
+                    max={bulkType === 'lean' ? 400 : 800}
+                    step={50}
+                    value={surplus}
+                    onChange={(e) => setSurplus(Number(e.target.value))}
+                    className="w-full accent-green-500"
+                  />
+                  <div className="flex justify-between text-xs text-zinc-500 mt-0.5">
+                    <span>100</span>
+                    <span className="text-green-400 font-semibold">+{surplus} kcal/day</span>
+                    <span>{bulkType === 'lean' ? 400 : 800}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Activity level */}
+              <div>
+                <label className="text-xs font-medium text-zinc-400 block mb-2">Activity Level</label>
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5">
+                  {ACTIVITY_LEVELS.map(({ id, label, sub }) => (
+                    <button
+                      key={id}
+                      onClick={() => setBulkActivity(id)}
+                      className={cn(
+                        'flex flex-col items-start px-3 py-2 rounded-lg border text-left transition-colors',
+                        bulkActivity === id
+                          ? 'border-green-500 bg-green-500/10 text-green-300'
+                          : 'border-zinc-700 bg-zinc-800/40 text-zinc-400 hover:border-zinc-600'
+                      )}
+                    >
+                      <span className="text-xs font-semibold">{label}</span>
+                      <span className="text-xs opacity-70 mt-0.5 leading-tight">{sub}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Lean vs Aggressive info callout */}
+              <div className={cn(
+                'rounded-lg p-3 text-xs space-y-1 border',
+                bulkType === 'lean'
+                  ? 'bg-green-500/5 border-green-500/20 text-green-300'
+                  : 'bg-orange-500/5 border-orange-500/20 text-orange-300'
+              )}>
+                {bulkType === 'lean' ? (
+                  <>
+                    <p className="font-semibold">Lean Bulk (100–400 kcal surplus)</p>
+                    <p className="text-zinc-400">Slower gains with minimal fat accumulation. Ideal for athletes who need to stay in or near a weight class. Expect ~0.1–0.25 kg/week gain.</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="font-semibold">Aggressive Bulk (400–800 kcal surplus)</p>
+                    <p className="text-zinc-400">Faster mass gain but with more fat. Best in an off-season when weight class isn't a constraint. Expect ~0.25–0.5 kg/week gain.</p>
+                  </>
+                )}
+              </div>
+            </CardBody>
+          </Card>
+
+          {/* TDEE & surplus results */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <ResultBox label="BMR" value={`${bgResults.bmr.toLocaleString()} kcal`} color="text-zinc-300" sub="at rest" />
+            <ResultBox label="TDEE" value={`${bgResults.tdee.toLocaleString()} kcal`} color="text-blue-400" sub="maintenance" />
+            <ResultBox label="Target Intake" value={`${bgResults.targetCals.toLocaleString()} kcal`} color="text-green-400" sub={`+${bgResults.effectiveSurplus} surplus`} />
+            <ResultBox
+              label="Weekly Gain"
+              value={`+${toDisplay(bgResults.weeklyGainKg)} ${unit}/wk`}
+              color={bgResults.isSafe ? 'text-teal-400' : 'text-orange-400'}
+              sub={bgResults.isSafe ? 'controlled' : 'fast bulk'}
+            />
+          </div>
+
+          {/* Body composition estimate */}
+          <div className="grid grid-cols-2 gap-3">
+            <Card className="border-green-500/20">
+              <CardBody className="text-center space-y-1">
+                <div className="text-xs text-zinc-400 uppercase tracking-wider">Estimated Muscle Gain</div>
+                <div className="text-3xl font-bold text-green-400">{Math.round(bgResults.estimatedMusclePct * 100)}%</div>
+                <div className="text-xs text-zinc-500">of total weight gained</div>
+                <div className="text-xs text-zinc-400 mt-1">
+                  ~{toDisplay(Math.round(bgResults.totalToGainKg * bgResults.estimatedMusclePct * 10) / 10)} {unit} lean mass
+                </div>
+              </CardBody>
+            </Card>
+            <Card className="border-yellow-500/20">
+              <CardBody className="text-center space-y-1">
+                <div className="text-xs text-zinc-400 uppercase tracking-wider">Estimated Fat Gain</div>
+                <div className="text-3xl font-bold text-yellow-400">{Math.round(bgResults.fatGainPct * 100)}%</div>
+                <div className="text-xs text-zinc-500">of total weight gained</div>
+                <div className="text-xs text-zinc-400 mt-1">
+                  ~{toDisplay(Math.round(bgResults.totalToGainKg * bgResults.fatGainPct * 10) / 10)} {unit} body fat
+                </div>
+              </CardBody>
+            </Card>
+          </div>
+
+          {/* Macro breakdown */}
+          <Card>
+            <CardBody className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-zinc-200">Macro Breakdown at Target Calories</h3>
+                <div className="flex items-center gap-1.5 text-xs text-zinc-400">
+                  <Flame className="w-3.5 h-3.5 text-green-400" />
+                  {bgResults.targetCals.toLocaleString()} kcal/day
+                </div>
+              </div>
+              <div className="space-y-3">
+                <MacroBar
+                  label="Protein"
+                  grams={bgResults.macros.protein}
+                  calories={bgResults.proteinCals}
+                  color="bg-blue-500"
+                  pct={Math.round((bgResults.proteinCals / bgResults.targetCals) * 100)}
+                />
+                <MacroBar
+                  label="Carbohydrates"
+                  grams={bgResults.macros.carbs}
+                  calories={bgResults.carbCals}
+                  color="bg-green-500"
+                  pct={Math.round((bgResults.carbCals / bgResults.targetCals) * 100)}
+                />
+                <MacroBar
+                  label="Fat"
+                  grams={bgResults.macros.fat}
+                  calories={bgResults.fatCals}
+                  color="bg-yellow-500"
+                  pct={Math.round((bgResults.fatCals / bgResults.targetCals) * 100)}
+                />
+              </div>
+              <div className="grid grid-cols-3 gap-2 pt-1">
+                {[
+                  { label: 'Protein', pct: Math.round((bgResults.proteinCals / bgResults.targetCals) * 100), color: 'text-blue-400' },
+                  { label: 'Carbs',   pct: Math.round((bgResults.carbCals   / bgResults.targetCals) * 100), color: 'text-green-400' },
+                  { label: 'Fat',     pct: Math.round((bgResults.fatCals    / bgResults.targetCals) * 100), color: 'text-yellow-400' },
+                ].map(({ label, pct, color }) => (
+                  <div key={label} className="bg-zinc-800/40 rounded-lg p-2 text-center">
+                    <div className={cn('text-lg font-bold', color)}>{pct}%</div>
+                    <div className="text-xs text-zinc-500">{label}</div>
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-zinc-500">Protein set at 2.0g/kg goal bodyweight to support muscle synthesis. Fat at 30% of calories. Remaining calories assigned to carbohydrates for training performance.</p>
+            </CardBody>
+          </Card>
+
+          {/* Projection chart */}
+          {bgResults.weeksNeeded > 0 && bgResults.weeksNeeded <= 52 && (
+            <Card>
+              <CardBody className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-zinc-200">Weight Gain Projection</h3>
+                  <Badge color="purple">{bgResults.weeksNeeded} weeks to goal</Badge>
+                </div>
+                <div className="h-52">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={bgResults.projection.map(d => ({ ...d, weight: toDisplay(d.weight) }))}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
+                      <XAxis dataKey="week" tick={{ fontSize: 10, fill: '#71717a' }} label={{ value: 'Week', position: 'insideBottom', offset: -2, fontSize: 10, fill: '#71717a' }} />
+                      <YAxis tick={{ fontSize: 10, fill: '#71717a' }} domain={['auto', 'auto']} unit={` ${unit}`} />
+                      <Tooltip
+                        contentStyle={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: 8, fontSize: 12 }}
+                        formatter={(val) => [`${val} ${unit}`, 'Bodyweight']}
+                        labelFormatter={(w) => `Week ${w}`}
+                      />
+                      <ReferenceLine y={toDisplay(toKgLocal(bulkGoalBW))} stroke="#4ade80" strokeDasharray="4 4" label={{ value: `Goal: ${bulkGoalBW} ${unit}`, fontSize: 10, fill: '#4ade80', position: 'insideTopRight' }} />
+                      <Line type="monotone" dataKey="weight" stroke="#4ade80" strokeWidth={2} dot={{ r: 2, fill: '#4ade80' }} activeDot={{ r: 4 }} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardBody>
+            </Card>
+          )}
+
+          {/* Weight class progression */}
+          {bgResults.nextClass && (
+            <Card className="border-purple-500/20">
+              <CardBody>
+                <h3 className="text-sm font-semibold text-zinc-200 mb-3">Weight Class Progression</h3>
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 bg-zinc-800/60 rounded-lg p-3 text-center border border-zinc-700/50">
+                    <div className="text-xs text-zinc-400 mb-1">Current Class</div>
+                    <div className="text-lg font-bold text-zinc-200">
+                      {(isMale ? IPF_WEIGHT_CLASSES_MALE : IPF_WEIGHT_CLASSES_FEMALE).find(c => toKgLocal(currentBW) <= c) >= 9999
+                        ? '120+ kg' : `≤${(isMale ? IPF_WEIGHT_CLASSES_MALE : IPF_WEIGHT_CLASSES_FEMALE).find(c => toKgLocal(currentBW) <= c)} kg`}
+                    </div>
+                  </div>
+                  <div className="text-zinc-500 text-xl">→</div>
+                  <div className="flex-1 bg-green-500/10 rounded-lg p-3 text-center border border-green-500/30">
+                    <div className="text-xs text-zinc-400 mb-1">Next Class Up</div>
+                    <div className="text-lg font-bold text-green-400">
+                      {bgResults.nextClass >= 9999 ? '120+ kg' : `≤${bgResults.nextClass} kg`}
+                    </div>
+                  </div>
+                </div>
+                <p className="text-xs text-zinc-500 mt-3">Moving up a weight class gives you more room to add strength without competing at a bodyweight disadvantage.</p>
+              </CardBody>
+            </Card>
+          )}
+
+          {/* Summary */}
+          <Card>
+            <CardBody className="space-y-0">
+              <h3 className="text-sm font-semibold text-zinc-200 mb-2">Summary</h3>
+              <InfoRow
+                label="Total Weight to Gain"
+                value={`+${toDisplay(bgResults.totalToGainKg)} ${unit}`}
+                color="text-green-400"
+              />
+              <InfoRow
+                label="Estimated Timeline"
+                value={bgResults.weeksNeeded > 0 ? `~${bgResults.weeksNeeded} weeks` : '—'}
+                sub={bgResults.weeksNeeded > 0 ? `≈ ${Math.round(bgResults.weeksNeeded / 4.33)} months` : undefined}
+              />
+              <InfoRow
+                label="Daily Caloric Surplus"
+                value={`+${bgResults.effectiveSurplus} kcal/day`}
+                color="text-green-400"
+              />
+              <InfoRow
+                label="Bulk Type"
+                value={bulkType === 'lean' ? 'Lean Bulk' : 'Aggressive Bulk'}
+                color={bulkType === 'lean' ? 'text-teal-400' : 'text-orange-400'}
+                sub={bulkType === 'lean' ? 'Minimise fat, stay near weight class' : 'Maximise mass in off-season'}
+              />
+              <InfoRow label="Formula" value="Mifflin-St Jeor BMR" sub="Industry standard for active individuals" />
+            </CardBody>
+          </Card>
+
+          {/* Bulk guidelines */}
+          <Card>
+            <CardBody>
+              <h3 className="text-sm font-semibold text-zinc-200 mb-3">Bulking Guidelines for Strength Athletes</h3>
+              <div className="grid sm:grid-cols-2 gap-3 text-xs text-zinc-400">
+                <div className="space-y-1.5 bg-zinc-800/40 rounded-lg p-3">
+                  <p className="font-semibold text-zinc-300">Nutrition</p>
+                  <p>• Hit protein target every day — muscle synthesis requires consistent amino acid availability</p>
+                  <p>• Prioritise carbs around training for performance and glycogen</p>
+                  <p>• Don't exceed 500 kcal surplus unless in a true off-season</p>
+                </div>
+                <div className="space-y-1.5 bg-zinc-800/40 rounded-lg p-3">
+                  <p className="font-semibold text-zinc-300">Training</p>
+                  <p>• Progressive overload is essential — calories without stimulus = fat gain</p>
+                  <p>• Track monthly strength PRs to confirm mass is going to muscle</p>
+                  <p>• Re-evaluate every 4–6 weeks: adjust surplus if gaining too fast/slow</p>
+                </div>
+              </div>
             </CardBody>
           </Card>
         </>
