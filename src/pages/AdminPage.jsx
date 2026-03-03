@@ -3075,12 +3075,19 @@ function LeadDetailModal({ lead, staff, orgId, onClose, onUpdate, deleteLead }) 
         {/* Application details */}
         <div className="grid sm:grid-cols-2 gap-3 p-4 bg-zinc-800/40 rounded-xl border border-zinc-700">
           {[
-            { label: 'Email',       value: lead.email },
-            { label: 'Phone',       value: lead.phone || '—' },
-            { label: 'Experience',  value: lead.experience || '—' },
-            { label: 'Federation',  value: lead.federation || '—' },
-            { label: 'Source',      value: lead.source || '—' },
-            { label: 'Applied',     value: lead.submitted_at },
+            { label: 'Email',        value: lead.email },
+            { label: 'Phone',        value: lead.phone || '—' },
+            { label: 'Instagram',    value: lead.extra_answers?.['f-instagram'] || '—' },
+            { label: 'Service',      value: lead.extra_answers?.['f-service'] || '—' },
+            { label: 'Age',          value: lead.extra_answers?.['f-age'] || '—' },
+            { label: 'Height',       value: lead.extra_answers?.['f-height'] || '—' },
+            { label: 'Weight',       value: lead.extra_answers?.['f-weight'] || '—' },
+            { label: 'Weight Class', value: lead.extra_answers?.['f-weight-class'] || '—' },
+            { label: 'Experience',   value: lead.experience || '—' },
+            { label: 'Federation',   value: lead.federation || '—' },
+            { label: 'Membership #', value: lead.extra_answers?.['f-membership'] || '—' },
+            { label: 'Source',       value: lead.source || '—' },
+            { label: 'Applied',      value: lead.submitted_at },
           ].map((r) => (
             <div key={r.label}>
               <p className="text-xs text-zinc-500 mb-0.5">{r.label}</p>
@@ -3089,19 +3096,93 @@ function LeadDetailModal({ lead, staff, orgId, onClose, onUpdate, deleteLead }) 
           ))}
         </div>
 
-        {lead.goals && (
-          <div>
-            <p className="text-xs font-medium text-zinc-500 mb-1.5">Goals</p>
-            <p className="text-sm text-zinc-300 leading-relaxed">{lead.goals}</p>
+        {/* Lift stats */}
+        {(lead.extra_answers?.['f-squat-max'] || lead.extra_answers?.['f-bench-max'] || lead.extra_answers?.['f-deadlift-max']) && (
+          <div className="p-4 bg-zinc-800/40 rounded-xl border border-zinc-700">
+            <p className="text-xs font-semibold text-zinc-400 mb-3 uppercase tracking-wide">Lift Maxes</p>
+            <div className="grid grid-cols-3 gap-3">
+              {[
+                { label: 'Squat',     value: lead.extra_answers?.['f-squat-max'] },
+                { label: 'Bench',     value: lead.extra_answers?.['f-bench-max'] },
+                { label: 'Deadlift',  value: lead.extra_answers?.['f-deadlift-max'] },
+              ].map((r) => r.value ? (
+                <div key={r.label} className="text-center">
+                  <p className="text-xs text-zinc-500">{r.label}</p>
+                  <p className="text-sm font-semibold text-zinc-100">{r.value}</p>
+                </div>
+              ) : null)}
+            </div>
           </div>
         )}
 
-        {lead.injuries && (
-          <div>
-            <p className="text-xs font-medium text-zinc-500 mb-1.5">Injuries / Health Notes</p>
-            <p className="text-sm text-zinc-300 leading-relaxed">{lead.injuries}</p>
+        {/* Technique */}
+        {(lead.extra_answers?.['f-squat-style'] || lead.extra_answers?.['f-bench-style'] || lead.extra_answers?.['f-deadlift-style']) && (
+          <div className="grid sm:grid-cols-3 gap-3 p-4 bg-zinc-800/40 rounded-xl border border-zinc-700">
+            <div>
+              <p className="text-xs text-zinc-500 mb-0.5">Squat Style</p>
+              <p className="text-sm text-zinc-200">{lead.extra_answers?.['f-squat-style'] || '—'}</p>
+            </div>
+            <div>
+              <p className="text-xs text-zinc-500 mb-0.5">Bench Style</p>
+              <p className="text-sm text-zinc-200">{lead.extra_answers?.['f-bench-style'] || '—'}</p>
+            </div>
+            <div>
+              <p className="text-xs text-zinc-500 mb-0.5">Deadlift Style</p>
+              <p className="text-sm text-zinc-200">{lead.extra_answers?.['f-deadlift-style'] || '—'}</p>
+            </div>
           </div>
         )}
+
+        {/* Schedule & lifestyle */}
+        {(lead.extra_answers?.['f-days-per-week'] || lead.extra_answers?.['f-training-time'] || lead.extra_answers?.['f-occupation']) && (
+          <div className="grid sm:grid-cols-2 gap-3 p-4 bg-zinc-800/40 rounded-xl border border-zinc-700">
+            {[
+              { label: 'Days/Week',      value: lead.extra_answers?.['f-days-per-week'] },
+              { label: 'Training Time',  value: lead.extra_answers?.['f-training-time'] },
+              { label: 'Occupation',     value: lead.extra_answers?.['f-occupation'] },
+              { label: 'Sleep',          value: lead.extra_answers?.['f-sleep-schedule'] ? `${lead.extra_answers?.['f-sleep-schedule']} (${lead.extra_answers?.['f-sleep-hours'] || '?'}h)` : lead.extra_answers?.['f-sleep-hours'] ? `${lead.extra_answers?.['f-sleep-hours']}h/night` : null },
+            ].filter(r => r.value).map((r) => (
+              <div key={r.label}>
+                <p className="text-xs text-zinc-500 mb-0.5">{r.label}</p>
+                <p className="text-sm text-zinc-200">{r.value}</p>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Health scores */}
+        {(lead.extra_answers?.['f-nutrition-score'] || lead.extra_answers?.['f-stress-score']) && (
+          <div className="grid grid-cols-4 gap-3 p-4 bg-zinc-800/40 rounded-xl border border-zinc-700">
+            {[
+              { label: 'Nutrition', value: lead.extra_answers?.['f-nutrition-score'] },
+              { label: 'Hydration', value: lead.extra_answers?.['f-hydration-score'] },
+              { label: 'Stress',    value: lead.extra_answers?.['f-stress-score'] },
+              { label: 'Recovery',  value: lead.extra_answers?.['f-recovery'] },
+            ].map((r) => (
+              <div key={r.label} className="text-center">
+                <p className="text-xs text-zinc-500">{r.label}</p>
+                <p className="text-lg font-bold text-zinc-100">{r.value || '—'}<span className="text-xs text-zinc-500">/10</span></p>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Textarea fields */}
+        {[
+          { key: 'f-goals',             label: 'Goals',                       value: lead.goals },
+          { key: 'f-injuries',          label: 'Injuries / Health Notes',     value: lead.injuries },
+          { key: 'f-weakpoints',        label: 'Weak Points / Needs Work',    value: lead.extra_answers?.['f-weakpoints'] },
+          { key: 'f-obligations',       label: 'Other Obligations',           value: lead.extra_answers?.['f-obligations'] },
+          { key: 'f-external-stressors',label: 'External Stressors',          value: lead.extra_answers?.['f-external-stressors'] },
+          { key: 'f-expectations',      label: 'Expectations for a Coach',    value: lead.extra_answers?.['f-expectations'] },
+          { key: 'f-concerns',          label: 'Concerns / Hesitations',      value: lead.extra_answers?.['f-concerns'] },
+          { key: 'f-learner-type',      label: 'Learning Style',              value: lead.extra_answers?.['f-learner-type'] },
+        ].filter(r => r.value).map((r) => (
+          <div key={r.key}>
+            <p className="text-xs font-medium text-zinc-500 mb-1.5">{r.label}</p>
+            <p className="text-sm text-zinc-300 leading-relaxed">{r.value}</p>
+          </div>
+        ))}
 
         {/* Internal notes */}
         <div>

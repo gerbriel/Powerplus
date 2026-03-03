@@ -361,6 +361,7 @@ function IntakeSection({ id, section, accent, orgId, orgName, intakeFields, addL
   function validate() {
     const errs = {}
     intakeFields.forEach((f) => {
+      if (f.type === 'section_heading') return
       if (f.required && !form[f.id]?.trim()) errs[f.id] = 'This field is required'
     })
     return errs
@@ -372,15 +373,21 @@ function IntakeSection({ id, section, accent, orgId, orgName, intakeFields, addL
     if (Object.keys(errs).length > 0) { setErrors(errs); return }
 
     const lead = {
-      full_name:   form['f-name']       || form[intakeFields.find((f) => f.type === 'text' && f.label.toLowerCase().includes('name'))?.id] || 'Unknown',
-      email:       form['f-email']      || form[intakeFields.find((f) => f.type === 'email')?.id] || '',
-      phone:       form['f-phone']      || '',
-      experience:  form['f-experience'] || '',
-      goals:       form['f-goals']      || '',
-      injuries:    form['f-injuries']   || '',
-      federation:  form['f-fed']        || '',
-      source:      form['f-hear']       || 'Public page',
+      full_name:   [form['f-first-name'], form['f-last-name']].filter(Boolean).join(' ') || form['f-name'] || 'Unknown',
+      email:       form['f-email']       || '',
+      phone:       form['f-phone']       || '',
+      experience:  form['f-experience']  || '',
+      goals:       form['f-goals']       || '',
+      injuries:    form['f-injuries']    || '',
+      federation:  form['f-fed']         || '',
+      source:      form['f-hear']        || 'Public page',
       status: 'new',
+      // Store all remaining answers in extra_answers
+      extra_answers: Object.fromEntries(
+        Object.entries(form).filter(([k]) =>
+          !['f-first-name','f-last-name','f-name','f-email','f-phone','f-experience','f-goals','f-injuries','f-fed','f-hear'].includes(k)
+        )
+      ),
     }
     addLead(orgId, lead)
     setSubmitted(true)
@@ -406,11 +413,6 @@ function IntakeSection({ id, section, accent, orgId, orgName, intakeFields, addL
     )
   }
 
-  // Split fields into two columns for wider screens
-  const leftFields = intakeFields.filter((_, i) => i % 2 === 0 || intakeFields.length <= 3)
-  const rightFields = intakeFields.filter((_, i) => i % 2 !== 0 && intakeFields.length > 3)
-  const useColumns = intakeFields.length >= 4
-
   return (
     <section id={id}>
       <div className="max-w-2xl">
@@ -421,19 +423,8 @@ function IntakeSection({ id, section, accent, orgId, orgName, intakeFields, addL
           className="p-6 md:p-8 rounded-3xl border"
           style={{ background: `linear-gradient(135deg, ${accent}08, transparent)`, borderColor: `${accent}25` }}
         >
-          <form onSubmit={handleSubmit} className="space-y-5">
-            {useColumns ? (
-              <div className="grid md:grid-cols-2 gap-5">
-                <div className="space-y-5">
-                  {leftFields.map((field) => <IntakeField key={field.id} field={field} form={form} setForm={setForm} errors={errors} setErrors={setErrors} accent={accent} />)}
-                </div>
-                <div className="space-y-5">
-                  {rightFields.map((field) => <IntakeField key={field.id} field={field} form={form} setForm={setForm} errors={errors} setErrors={setErrors} accent={accent} />)}
-                </div>
-              </div>
-            ) : (
-              intakeFields.map((field) => <IntakeField key={field.id} field={field} form={form} setForm={setForm} errors={errors} setErrors={setErrors} accent={accent} />)
-            )}
+          <form onSubmit={handleSubmit} className="space-y-1">
+            <IntakeFieldList fields={intakeFields} form={form} setForm={setForm} errors={errors} setErrors={setErrors} accent={accent} />
 
             <button
               type="submit"
@@ -453,8 +444,44 @@ function IntakeSection({ id, section, accent, orgId, orgName, intakeFields, addL
   )
 }
 
+// ─── Renders a list of intake fields, grouping `half` fields into pairs ──────
+function IntakeFieldList({ fields, form, setForm, errors, setErrors, accent }) {
+  const rows = []
+  let i = 0
+  while (i < fields.length) {
+    const f = fields[i]
+    if (f.type === 'section_heading') {
+      rows.push(<IntakeField key={f.id} field={f} form={form} setForm={setForm} errors={errors} setErrors={setErrors} accent={accent} />)
+      i++
+    } else if (f.half && fields[i + 1]?.half && fields[i + 1]?.type !== 'section_heading') {
+      // Pair two half-width fields side by side
+      rows.push(
+        <div key={f.id + '-pair'} className="grid grid-cols-2 gap-4">
+          <IntakeField field={f} form={form} setForm={setForm} errors={errors} setErrors={setErrors} accent={accent} />
+          <IntakeField field={fields[i + 1]} form={form} setForm={setForm} errors={errors} setErrors={setErrors} accent={accent} />
+        </div>
+      )
+      i += 2
+    } else {
+      rows.push(<IntakeField key={f.id} field={f} form={form} setForm={setForm} errors={errors} setErrors={setErrors} accent={accent} />)
+      i++
+    }
+  }
+  return <div className="space-y-4">{rows}</div>
+}
+
 // ─── Reusable intake field ────────────────────────────────────────────────────
 function IntakeField({ field, form, setForm, errors, setErrors, accent }) {
+  // Section heading — not an input, just a visual divider
+  if (field.type === 'section_heading') {
+    return (
+      <div className="pt-4 pb-1">
+        <div className="h-px w-full mb-3" style={{ background: `linear-gradient(90deg, ${accent}50, transparent)` }} />
+        <p className="text-xs font-semibold uppercase tracking-widest" style={{ color: accent }}>{field.label}</p>
+      </div>
+    )
+  }
+
   const baseClass = cn(
     'w-full bg-zinc-800/80 border rounded-xl px-3.5 py-3 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-2 transition-all',
     errors[field.id] ? 'border-red-500/60 focus:ring-red-500/20' : 'border-zinc-700 focus:border-zinc-600'

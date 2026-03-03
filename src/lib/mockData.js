@@ -1596,14 +1596,91 @@ export const MOCK_MEAL_PREP_LOG = [
 
 // Default intake questionnaire fields (shared starting point)
 export const DEFAULT_INTAKE_FIELDS = [
-  { id: 'f-name',       label: 'Full Name',             type: 'text',     required: true,  placeholder: 'Your full name' },
-  { id: 'f-email',      label: 'Email Address',         type: 'email',    required: true,  placeholder: 'you@email.com' },
-  { id: 'f-phone',      label: 'Phone Number',          type: 'text',     required: false, placeholder: '+1 (555) 000-0000' },
-  { id: 'f-experience', label: 'Training Experience',   type: 'select',   required: true,  options: ['Beginner (< 1 year)', 'Intermediate (1–3 years)', 'Advanced (3–5 years)', 'Elite (5+ years)'] },
-  { id: 'f-goals',      label: 'Your Goals',            type: 'textarea', required: true,  placeholder: 'Tell us about what you want to achieve…' },
-  { id: 'f-injuries',   label: 'Current Injuries / Health Concerns', type: 'textarea', required: false, placeholder: 'Any injuries we should know about?' },
-  { id: 'f-fed',        label: 'Federation (if any)',   type: 'text',     required: false, placeholder: 'USAPL, IPF, RPS, etc.' },
-  { id: 'f-hear',       label: 'How did you hear about us?', type: 'select', required: false, options: ['Instagram', 'Google', 'Referred by a friend', 'YouTube', 'Other'] },
+  // ── Contact Info ──────────────────────────────────────────────────────────
+  { id: 'f-section-contact',   label: 'Contact Information',         type: 'section_heading' },
+  { id: 'f-first-name',        label: 'First Name',                  type: 'text',     required: true,  placeholder: 'First name', half: true },
+  { id: 'f-last-name',         label: 'Last Name',                   type: 'text',     required: true,  placeholder: 'Last name',  half: true },
+  { id: 'f-email',             label: 'Email Address',               type: 'email',    required: true,  placeholder: 'you@email.com' },
+  { id: 'f-phone',             label: 'Phone Number',                type: 'tel',      required: false, placeholder: '+1 (555) 000-0000', half: true },
+  { id: 'f-instagram',         label: 'Instagram Handle',            type: 'text',     required: false, placeholder: '@yourhandle',        half: true },
+
+  // ── Service ───────────────────────────────────────────────────────────────
+  { id: 'f-section-service',   label: 'Services',                    type: 'section_heading' },
+  { id: 'f-service',           label: 'Which Service Are You Seeking?', type: 'select', required: true,
+    options: ['1:1 Coaching (Full Service)', 'Meet Day Coaching', 'Movement Coaching', 'Nutritionist Only'] },
+  { id: 'f-coach-pref',        label: 'Coach Preference (if any)',   type: 'text',     required: false, placeholder: "Name of coach you'd like to work with, or 'No preference'" },
+
+  // ── Personal Info ─────────────────────────────────────────────────────────
+  { id: 'f-section-personal',  label: 'Personal Information',        type: 'section_heading' },
+  { id: 'f-age',               label: 'Age',                         type: 'number',   required: true,  placeholder: 'e.g. 27',   half: true },
+  { id: 'f-occupation',        label: 'Job / Occupation',            type: 'text',     required: false, placeholder: 'e.g. Nurse, Teacher, Remote', half: true },
+  { id: 'f-height',            label: 'Height',                      type: 'text',     required: false, placeholder: 'e.g. 5\'10" or 178cm', half: true },
+  { id: 'f-weight',            label: 'Current Bodyweight',          type: 'text',     required: false, placeholder: 'e.g. 185 lbs or 84 kg',  half: true },
+  { id: 'f-weight-class',      label: 'Preferred Weight Class',      type: 'text',     required: false, placeholder: 'e.g. 93kg, 83kg, 74kg',  half: true },
+  { id: 'f-obligations',       label: 'Other Obligations / Commitments', type: 'textarea', required: false, placeholder: 'Family, school, travel schedule, shift work, etc.' },
+
+  // ── Training Schedule ─────────────────────────────────────────────────────
+  { id: 'f-section-schedule',  label: 'Training Schedule',           type: 'section_heading' },
+  { id: 'f-days-per-week',     label: 'Days Available to Train Per Week', type: 'select', required: true,
+    options: ['2 days', '3 days', '4 days', '5 days', '6 days', '7 days'] },
+  { id: 'f-training-days',     label: 'Preferred Training Days',     type: 'text',     required: false, placeholder: 'e.g. Mon, Wed, Fri, Sat' },
+  { id: 'f-training-time',     label: 'Preferred Training Time',     type: 'select',   required: false,
+    options: ['Morning (5am–10am)', 'Afternoon (10am–4pm)', 'Evening (4pm–9pm)', 'Overnight / Late night', 'Varies / Flexible'] },
+  { id: 'f-sleep-schedule',    label: 'Sleep Schedule',              type: 'text',     required: false, placeholder: 'e.g. 11pm–7am', half: true },
+  { id: 'f-sleep-hours',       label: 'Average Hours of Sleep per Night', type: 'number', required: false, placeholder: 'e.g. 7', half: true },
+
+  // ── Lifting Stats ─────────────────────────────────────────────────────────
+  { id: 'f-section-lifts',     label: 'Lifting Stats',               type: 'section_heading' },
+  { id: 'f-squat-max',         label: 'Squat Max (lbs or kg)',        type: 'text',     required: false, placeholder: 'e.g. 405 lbs', half: true },
+  { id: 'f-bench-max',         label: 'Bench Max (lbs or kg)',        type: 'text',     required: false, placeholder: 'e.g. 275 lbs', half: true },
+  { id: 'f-deadlift-max',      label: 'Deadlift Max (lbs or kg)',     type: 'text',     required: false, placeholder: 'e.g. 500 lbs', half: true },
+  { id: 'f-squat-freq',        label: 'Squat Frequency (sessions/week)', type: 'select', required: false,
+    options: ['1x', '2x', '3x', '4x+', 'Not currently squatting'], half: true },
+  { id: 'f-bench-freq',        label: 'Bench Frequency (sessions/week)', type: 'select', required: false,
+    options: ['1x', '2x', '3x', '4x+', 'Not currently benching'], half: true },
+  { id: 'f-deadlift-freq',     label: 'Deadlift Frequency (sessions/week)', type: 'select', required: false,
+    options: ['1x', '2x', '3x', '4x+', 'Not currently deadlifting'], half: true },
+
+  // ── Technique ────────────────────────────────────────────────────────────
+  { id: 'f-section-technique', label: 'Technique & Style',           type: 'section_heading' },
+  { id: 'f-squat-style',       label: 'Squat Style',                 type: 'select',   required: false,
+    options: ['High Bar', 'Low Bar', 'Not Sure / Open to coaching'] },
+  { id: 'f-bench-style',       label: 'Bench Press Style',           type: 'select',   required: false,
+    options: ['Flat back / Minimal arch', 'Moderate arch', 'Competition arch', 'Not Sure / Open to coaching'] },
+  { id: 'f-deadlift-style',    label: 'Deadlift Style',              type: 'select',   required: false,
+    options: ['Conventional', 'Sumo', 'Not Sure / Open to coaching'] },
+  { id: 'f-current-program',   label: 'Current Program Style',       type: 'select',   required: false,
+    options: ['Percentage-based', 'RPE / Autoregulation', 'Hybrid', 'No structured program', 'Other'] },
+  { id: 'f-weakpoints',        label: 'Current Weak Points / Areas Needing Improvement', type: 'textarea', required: false, placeholder: 'e.g. Squat depth, bench lockout, deadlift off the floor, overall technique…' },
+
+  // ── Training Experience & History ─────────────────────────────────────────
+  { id: 'f-section-history',   label: 'Training Experience & History', type: 'section_heading' },
+  { id: 'f-experience',        label: 'Training Experience',          type: 'select',   required: true,
+    options: ['Beginner (< 1 year)', 'Intermediate (1–3 years)', 'Advanced (3–5 years)', 'Elite (5+ years)'] },
+  { id: 'f-fed',               label: 'Federation (if any)',          type: 'text',     required: false, placeholder: 'USAPL, IPF, RPS, WRPF, etc.', half: true },
+  { id: 'f-membership',        label: 'Membership / Athlete ID #',    type: 'text',     required: false, placeholder: 'e.g. USAPL-93-12345',        half: true },
+  { id: 'f-injuries',          label: 'Current or Past Injuries',    type: 'textarea', required: false, placeholder: 'Please describe any injuries, surgeries, or chronic pain we should know about.' },
+
+  // ── Health & Recovery ─────────────────────────────────────────────────────
+  { id: 'f-section-health',    label: 'Health & Recovery',           type: 'section_heading' },
+  { id: 'f-nutrition-score',   label: 'Nutrition Score (1–10, 10 = dialed in)', type: 'number', required: false, placeholder: 'e.g. 6', half: true },
+  { id: 'f-hydration-score',   label: 'Hydration Score (1–10)',      type: 'number',   required: false, placeholder: 'e.g. 7', half: true },
+  { id: 'f-stress-score',      label: 'External Stress Score (1–10, 10 = very high)', type: 'number', required: false, placeholder: 'e.g. 5', half: true },
+  { id: 'f-recovery',          label: 'Recovery (1–10, 10 = excellent)', type: 'number', required: false, placeholder: 'e.g. 7', half: true },
+  { id: 'f-external-stressors', label: 'External Stressors / Life Factors', type: 'textarea', required: false, placeholder: 'Work stress, family obligations, health conditions, financial pressures, etc.' },
+
+  // ── Coaching Fit ──────────────────────────────────────────────────────────
+  { id: 'f-section-coaching',  label: 'Coaching Fit',                type: 'section_heading' },
+  { id: 'f-learner-type',      label: 'How Do You Learn Best?',      type: 'select',   required: false,
+    options: ['Conceptual (explain the "why")', 'Visual (show me video / diagrams)', 'Kinesthetic (learn by doing / feel)', 'Combination'] },
+  { id: 'f-expectations',      label: 'Expectations for a Coach',    type: 'textarea', required: false, placeholder: 'What do you expect from your coach? Communication style, check-in frequency, level of detail, etc.' },
+  { id: 'f-concerns',          label: 'Any Concerns or Hesitations?', type: 'textarea', required: false, placeholder: 'Anything holding you back or that you want us to address upfront?' },
+  { id: 'f-goals',             label: 'Goals',                       type: 'textarea', required: true,  placeholder: 'Short-term and long-term goals — competition, total, weight class, performance, etc.' },
+
+  // ── How Did You Find Us ───────────────────────────────────────────────────
+  { id: 'f-section-source',    label: 'Last Step',                   type: 'section_heading' },
+  { id: 'f-hear',              label: 'How Did You Hear About Us?',  type: 'select',   required: false,
+    options: ['Instagram', 'Google', 'Referred by a friend or athlete', 'YouTube', 'In person / at a meet', 'Other'] },
 ]
 
 export const MOCK_ORGS = [
