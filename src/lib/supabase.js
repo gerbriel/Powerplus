@@ -269,7 +269,7 @@ export async function fetchOrgMemberships(userId) {
   if (!isSupabaseConfigured()) return []
   const { data, error } = await supabase
     .from('org_members')
-    .select('*, orgs(id, name, slug, logo_url)')
+    .select('*, organizations(id, name, slug, logo_url)')
     .eq('user_id', userId)
   if (error) { console.error('[supabase] fetchOrgMemberships:', error.message); return [] }
   return data ?? []

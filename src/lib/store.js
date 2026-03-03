@@ -51,6 +51,7 @@ export const useAuthStore = create((set, get) => ({
   /**
    * Called with a live Supabase session (from onAuthStateChange or callback page).
    * Fetches the profile + org memberships from the DB and hydrates the store.
+   * Always clears any lingering demo data from other stores first.
    */
   handleAuthSession: async (session) => {
     if (!session?.user) {
@@ -58,6 +59,11 @@ export const useAuthStore = create((set, get) => ({
       return
     }
     set({ isLoading: true })
+    // Clear any demo data that may have been loaded in a prior demo session
+    useOrgStore.setState({ orgs: [], staffAssignments: [] })
+    useGoalsStore.setState({ goals: [] })
+    useTrainingStore.setState({ blocks: [], meets: [] })
+    useNutritionStore.setState({ athleteRecipes: {}, athletePrepLog: {}, athleteShoppingLists: {}, boardPlans: {} })
     const [profile, memberships] = await Promise.all([
       fetchProfile(session.user.id),
       fetchOrgMemberships(session.user.id),
