@@ -35,7 +35,6 @@ const VIEW = { LIST: 'list', ACTIVE: 'active', HISTORY_DETAIL: 'history_detail' 
 export function WorkoutPage() {
   const { profile, viewAsAthlete, orgMemberships, activeOrgId } = useAuthStore()
   const membership = orgMemberships?.find(m => m.org_id === activeOrgId)
-  const canViewAsAthlete = membership?.is_self_athlete === true
   const isStaff = !viewAsAthlete && isStaffRole(profile, membership)
 
   if (isStaff) return <StaffTrainingPage profile={profile} membership={membership} />

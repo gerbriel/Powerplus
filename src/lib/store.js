@@ -47,7 +47,14 @@ export const useAuthStore = create((set, get) => ({
     }
   },
 
-  logout: () => set({ user: null, profile: null, orgMemberships: [], activeOrgId: null, isDemo: false }),
+  logout: () => {
+    // Clear auth state AND all stores so demo/real data can't leak between sessions
+    set({ user: null, profile: null, orgMemberships: [], activeOrgId: null, isDemo: false, viewAsAthlete: false })
+    useOrgStore.setState({ orgs: [], staffAssignments: [] })
+    useGoalsStore.setState({ goals: [] })
+    useTrainingStore.setState({ blocks: [], meets: [] })
+    useNutritionStore.setState({ athleteRecipes: {}, athletePrepLog: {}, athleteShoppingLists: {}, boardPlans: {} })
+  },
 
   // ── Real auth ────────────────────────────────────────────────────────────
 
@@ -704,16 +711,23 @@ export const useOrgStore = create((set, get) => ({
 }))
 
 // ─── Shared role resolution helper ───────────────────────────────────────────
-// Resolves the app role key from profile + membership, so pages work even if
-// profile.role wasn't set (e.g. from an older login session before the fix).
+// Resolves the app role key from profile + membership.
+// Priority: profile.role (set during onboarding) > membership.org_role (from DB join)
 // Returns: 'super_admin' | 'admin' | 'coach' | 'nutritionist' | 'athlete'
 export function resolveRole(profile, membership) {
-  const r = profile?.role || membership?.org_role
-  if (!r) return 'athlete'
-  if (r === 'head_coach' || r === 'admin' || r === 'owner') return 'admin'
-  if (r === 'super_admin') return 'super_admin'
-  if (r === 'coach') return 'coach'
-  if (r === 'nutritionist') return 'nutritionist'
+  // Check profile.role first — this is always set during onboarding
+  const pr = profile?.role
+  if (pr === 'super_admin') return 'super_admin'
+  if (pr === 'head_coach' || pr === 'owner' || pr === 'admin') return 'admin'
+  if (pr === 'coach') return 'coach'
+  if (pr === 'nutritionist') return 'nutritionist'
+  // Fall back to org membership role (covers refresh before profile.role is set)
+  const mr = membership?.org_role
+  if (!mr) return pr === 'athlete' ? 'athlete' : (pr ? 'athlete' : 'athlete')
+  if (mr === 'owner' || mr === 'head_coach' || mr === 'admin') return 'admin'
+  if (mr === 'super_admin') return 'super_admin'
+  if (mr === 'coach') return 'coach'
+  if (mr === 'nutritionist') return 'nutritionist'
   return 'athlete'
 }
 

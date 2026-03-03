@@ -576,11 +576,10 @@ export function NutritionPage() {
   const { profile, viewAsAthlete, orgMemberships, activeOrgId, isDemo } = useAuthStore()
   const { nutritionDeepLink, clearNutritionDeepLink } = useUIStore()
   const membership = orgMemberships?.find((m) => m.org_id === activeOrgId)
-  const canViewAsAthlete = membership?.is_self_athlete === true
   // Use resolveRole so org_role fallback works if profile.role is missing
   const baseIsStaff = isStaffRole(profile, membership)
   // Staff who toggled "View as Athlete" see the athlete nav
-  const isStaff = baseIsStaff && !(viewAsAthlete && canViewAsAthlete)
+  const isStaff = baseIsStaff && !viewAsAthlete
   const isAdmin = isStaff && resolveRole(profile, membership) === 'admin'
   const staffTabs = isAdmin ? [...STAFF_TABS, ...ADMIN_EXTRA_TABS] : STAFF_TABS
   const [tab, setTab] = useState(isStaff ? 'roster' : 'dashboard')

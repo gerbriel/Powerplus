@@ -10,7 +10,7 @@ import { Modal } from '../components/ui/Modal'
 import { Avatar } from '../components/ui/Avatar'
 import { Badge } from '../components/ui/Badge'
 import { MOCK_INJURY_LOGS, MOCK_ATHLETES } from '../lib/mockData'
-import { useAuthStore } from '../lib/store'
+import { useAuthStore, isStaffRole } from '../lib/store'
 import { cn } from '../lib/utils'
 
 // Pain level helpers
@@ -566,9 +566,9 @@ function AthleteInjuryDetail({ athlete, injuries: initialInjuries, staffView = f
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export function InjuryPage() {
-  const { profile, viewAsAthlete, isDemo } = useAuthStore()
-  const role = profile?.role || 'athlete'
-  const isStaff = (role === 'coach' || role === 'nutritionist' || role === 'admin') && !viewAsAthlete
+  const { profile, viewAsAthlete, isDemo, orgMemberships, activeOrgId } = useAuthStore()
+  const membership = orgMemberships?.find((m) => m.org_id === activeOrgId)
+  const isStaff = isStaffRole(profile, membership) && !viewAsAthlete
 
   const demoAthlete  = isDemo ? MOCK_ATHLETES[0] : null
   const demoInjuries = isDemo ? MOCK_INJURY_LOGS : []

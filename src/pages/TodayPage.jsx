@@ -33,7 +33,8 @@ export function TodayPage() {
   if (profile?.role === 'super_admin') return <PlatformDashboard />
 
   const membership = orgMemberships?.find(m => m.org_id === activeOrgId)
-  const canViewAsAthlete = membership?.is_self_athlete === true
+  // Any staff member can toggle athlete view to see their own personal data
+  const canViewAsAthlete = isStaffRole(profile, membership)
   // Use resolveRole so org_role is the fallback — works even without profile.role
   const isStaff = !viewAsAthlete && isStaffRole(profile, membership)
 

@@ -93,7 +93,7 @@ export function Sidebar() {
   const resolvedRole = (() => {
     const r = profile?.role || orgRole
     if (!r) return 'athlete'
-    if (r === 'head_coach') return 'admin'
+    if (r === 'head_coach' || r === 'owner') return 'admin'
     if (r === 'super_admin') return 'super_admin'
     if (r === 'coach') return 'coach'
     if (r === 'nutritionist') return 'nutritionist'
@@ -102,7 +102,8 @@ export function Sidebar() {
   })()
 
   const role = resolvedRole
-  const canViewAsAthlete = membership?.is_self_athlete === true
+  // Any staff member can toggle into athlete view to see their own personal data
+  const canViewAsAthlete = role === 'admin' || role === 'coach' || role === 'nutritionist'
 
   // Staff always keep their staff nav — viewAsAthlete only changes page content, not the sidebar.
   // Only true athletes (role === 'athlete') use ATHLETE_NAV.
