@@ -607,7 +607,13 @@ export function NutritionPage() {
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const nutrition = isDemo ? MOCK_NUTRITION_TODAY : { plan: { calories: 0, protein: 0, carbs: 0, fat: 0, water: 0 }, today: { calories: 0, protein: 0, carbs: 0, fat: 0 }, meals: [], supplements: [] }
+  const nutrition = isDemo ? MOCK_NUTRITION_TODAY : {
+    plan:        { calories: 0, protein: 0, carbs: 0, fat: 0, water: 0 },
+    actual:      { calories: 0, protein: 0, carbs: 0, fat: 0, water: 0 },
+    compliance:  0,
+    supplements: [],
+    meals:       [],
+  }
 
   return (
     <div className="p-4 md:p-6 max-w-5xl mx-auto space-y-6">
