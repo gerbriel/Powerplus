@@ -247,17 +247,16 @@ function AthleteWorkoutPage() {
             </CardHeader>
             <CardBody>
               <div className="grid grid-cols-3 gap-3 mb-4">
-                {[
-                  { lift: 'Squat', e1rm_kg: 220 },
-                  { lift: 'Bench', e1rm_kg: 155 },
-                  { lift: 'Deadlift', e1rm_kg: 280 },
-                ].map((l) => {
-                  const display = weightUnit === 'lbs' ? kgToLbs(l.e1rm_kg) : l.e1rm_kg
+                {(isDemo
+                  ? [{ lift: 'Squat', e1rm_kg: 220 }, { lift: 'Bench', e1rm_kg: 155 }, { lift: 'Deadlift', e1rm_kg: 280 }]
+                  : [{ lift: 'Squat', e1rm_kg: null }, { lift: 'Bench', e1rm_kg: null }, { lift: 'Deadlift', e1rm_kg: null }]
+                ).map((l) => {
+                  const display = l.e1rm_kg != null ? (weightUnit === 'lbs' ? kgToLbs(l.e1rm_kg) : l.e1rm_kg) : '—'
                   return (
                     <div key={l.lift} className="text-center p-3 bg-zinc-700/30 rounded-xl">
                       <p className="text-xs text-zinc-400 font-medium">{l.lift}</p>
                       <p className="text-2xl font-black text-zinc-100 mt-1">{display}</p>
-                      <p className="text-xs text-zinc-500">{weightUnit}</p>
+                      <p className="text-xs text-zinc-500">{l.e1rm_kg != null ? weightUnit : 'no data'}</p>
                     </div>
                   )
                 })}

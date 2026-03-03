@@ -561,43 +561,77 @@ function GoalCard({ goal }) {
 }
 
 // ── PR Board ─────────────────────────────────────────────────────────────────
-function PRBoard({ weightUnit }) {
+function PRBoard({ weightUnit, isDemo }) {
   const conv = (kg) => weightUnit === 'lbs' ? Math.round(kgToLbs(kg) / 2.5) * 2.5 : kg
   const unit = weightUnit
+
+  const DEMO_LIFTS = [
+    {
+      lift: 'Squat', color: 'text-purple-400', border: 'border-purple-500/30',
+      prs: [
+        { type: '1RM (Gym)', weight_kg: 210, date: 'Feb 28, 2026' },
+        { type: '1RM (Meet)', weight_kg: 195, date: 'Oct 2025' },
+        { type: '3RM', weight_kg: 200, date: 'Feb 21, 2026' },
+        { type: 'e1RM Top Set', weight_kg: 220, date: 'Feb 28, 2026' },
+      ],
+    },
+    {
+      lift: 'Bench', color: 'text-blue-400', border: 'border-blue-500/30',
+      prs: [
+        { type: '1RM (Gym)', weight_kg: 147, date: 'Feb 24, 2026' },
+        { type: '1RM (Meet)', weight_kg: 140, date: 'Oct 2025' },
+        { type: '3RM', weight_kg: 140, date: 'Feb 17, 2026' },
+        { type: 'e1RM Top Set', weight_kg: 155, date: 'Feb 24, 2026' },
+      ],
+    },
+    {
+      lift: 'Deadlift', color: 'text-orange-400', border: 'border-orange-500/30',
+      prs: [
+        { type: '1RM (Gym)', weight_kg: 272.5, date: 'Feb 25, 2026' },
+        { type: '1RM (Meet)', weight_kg: 267.5, date: 'Oct 2025' },
+        { type: '3RM', weight_kg: 260, date: 'Feb 18, 2026' },
+        { type: 'e1RM Top Set', weight_kg: 280, date: 'Feb 25, 2026' },
+      ],
+    },
+  ]
+
+  const EMPTY_LIFTS = [
+    {
+      lift: 'Squat', color: 'text-purple-400', border: 'border-purple-500/30',
+      prs: [
+        { type: '1RM (Gym)', weight_kg: null, date: null },
+        { type: '1RM (Meet)', weight_kg: null, date: null },
+        { type: '3RM', weight_kg: null, date: null },
+        { type: 'e1RM Top Set', weight_kg: null, date: null },
+      ],
+    },
+    {
+      lift: 'Bench', color: 'text-blue-400', border: 'border-blue-500/30',
+      prs: [
+        { type: '1RM (Gym)', weight_kg: null, date: null },
+        { type: '1RM (Meet)', weight_kg: null, date: null },
+        { type: '3RM', weight_kg: null, date: null },
+        { type: 'e1RM Top Set', weight_kg: null, date: null },
+      ],
+    },
+    {
+      lift: 'Deadlift', color: 'text-orange-400', border: 'border-orange-500/30',
+      prs: [
+        { type: '1RM (Gym)', weight_kg: null, date: null },
+        { type: '1RM (Meet)', weight_kg: null, date: null },
+        { type: '3RM', weight_kg: null, date: null },
+        { type: 'e1RM Top Set', weight_kg: null, date: null },
+      ],
+    },
+  ]
+
+  const lifts = isDemo ? DEMO_LIFTS : EMPTY_LIFTS
 
   return (
     <div>
       <h2 className="text-sm font-semibold text-zinc-400 mb-3">Personal Records</h2>
       <div className="grid md:grid-cols-3 gap-4">
-        {[
-          {
-            lift: 'Squat', color: 'text-purple-400', border: 'border-purple-500/30',
-            prs: [
-              { type: '1RM (Gym)', weight_kg: 210, date: 'Feb 28, 2026' },
-              { type: '1RM (Meet)', weight_kg: 195, date: 'Oct 2025' },
-              { type: '3RM', weight_kg: 200, date: 'Feb 21, 2026' },
-              { type: 'e1RM Top Set', weight_kg: 220, date: 'Feb 28, 2026' },
-            ],
-          },
-          {
-            lift: 'Bench', color: 'text-blue-400', border: 'border-blue-500/30',
-            prs: [
-              { type: '1RM (Gym)', weight_kg: 147, date: 'Feb 24, 2026' },
-              { type: '1RM (Meet)', weight_kg: 140, date: 'Oct 2025' },
-              { type: '3RM', weight_kg: 140, date: 'Feb 17, 2026' },
-              { type: 'e1RM Top Set', weight_kg: 155, date: 'Feb 24, 2026' },
-            ],
-          },
-          {
-            lift: 'Deadlift', color: 'text-orange-400', border: 'border-orange-500/30',
-            prs: [
-              { type: '1RM (Gym)', weight_kg: 272.5, date: 'Feb 25, 2026' },
-              { type: '1RM (Meet)', weight_kg: 267.5, date: 'Oct 2025' },
-              { type: '3RM', weight_kg: 260, date: 'Feb 18, 2026' },
-              { type: 'e1RM Top Set', weight_kg: 280, date: 'Feb 25, 2026' },
-            ],
-          },
-        ].map((lift) => (
+        {lifts.map((lift) => (
           <Card key={lift.lift} className={`border ${lift.border}`}>
             <div className="flex items-center justify-between mb-3">
               <h3 className={cn('text-base font-black', lift.color)}>{lift.lift}</h3>
@@ -608,8 +642,14 @@ function PRBoard({ weightUnit }) {
                 <div key={pr.type} className="flex items-center justify-between py-1.5 border-b border-zinc-800 last:border-0">
                   <span className="text-xs text-zinc-400">{pr.type}</span>
                   <div className="text-right">
-                    <span className={cn('text-sm font-bold', lift.color)}>{conv(pr.weight_kg)} {unit}</span>
-                    <p className="text-xs text-zinc-600">{pr.date}</p>
+                    {pr.weight_kg != null ? (
+                      <>
+                        <span className={cn('text-sm font-bold', lift.color)}>{conv(pr.weight_kg)} {unit}</span>
+                        <p className="text-xs text-zinc-600">{pr.date}</p>
+                      </>
+                    ) : (
+                      <span className="text-sm font-bold text-zinc-600">—</span>
+                    )}
                   </div>
                 </div>
               ))}
@@ -625,6 +665,7 @@ function PRBoard({ weightUnit }) {
 export function GoalsPage() {
   const { goals } = useGoalsStore()
   const { weightUnit } = useSettingsStore()
+  const { isDemo } = useAuthStore()
   const [addGoalOpen, setAddGoalOpen] = useState(false)
   const [filterTab, setFilterTab] = useState('active')
   const [typeFilter, setTypeFilter] = useState('all')
@@ -720,7 +761,7 @@ export function GoalsPage() {
       </div>
 
       {/* PR Board */}
-      <PRBoard weightUnit={weightUnit} />
+      <PRBoard weightUnit={weightUnit} isDemo={isDemo} />
 
       {/* Add Goal Modal */}
       <GoalModal open={addGoalOpen} onClose={() => setAddGoalOpen(false)} />

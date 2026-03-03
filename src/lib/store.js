@@ -777,8 +777,12 @@ export const useMessagingStore = create((set, get) => ({
 
   // ── Init (called once on app load) ────────────────────────────────────
   initMessaging: (isDemo, orgId, currentUserId) => {
+    const existing = get()
+    // Never re-seed if already initialized — preserves any CUD actions made this session
+    if (existing.channels.length > 0) return
+
     if (isDemo) {
-      // Seed channels + messages from mock data
+      // Seed channels + messages from mock data (first load only)
       const channels = MOCK_CHANNELS.map((ch) => ({
         ...ch,
         description: ch.name === 'general' ? 'Team-wide discussion' : ch.name === 'announcements' ? 'Important announcements from coaches' : ch.name === 'wins-board' ? 'Share your wins and PRs here 🏆' : ch.name === 'meet-prep-spring-2026' ? 'Spring 2026 meet preparation' : 'Staff only channel',
@@ -790,6 +794,7 @@ export const useMessagingStore = create((set, get) => ({
       const mockMsgsByChannel = { 'ch-1': MOCK_MESSAGES }
       const dms = MOCK_DIRECT_MESSAGES.map((dm) => ({
         id: dm.id,
+        type: 'dm',
         participants: [currentUserId, dm.with_id || `u-${dm.with.replace(/\s/g,'-').toLowerCase()}`],
         display_name: dm.with,
         display_role: dm.role,
@@ -799,22 +804,18 @@ export const useMessagingStore = create((set, get) => ({
       }))
       set({ channels, messagesByThread: mockMsgsByChannel, directMessages: dms })
     } else {
-      // Real user: start fresh (will load from Supabase in future)
-      const existing = get()
-      if (existing.channels.length === 0) {
-        // Auto-create a #general channel for the org
-        const general = {
-          id: `ch-${orgId}-general`,
-          name: 'general',
-          description: 'Team-wide discussion',
-          type: 'public',
-          members: ['all'],
-          created_by: currentUserId,
-          created_at: new Date().toISOString(),
-          org_id: orgId,
-        }
-        set({ channels: [general], messagesByThread: {}, directMessages: [] })
+      // Real user: auto-create #general for the org
+      const general = {
+        id: `ch-${orgId}-general`,
+        name: 'general',
+        description: 'Team-wide discussion',
+        type: 'public',
+        members: ['all'],
+        created_by: currentUserId,
+        created_at: new Date().toISOString(),
+        org_id: orgId,
       }
+      set({ channels: [general], messagesByThread: {}, directMessages: [] })
     }
   },
 
