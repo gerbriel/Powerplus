@@ -26,6 +26,16 @@ export const useAuthStore = create((set, get) => ({
       activeOrgId,
       viewAsAthlete: false,
     })
+    // Seed all other stores with mock data for the demo session
+    useOrgStore.setState({ orgs: MOCK_ORGS, staffAssignments: MOCK_STAFF_ASSIGNMENTS })
+    useGoalsStore.setState({ goals: MOCK_GOALS })
+    useTrainingStore.setState({ blocks: MOCK_TRAINING_BLOCKS, meets: MOCK_MEETS })
+    useNutritionStore.setState({
+      athleteRecipes: JSON.parse(JSON.stringify(MOCK_ATHLETE_RECIPES)),
+      athletePrepLog: JSON.parse(JSON.stringify(MOCK_ATHLETE_PREP_LOG)),
+      athleteShoppingLists: JSON.parse(JSON.stringify(MOCK_ATHLETE_SHOPPING_LISTS)),
+      boardPlans: JSON.parse(JSON.stringify(MOCK_ATHLETE_MEAL_PLANS)),
+    })
     // Fire-and-forget: persist the mock profile to Supabase if configured
     if (isSupabaseConfigured()) {
       upsertProfile(profile).then((result) => {
@@ -98,6 +108,11 @@ export const useAuthStore = create((set, get) => ({
   handleSignOut: async () => {
     if (isSupabaseConfigured()) await supabaseSignOut()
     set({ user: null, profile: null, orgMemberships: [], activeOrgId: null, viewAsAthlete: false })
+    // Clear all stores back to empty (remove any demo or real user data)
+    useOrgStore.setState({ orgs: [], staffAssignments: [] })
+    useGoalsStore.setState({ goals: [] })
+    useTrainingStore.setState({ blocks: [], meets: [] })
+    useNutritionStore.setState({ athleteRecipes: {}, athletePrepLog: {}, athleteShoppingLists: {}, boardPlans: {} })
   },
 
   setProfile: (profile) => set({ profile }),
@@ -249,7 +264,7 @@ export const useSettingsStore = create((set) => ({
 
 // ─── Goals Store ─────────────────────────────────────────────────────────────
 export const useGoalsStore = create((set, get) => ({
-  goals: MOCK_GOALS,
+  goals: [],
 
   // Update numeric progress for a goal
   updateGoalProgress: (goalId, newValue) =>
@@ -308,8 +323,8 @@ export const useGoalsStore = create((set, get) => ({
 
 // ─── Training / Block Store ───────────────────────────────────────────────────
 export const useTrainingStore = create((set) => ({
-  blocks: MOCK_TRAINING_BLOCKS,
-  meets: MOCK_MEETS,
+  blocks: [],
+  meets: [],
 
   linkBlockToGoal: (blockId, goalId) =>
     set((s) => ({
@@ -339,8 +354,8 @@ export const useTrainingStore = create((set) => ({
 
 // ─── Organization Store ───────────────────────────────────────────────────────
 export const useOrgStore = create((set, get) => ({
-  orgs: MOCK_ORGS,
-  staffAssignments: MOCK_STAFF_ASSIGNMENTS,
+  orgs: [],
+  staffAssignments: [],
 
   // Get a single org by id
   getOrg: (orgId) => get().orgs.find((o) => o.id === orgId),
@@ -678,27 +693,25 @@ export function isStaffRole(profile, membership) {
 
 // ─── Nutrition Store — shared across NutritionPage + RosterPage profiles ──────
 export const useNutritionStore = create((set) => ({
-  athleteRecipes: JSON.parse(JSON.stringify(MOCK_ATHLETE_RECIPES)),
+  athleteRecipes: {},
   setAthleteRecipes: (updater) =>
     set((s) => ({
       athleteRecipes: typeof updater === 'function' ? updater(s.athleteRecipes) : updater,
     })),
 
-  athletePrepLog: JSON.parse(JSON.stringify(MOCK_ATHLETE_PREP_LOG)),
+  athletePrepLog: {},
   setAthletePrepLog: (updater) =>
     set((s) => ({
       athletePrepLog: typeof updater === 'function' ? updater(s.athletePrepLog) : updater,
     })),
 
-  athleteShoppingLists: JSON.parse(JSON.stringify(MOCK_ATHLETE_SHOPPING_LISTS)),
+  athleteShoppingLists: {},
   setAthleteShoppingLists: (updater) =>
     set((s) => ({
       athleteShoppingLists: typeof updater === 'function' ? updater(s.athleteShoppingLists) : updater,
     })),
 
-  // boardPlans: keyed by athleteId, holds the live calendar plan from MealPlannerBoard
-  // Pre-seeded from MOCK_ATHLETE_MEAL_PLANS so pantry/plan linking works out of the box
-  boardPlans: JSON.parse(JSON.stringify(MOCK_ATHLETE_MEAL_PLANS)),
+  boardPlans: {},
   setBoardPlans: (updater) =>
     set((s) => ({
       boardPlans: typeof updater === 'function' ? updater(s.boardPlans) : updater,
