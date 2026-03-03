@@ -253,22 +253,27 @@ function PersonalAnalytics() {
   const { isDemo } = useAuthStore()
   const strengthTrend  = isDemo ? MOCK_STRENGTH_TREND : []
   const adherenceTrend = isDemo ? MOCK_ADHERENCE_TREND : []
-  const radarData = [
+  const radarData = isDemo ? [
     { subject: 'Squat', A: 84 },
     { subject: 'Bench', A: 79 },
     { subject: 'Deadlift', A: 88 },
     { subject: 'Nutrition', A: 84 },
     { subject: 'Sleep', A: 68 },
     { subject: 'Adherence', A: 87 },
-  ]
+  ] : []
+  const prRows = isDemo ? [
+    { lift: 'Squat',    rm1: 210,   rm3: 195, e1rm: 220, date: 'Feb 28', source: 'Gym' },
+    { lift: 'Bench',    rm1: 147,   rm3: 140, e1rm: 155, date: 'Feb 24', source: 'Gym' },
+    { lift: 'Deadlift', rm1: 272.5, rm3: 255, e1rm: 280, date: 'Feb 25', source: 'Gym' },
+  ] : []
 
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <StatCard label="Workouts Completed" value="47" sub="this block" icon={Zap} color="purple" />
-        <StatCard label="Adherence Rate" value="87%" sub="8-week avg" icon={Activity} color="green" trendLabel="+2% vs last" trend={1} />
-        <StatCard label="Avg Sleep" value="6.8h" sub="this week" icon={Moon} color="blue" trendLabel="-0.2h vs goal" trend={-1} />
-        <StatCard label="Nutrition Score" value="84%" sub="this week" icon={Flame} color="orange" trendLabel="+4% vs last" trend={1} />
+        <StatCard label="Workouts Completed" value={isDemo ? '47' : '—'} sub="this block" icon={Zap} color="purple" />
+        <StatCard label="Adherence Rate" value={isDemo ? '87%' : '—'} sub="8-week avg" icon={Activity} color="green" trendLabel={isDemo ? '+2% vs last' : undefined} trend={isDemo ? 1 : undefined} />
+        <StatCard label="Avg Sleep" value={isDemo ? '6.8h' : '—'} sub="this week" icon={Moon} color="blue" trendLabel={isDemo ? '-0.2h vs goal' : undefined} trend={isDemo ? -1 : undefined} />
+        <StatCard label="Nutrition Score" value={isDemo ? '84%' : '—'} sub="this week" icon={Flame} color="orange" trendLabel={isDemo ? '+4% vs last' : undefined} trend={isDemo ? 1 : undefined} />
       </div>
 
       {/* Strength trend */}
@@ -321,13 +326,17 @@ function PersonalAnalytics() {
             <CardSubtitle>Current cycle overview (0–100%)</CardSubtitle>
           </CardHeader>
           <div className="h-48">
-            <ResponsiveContainer width="100%" height="100%">
-              <RadarChart data={radarData} margin={{ top: 0, right: 20, bottom: 0, left: 20 }}>
-                <PolarGrid stroke="#3f3f46" />
-                <PolarAngleAxis dataKey="subject" tick={{ fill: '#71717a', fontSize: 11 }} />
-                <Radar name="Athlete" dataKey="A" stroke="#d946ef" fill="#d946ef" fillOpacity={0.2} />
-              </RadarChart>
-            </ResponsiveContainer>
+            {radarData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <RadarChart data={radarData} margin={{ top: 0, right: 20, bottom: 0, left: 20 }}>
+                  <PolarGrid stroke="#3f3f46" />
+                  <PolarAngleAxis dataKey="subject" tick={{ fill: '#71717a', fontSize: 11 }} />
+                  <Radar name="Athlete" dataKey="A" stroke="#d946ef" fill="#d946ef" fillOpacity={0.2} />
+                </RadarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex items-center justify-center h-full text-sm text-zinc-500">No performance data yet</div>
+            )}
           </div>
         </Card>
       </div>
@@ -345,11 +354,7 @@ function PersonalAnalytics() {
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-800">
-              {[
-                { lift: 'Squat', rm1: 210, rm3: 195, e1rm: 220, date: 'Feb 28', source: 'Gym' },
-                { lift: 'Bench', rm1: 147, rm3: 140, e1rm: 155, date: 'Feb 24', source: 'Gym' },
-                { lift: 'Deadlift', rm1: 272.5, rm3: 255, e1rm: 280, date: 'Feb 25', source: 'Gym' },
-              ].map((r) => (
+              {prRows.length > 0 ? prRows.map((r) => (
                 <tr key={r.lift} className="hover:bg-zinc-800/30 transition-colors">
                   <td className="py-2.5 pr-4 font-semibold text-zinc-200">{r.lift}</td>
                   <td className="py-2.5 pr-4 text-purple-400 font-bold">{r.rm1}kg</td>
@@ -358,7 +363,9 @@ function PersonalAnalytics() {
                   <td className="py-2.5 pr-4 text-zinc-400">{r.date}</td>
                   <td className="py-2.5"><Badge color="default">{r.source}</Badge></td>
                 </tr>
-              ))}
+              )) : (
+                <tr><td colSpan={6} className="py-8 text-center text-sm text-zinc-500">No PR records yet — log your maxes to track progress</td></tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -371,13 +378,19 @@ function TeamAnalytics() {
   const { isDemo } = useAuthStore()
   const teamAdherence = isDemo ? MOCK_TEAM_ADHERENCE : []
   const athletes      = isDemo ? MOCK_ATHLETES : []
+
+  const avgAdherence = athletes.length
+    ? Math.round(athletes.reduce((s, a) => s + a.adherence, 0) / athletes.length)
+    : null
+  const flagCount = athletes.reduce((s, a) => s + (a.flags?.length > 0 ? 1 : 0), 0)
+
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <StatCard label="Team Adherence" value="86%" sub="this week" icon={Zap} color="purple" />
-        <StatCard label="Active Athletes" value="6" sub="of 6 on roster" icon={Users} color="blue" />
-        <StatCard label="Nutrition Avg" value="83%" sub="compliance" icon={Flame} color="orange" />
-        <StatCard label="Flags Active" value="3" sub="needs attention" icon={AlertTriangle} color="red" />
+        <StatCard label="Team Adherence"  value={avgAdherence != null ? `${avgAdherence}%` : '—'} sub="this week"       icon={Zap}           color="purple" />
+        <StatCard label="Active Athletes" value={athletes.length > 0 ? String(athletes.length) : '—'} sub={athletes.length > 0 ? `on roster` : 'no athletes yet'} icon={Users} color="blue" />
+        <StatCard label="Nutrition Avg"   value={isDemo ? '83%' : '—'}                               sub="compliance"    icon={Flame}         color="orange" />
+        <StatCard label="Flags Active"    value={athletes.length > 0 ? String(flagCount) : '—'}      sub="needs attention" icon={AlertTriangle} color="red" />
       </div>
 
       <div className="grid md:grid-cols-2 gap-4">
@@ -461,13 +474,19 @@ function TeamAnalytics() {
 }
 
 function StaffAnalytics() {
+  const { isDemo } = useAuthStore()
+  const coachRows = isDemo ? [
+    { name: 'Elena Torres', athletes: 6, adherence: 86, adj: 4, response: '47min', injury: '0.3/mo' },
+    { name: 'Coach Marcus', athletes: 3, adherence: 91, adj: 2, response: '22min', injury: '0.1/mo' },
+  ] : []
+
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <StatCard label="Coach Avg Response" value="47min" sub="last 7 days" icon={Activity} color="blue" />
-        <StatCard label="Program Adjustments" value="12" sub="this week" icon={Zap} color="purple" />
-        <StatCard label="Athlete Retention" value="100%" sub="all-time" icon={Users} color="green" />
-        <StatCard label="Injury Reports" value="2" sub="active cases" icon={AlertTriangle} color="red" />
+        <StatCard label="Coach Avg Response"  value={isDemo ? '47min' : '—'} sub="last 7 days"  icon={Activity}      color="blue"   />
+        <StatCard label="Program Adjustments" value={isDemo ? '12'    : '—'} sub="this week"    icon={Zap}           color="purple" />
+        <StatCard label="Athlete Retention"   value={isDemo ? '100%'  : '—'} sub="all-time"     icon={Users}         color="green"  />
+        <StatCard label="Injury Reports"      value={isDemo ? '2'     : '—'} sub="active cases" icon={AlertTriangle} color="red"    />
       </div>
 
       <Card>
@@ -485,10 +504,7 @@ function StaffAnalytics() {
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-800">
-              {[
-                { name: 'Elena Torres', athletes: 6, adherence: 86, adj: 4, response: '47min', injury: '0.3/mo' },
-                { name: 'Coach Marcus', athletes: 3, adherence: 91, adj: 2, response: '22min', injury: '0.1/mo' },
-              ].map((c) => (
+              {coachRows.length > 0 ? coachRows.map((c) => (
                 <tr key={c.name} className="hover:bg-zinc-800/30 transition-colors">
                   <td className="py-3 pr-4">
                     <div className="flex items-center gap-2">
@@ -502,7 +518,9 @@ function StaffAnalytics() {
                   <td className="py-3 pr-4 text-zinc-300">{c.response}</td>
                   <td className="py-3"><Badge color="green">{c.injury}</Badge></td>
                 </tr>
-              ))}
+              )) : (
+                <tr><td colSpan={6} className="py-8 text-center text-sm text-zinc-500">No coaching data yet</td></tr>
+              )}
             </tbody>
           </table>
         </div>
