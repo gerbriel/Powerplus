@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { MOCK_USERS, MOCK_GOALS, MOCK_TRAINING_BLOCKS, MOCK_MEETS, MOCK_ORGS, MOCK_ORG_MEMBERS, MOCK_STAFF_ASSIGNMENTS, MOCK_ATHLETE_RECIPES, MOCK_ATHLETE_PREP_LOG, MOCK_ATHLETE_SHOPPING_LISTS, MOCK_ATHLETE_MEAL_PLANS } from './mockData'
+import { MOCK_USERS, MOCK_GOALS, MOCK_TRAINING_BLOCKS, MOCK_MEETS, MOCK_ORGS, MOCK_ORG_MEMBERS, MOCK_STAFF_ASSIGNMENTS, MOCK_ATHLETE_RECIPES, MOCK_ATHLETE_PREP_LOG, MOCK_ATHLETE_SHOPPING_LISTS, MOCK_ATHLETE_MEAL_PLANS, MOCK_CHANNELS, MOCK_MESSAGES, MOCK_DIRECT_MESSAGES } from './mockData'
 import { upsertProfile, isSupabaseConfigured, onAuthStateChange, fetchProfile, fetchOrgMemberships, signOut as supabaseSignOut, getSession } from './supabase'
 
 export const useAuthStore = create((set, get) => ({
@@ -761,5 +761,182 @@ export const useNutritionStore = create((set) => ({
   setBoardPlans: (updater) =>
     set((s) => ({
       boardPlans: typeof updater === 'function' ? updater(s.boardPlans) : updater,
+    })),
+}))
+
+// ─── Messaging Store ──────────────────────────────────────────────────────────
+// Manages channels, DMs, and per-channel/DM message threads entirely client-side.
+// isDemo bootstraps with mock data; real users start empty.
+export const useMessagingStore = create((set, get) => ({
+  // channels: [{ id, name, description, type: 'public'|'private'|'announcement', members: [userId], created_by, created_at, org_id }]
+  channels: [],
+  // messages keyed by channel id or dm id: { [channelId]: [msg, ...] }
+  messagesByThread: {},
+  // directMessages: [{ id, participants: [userId, userId], last_message, last_at, unread: {[userId]: n} }]
+  directMessages: [],
+
+  // ── Init (called once on app load) ────────────────────────────────────
+  initMessaging: (isDemo, orgId, currentUserId) => {
+    if (isDemo) {
+      // Seed channels + messages from mock data
+      const channels = MOCK_CHANNELS.map((ch) => ({
+        ...ch,
+        description: ch.name === 'general' ? 'Team-wide discussion' : ch.name === 'announcements' ? 'Important announcements from coaches' : ch.name === 'wins-board' ? 'Share your wins and PRs here 🏆' : ch.name === 'meet-prep-spring-2026' ? 'Spring 2026 meet preparation' : 'Staff only channel',
+        members: ['all'],
+        created_by: 'u-coach-001',
+        created_at: '2026-01-01T00:00:00Z',
+        org_id: orgId,
+      }))
+      const mockMsgsByChannel = { 'ch-1': MOCK_MESSAGES }
+      const dms = MOCK_DIRECT_MESSAGES.map((dm) => ({
+        id: dm.id,
+        participants: [currentUserId, dm.with_id || `u-${dm.with.replace(/\s/g,'-').toLowerCase()}`],
+        display_name: dm.with,
+        display_role: dm.role,
+        last_message: dm.last_message,
+        last_at: '2026-02-28T12:00:00Z',
+        unread: { [currentUserId]: dm.unread },
+      }))
+      set({ channels, messagesByThread: mockMsgsByChannel, directMessages: dms })
+    } else {
+      // Real user: start fresh (will load from Supabase in future)
+      const existing = get()
+      if (existing.channels.length === 0) {
+        // Auto-create a #general channel for the org
+        const general = {
+          id: `ch-${orgId}-general`,
+          name: 'general',
+          description: 'Team-wide discussion',
+          type: 'public',
+          members: ['all'],
+          created_by: currentUserId,
+          created_at: new Date().toISOString(),
+          org_id: orgId,
+        }
+        set({ channels: [general], messagesByThread: {}, directMessages: [] })
+      }
+    }
+  },
+
+  // ── Channel CUD ────────────────────────────────────────────────────────
+  createChannel: ({ name, description, type, members, createdBy, orgId }) => {
+    const id = `ch-${Date.now()}`
+    const channel = {
+      id,
+      name: name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''),
+      description: description || '',
+      type: type || 'public',
+      members: type === 'public' ? ['all'] : members || [],
+      created_by: createdBy,
+      created_at: new Date().toISOString(),
+      org_id: orgId,
+    }
+    set((s) => ({ channels: [...s.channels, channel] }))
+    return id
+  },
+
+  updateChannel: (channelId, updates) =>
+    set((s) => ({
+      channels: s.channels.map((ch) => ch.id === channelId ? { ...ch, ...updates } : ch),
+    })),
+
+  deleteChannel: (channelId) =>
+    set((s) => {
+      const { [channelId]: _, ...rest } = s.messagesByThread
+      return { channels: s.channels.filter((ch) => ch.id !== channelId), messagesByThread: rest }
+    }),
+
+  // ── Messages ──────────────────────────────────────────────────────────
+  sendMessage: (threadId, { senderId, senderName, senderRole, content, type = 'text', mediaUrl = null, gifUrl = null, formatting = null }) => {
+    const msg = {
+      id: `msg-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,
+      thread_id: threadId,
+      sender: { id: senderId, name: senderName, role: senderRole },
+      content,
+      type,   // 'text' | 'image' | 'video' | 'gif'
+      mediaUrl,
+      gifUrl,
+      formatting, // { bold, italic, underline }
+      timestamp: new Date().toISOString(),
+      reactions: [],
+      edited: false,
+    }
+    set((s) => ({
+      messagesByThread: {
+        ...s.messagesByThread,
+        [threadId]: [...(s.messagesByThread[threadId] || []), msg],
+      },
+    }))
+  },
+
+  editMessage: (threadId, msgId, newContent) =>
+    set((s) => ({
+      messagesByThread: {
+        ...s.messagesByThread,
+        [threadId]: (s.messagesByThread[threadId] || []).map((m) =>
+          m.id === msgId ? { ...m, content: newContent, edited: true } : m
+        ),
+      },
+    })),
+
+  deleteMessage: (threadId, msgId) =>
+    set((s) => ({
+      messagesByThread: {
+        ...s.messagesByThread,
+        [threadId]: (s.messagesByThread[threadId] || []).filter((m) => m.id !== msgId),
+      },
+    })),
+
+  reactToMessage: (threadId, msgId, emoji, userId) =>
+    set((s) => ({
+      messagesByThread: {
+        ...s.messagesByThread,
+        [threadId]: (s.messagesByThread[threadId] || []).map((m) => {
+          if (m.id !== msgId) return m
+          const existing = m.reactions.find((r) => r.emoji === emoji)
+          if (existing) {
+            // Toggle: if user already reacted, remove them; otherwise add
+            const userReacted = existing.reactors?.includes(userId)
+            if (userReacted) {
+              const newCount = existing.count - 1
+              if (newCount <= 0) return { ...m, reactions: m.reactions.filter((r) => r.emoji !== emoji) }
+              return { ...m, reactions: m.reactions.map((r) => r.emoji === emoji ? { ...r, count: newCount, reactors: r.reactors.filter((id) => id !== userId) } : r) }
+            }
+            return { ...m, reactions: m.reactions.map((r) => r.emoji === emoji ? { ...r, count: r.count + 1, reactors: [...(r.reactors || []), userId] } : r) }
+          }
+          return { ...m, reactions: [...m.reactions, { emoji, count: 1, reactors: [userId] }] }
+        }),
+      },
+    })),
+
+  // ── Direct Messages ────────────────────────────────────────────────────
+  openDM: (currentUserId, targetUserId, targetName, targetRole) => {
+    const existing = get().directMessages.find((dm) =>
+      dm.participants.includes(currentUserId) && dm.participants.includes(targetUserId)
+    )
+    if (existing) return existing.id
+    const id = `dm-${Date.now()}`
+    set((s) => ({
+      directMessages: [...s.directMessages, {
+        id,
+        participants: [currentUserId, targetUserId],
+        display_name: targetName,
+        display_role: targetRole,
+        last_message: '',
+        last_at: new Date().toISOString(),
+        unread: {},
+      }],
+    }))
+    return id
+  },
+
+  markRead: (threadId, userId) =>
+    set((s) => ({
+      directMessages: s.directMessages.map((dm) =>
+        dm.id === threadId ? { ...dm, unread: { ...dm.unread, [userId]: 0 } } : dm
+      ),
+      channels: s.channels.map((ch) =>
+        ch.id === threadId ? { ...ch, unread: 0 } : ch
+      ),
     })),
 }))
