@@ -4267,7 +4267,7 @@ function ShoppingListTab({ isStaff, athleteRecipes, athleteShoppingLists, setAth
   const [linkModal, setLinkModal]     = useState(false)
 
   // ── Shopping List Templates (staff only) ──────────────────────────────────
-  const [templates, setTemplates] = useState([
+  const [templates, setTemplates] = useState(!isDemo ? [] : [
     {
       id: 'tmpl-1',
       name: 'High-Protein Base',
@@ -4321,12 +4321,13 @@ function ShoppingListTab({ isStaff, athleteRecipes, athleteShoppingLists, setAth
   const [newForm, setNewForm] = useState({ label: '', week_start: '', week_end: '', cadence: 'weekly', budget: 150, notes: '' })
 
   const activeList = lists.find(l => l.id === activeListId) ?? lists[0]
-  const categories = activeList.categories
+
+  const categories = activeList?.categories ?? []
   const allItems   = categories.flatMap(c => c.items)
   const totalItems = allItems.length
   const checkedCount = allItems.filter(i => i.checked).length
   const totalCost    = allItems.reduce((s, i) => s + (i.price || 0), 0)
-  const budget       = activeList.budget
+  const budget       = activeList?.budget ?? 0
   const budgetColor  = totalCost > budget ? 'red' : totalCost > budget * 0.85 ? 'yellow' : 'green'
   const budgetTextColor = totalCost > budget ? 'text-red-400' : totalCost > budget * 0.85 ? 'text-yellow-400' : 'text-green-400'
 
@@ -4825,6 +4826,23 @@ function ShoppingListTab({ isStaff, athleteRecipes, athleteShoppingLists, setAth
       {/* Only show general list / athlete lists when NOT in templates mode */}
       {shopMode !== 'templates' && (
       <div className="space-y-4">
+      {/* Empty state when no lists exist (personal mode) */}
+      {!activeList && shopMode === 'personal' ? (
+        <div className="flex flex-col items-center justify-center py-16 space-y-4 text-center">
+          <ShoppingCart className="w-10 h-10 text-zinc-600" />
+          <div>
+            <p className="text-sm font-semibold text-zinc-300">No shopping lists yet</p>
+            <p className="text-xs text-zinc-500 mt-1">Create a list to track groceries for your nutrition plan</p>
+          </div>
+          <button
+            onClick={() => setNewListModal(true)}
+            className="flex items-center gap-2 bg-purple-600 hover:bg-purple-500 text-white font-semibold px-4 py-2 rounded-xl text-sm transition-colors"
+          >
+            <Plus className="w-4 h-4" /> New Shopping List
+          </button>
+        </div>
+      ) : !activeList && shopMode === 'athletes' ? null : (
+      <>
       {/* List Selector Header */}
       <Card>
         <CardBody className="space-y-3">
@@ -5151,9 +5169,9 @@ function ShoppingListTab({ isStaff, athleteRecipes, athleteShoppingLists, setAth
       <Modal open={linkModal} onClose={() => setLinkModal(false)} title="Link to Goal / Block / Meet" size="sm">
         <div className="p-6 space-y-4">
           <LinkPicker
-            linkedGoalIds={activeList.linked_goal_ids}
-            linkedBlockId={activeList.linked_block_id}
-            linkedMeetId={activeList.linked_meet_id}
+            linkedGoalIds={activeList?.linked_goal_ids ?? []}
+            linkedBlockId={activeList?.linked_block_id ?? null}
+            linkedMeetId={activeList?.linked_meet_id ?? null}
             onChange={({ linkedGoalIds, linkedBlockId, linkedMeetId }) =>
               updateActiveList(l => ({ ...l, linked_goal_ids: linkedGoalIds, linked_block_id: linkedBlockId, linked_meet_id: linkedMeetId }))
             }
@@ -5161,6 +5179,8 @@ function ShoppingListTab({ isStaff, athleteRecipes, athleteShoppingLists, setAth
           <Button className="w-full" onClick={() => setLinkModal(false)}><Check className="w-4 h-4" /> Done</Button>
         </div>
       </Modal>
+      </>
+      )}
       </div>)}
     </div>
   )
