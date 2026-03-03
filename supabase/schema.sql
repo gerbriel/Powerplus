@@ -968,19 +968,20 @@ create policy "orgs: owner can update"
   );
 
 -- ── org_members ──────────────────────────────────────────────
--- Members can see membership rows for their own orgs
+-- A user can always read their own membership rows.
+-- The "see all members of the same org" subquery was removed — it caused
+-- infinite recursion because it queried org_members from within an
+-- org_members RLS policy. The app fetches the current user's memberships
+-- only, so user_id = auth.uid() is sufficient here.
 drop policy if exists "org_members: member can view own org" on org_members;
 create policy "org_members: member can view own org"
   on org_members for select
   using (
     user_id = auth.uid()
-    or exists (
-      select 1 from org_members om2
-      where om2.org_id = org_members.org_id and om2.user_id = auth.uid()
-    )
   );
 
--- Owners and head_coaches can manage memberships
+-- Owners and head_coaches can manage memberships.
+-- get_user_org_role() is SECURITY DEFINER so it bypasses RLS and won't recurse.
 drop policy if exists "org_members: owner/head_coach can manage" on org_members;
 create policy "org_members: owner/head_coach can manage"
   on org_members for all
