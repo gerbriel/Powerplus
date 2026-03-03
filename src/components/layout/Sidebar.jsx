@@ -105,14 +105,13 @@ export function Sidebar() {
   // Any staff member can toggle into athlete view to see their own personal data
   const canViewAsAthlete = role === 'admin' || role === 'coach' || role === 'nutritionist'
 
-  // Staff always keep their staff nav — viewAsAthlete only changes page content, not the sidebar.
-  // Only true athletes (role === 'athlete') use ATHLETE_NAV.
-  const items = NAV_ITEMS[role] || NAV_ITEMS.athlete
+  // When staff are in athlete view, show the athlete nav; otherwise show their staff nav.
+  const effectiveItems = (canViewAsAthlete && viewAsAthlete) ? ATHLETE_NAV : (NAV_ITEMS[role] || NAV_ITEMS.athlete)
 
   const userOrg = profile?.org_id ? orgs.find((o) => o.id === profile.org_id) : null
 
-  const mainItems = items.filter((i) => i.section === 'main')
-  const toolItems = items.filter((i) => i.section === 'tools')
+  const mainItems = effectiveItems.filter((i) => i.section === 'main')
+  const toolItems = effectiveItems.filter((i) => i.section === 'tools')
 
   return (
     <aside

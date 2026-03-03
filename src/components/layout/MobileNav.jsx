@@ -94,8 +94,8 @@ export function MobileNav() {
 
   // Any staff member can toggle athlete view to see their own personal data
   const canViewAsAthlete = role === 'admin' || role === 'coach' || role === 'nutritionist'
-  // Staff always keep their staff nav — viewAsAthlete only changes page content
-  const items = NAV_ITEMS[role] || NAV_ITEMS.athlete
+  // When staff are in athlete view, show the athlete nav; otherwise show their staff nav.
+  const items = (canViewAsAthlete && viewAsAthlete) ? ATHLETE_NAV : (NAV_ITEMS[role] || NAV_ITEMS.athlete)
 
   if (!mobileNavOpen) return null
 
