@@ -12,9 +12,6 @@ export default function AuthCallbackPage() {
 
   useEffect(() => {
     const processCallback = async () => {
-      // Parse hash or query params for tokens
-      // Supabase v2 automatically handles PKCE code exchange via onAuthStateChange,
-      // but we also poll getSession as a fallback.
       try {
         // Give Supabase's internal listener a moment to process the URL
         await new Promise(r => setTimeout(r, 500))
@@ -29,14 +26,15 @@ export default function AuthCallbackPage() {
         }
 
         if (session) {
-          // Let the store handle setting up profile
           await handleAuthSession(session)
           setStatus('success')
-          // Short delay so the success state is visible, then redirect
-          setTimeout(() => navigate('/app', { replace: true }), 1200)
+          // New users go to onboarding; returning users with orgs go straight to app
+          const { orgMemberships, profile } = useAuthStore.getState()
+          const dest = (!profile?.onboarding_complete && orgMemberships.length === 0)
+            ? '/onboarding'
+            : '/app'
+          setTimeout(() => navigate(dest, { replace: true }), 1200)
         } else {
-          // No session yet — maybe the code hasn't been exchanged
-          // Try once more after another delay
           await new Promise(r => setTimeout(r, 1500))
           const { data: retry, error: retryErr } = await supabase.auth.getSession()
           if (retryErr || !retry.session) {
@@ -45,7 +43,11 @@ export default function AuthCallbackPage() {
           } else {
             await handleAuthSession(retry.session)
             setStatus('success')
-            setTimeout(() => navigate('/app', { replace: true }), 1200)
+            const { orgMemberships, profile } = useAuthStore.getState()
+            const dest = (!profile?.onboarding_complete && orgMemberships.length === 0)
+              ? '/onboarding'
+              : '/app'
+            setTimeout(() => navigate(dest, { replace: true }), 1200)
           }
         }
       } catch (err) {

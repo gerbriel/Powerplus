@@ -373,19 +373,72 @@ function IntakeSection({ id, section, accent, orgId, orgName, intakeFields, addL
     if (Object.keys(errs).length > 0) { setErrors(errs); return }
 
     const lead = {
+      // ── Contact ──────────────────────────────────────────────
       full_name:   [form['f-first-name'], form['f-last-name']].filter(Boolean).join(' ') || form['f-name'] || 'Unknown',
       email:       form['f-email']       || '',
       phone:       form['f-phone']       || '',
-      experience:  form['f-experience']  || '',
-      goals:       form['f-goals']       || '',
-      injuries:    form['f-injuries']    || '',
-      federation:  form['f-fed']         || '',
-      source:      form['f-hear']        || 'Public page',
+      instagram:   form['f-instagram']   || '',
+      // ── Service ──────────────────────────────────────────────
+      service:     form['f-service']     || '',
+      coach_pref:  form['f-coach-pref']  || '',
+      // ── Personal ─────────────────────────────────────────────
+      age:              form['f-age']          ? parseInt(form['f-age'], 10)       : null,
+      occupation:       form['f-occupation']   || '',
+      height:           form['f-height']       || '',
+      bodyweight:       form['f-weight']       || '',
+      weight_class:     form['f-weight-class'] || '',
+      obligations:      form['f-obligations']  || '',
+      // ── Schedule ─────────────────────────────────────────────
+      days_per_week:    form['f-days-per-week'] ? parseInt(form['f-days-per-week'], 10) : null,
+      training_days:    form['f-training-days']  || '',
+      training_time:    form['f-training-time']  || '',
+      sleep_schedule:   form['f-sleep-schedule'] || '',
+      sleep_hours:      form['f-sleep-hours'] ? parseFloat(form['f-sleep-hours']) : null,
+      // ── Lifting Stats ────────────────────────────────────────
+      squat_max:        form['f-squat-max']      || '',
+      bench_max:        form['f-bench-max']      || '',
+      deadlift_max:     form['f-deadlift-max']   || '',
+      squat_freq:       form['f-squat-freq']  ? parseInt(form['f-squat-freq'], 10)  : null,
+      bench_freq:       form['f-bench-freq']  ? parseInt(form['f-bench-freq'], 10)  : null,
+      deadlift_freq:    form['f-deadlift-freq'] ? parseInt(form['f-deadlift-freq'], 10) : null,
+      // ── Technique ────────────────────────────────────────────
+      squat_style:      form['f-squat-style']    || '',
+      bench_style:      form['f-bench-style']    || '',
+      deadlift_style:   form['f-deadlift-style'] || '',
+      current_program:  form['f-current-program']|| '',
+      weakpoints:       form['f-weakpoints']     || '',
+      // ── Background ───────────────────────────────────────────
+      experience:       form['f-experience']     || '',
+      federation:       form['f-fed']            || '',
+      membership_num:   form['f-membership']     || '',
+      injuries:         form['f-injuries']       || '',
+      // ── Health ───────────────────────────────────────────────
+      nutrition_score:  form['f-nutrition-score']  ? parseInt(form['f-nutrition-score'], 10)  : null,
+      hydration_score:  form['f-hydration-score']  ? parseInt(form['f-hydration-score'], 10)  : null,
+      stress_score:     form['f-stress-score']     ? parseInt(form['f-stress-score'], 10)     : null,
+      recovery_score:   form['f-recovery']         ? parseInt(form['f-recovery'], 10)         : null,
+      external_stressors: form['f-external-stressors'] || '',
+      // ── Coaching Fit ─────────────────────────────────────────
+      learner_type:     form['f-learner-type']   || '',
+      expectations:     form['f-expectations']   || '',
+      concerns:         form['f-concerns']       || '',
+      goals:            form['f-goals']          || '',
+      // ── Source ───────────────────────────────────────────────
+      source:           form['f-hear']           || 'Public page',
       status: 'new',
-      // Store all remaining answers in extra_answers
+      // ── Overflow: any custom / future fields ─────────────────
       extra_answers: Object.fromEntries(
         Object.entries(form).filter(([k]) =>
-          !['f-first-name','f-last-name','f-name','f-email','f-phone','f-experience','f-goals','f-injuries','f-fed','f-hear'].includes(k)
+          !['f-first-name','f-last-name','f-name','f-email','f-phone','f-instagram',
+            'f-service','f-coach-pref','f-age','f-occupation','f-height','f-weight',
+            'f-weight-class','f-obligations','f-days-per-week','f-training-days',
+            'f-training-time','f-sleep-schedule','f-sleep-hours','f-squat-max',
+            'f-bench-max','f-deadlift-max','f-squat-freq','f-bench-freq','f-deadlift-freq',
+            'f-squat-style','f-bench-style','f-deadlift-style','f-current-program',
+            'f-weakpoints','f-experience','f-fed','f-membership','f-injuries',
+            'f-nutrition-score','f-hydration-score','f-stress-score','f-recovery',
+            'f-external-stressors','f-learner-type','f-expectations','f-concerns',
+            'f-goals','f-hear'].includes(k)
         )
       ),
     }

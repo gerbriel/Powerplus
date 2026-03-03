@@ -1714,29 +1714,89 @@ create type lead_status as enum ('new', 'contacted', 'onboarded', 'declined');
 create table leads (
   id             uuid primary key default uuid_generate_v4(),
   org_id         uuid not null references organizations(id) on delete cascade,
-  -- Core contact info (from intake form)
+
+  -- ── Contact Info ──────────────────────────────────────────
   full_name      text not null,
   email          text not null,
   phone          text,
-  -- Answers to standard intake questions
-  experience     text,   -- training experience tier
-  goals          text,
-  injuries       text,
-  federation     text,
-  source         text,   -- 'Instagram' | 'Google' | 'Referral' etc
-  -- Any additional answers (flexible key/value from custom fields)
-  extra_answers  jsonb default '{}',
-  -- CRM fields
+  instagram      text,          -- f-instagram
+
+  -- ── Service Interest ──────────────────────────────────────
+  service        text,          -- f-service  (Online 1-on-1, In-Person, etc.)
+  coach_pref     text,          -- f-coach-pref
+
+  -- ── Personal Info ─────────────────────────────────────────
+  age            integer,       -- f-age
+  occupation     text,          -- f-occupation
+  height         text,          -- f-height  (stored as text to allow "5'10\"" or "178cm")
+  bodyweight     text,          -- f-weight
+  weight_class   text,          -- f-weight-class
+  obligations    text,          -- f-obligations (family/work commitments)
+
+  -- ── Training Schedule ─────────────────────────────────────
+  days_per_week  integer,       -- f-days-per-week
+  training_days  text,          -- f-training-days (comma-separated day names)
+  training_time  text,          -- f-training-time (morning / afternoon / evening)
+  sleep_schedule text,          -- f-sleep-schedule
+  sleep_hours    numeric,       -- f-sleep-hours
+
+  -- ── Lifting Stats ─────────────────────────────────────────
+  squat_max      text,          -- f-squat-max  (text allows "405 lbs" or "180 kg")
+  bench_max      text,          -- f-bench-max
+  deadlift_max   text,          -- f-deadlift-max
+  squat_freq     integer,       -- f-squat-freq  (sessions/week)
+  bench_freq     integer,       -- f-bench-freq
+  deadlift_freq  integer,       -- f-deadlift-freq
+
+  -- ── Technique & Style ─────────────────────────────────────
+  squat_style    text,          -- f-squat-style
+  bench_style    text,          -- f-bench-style
+  deadlift_style text,          -- f-deadlift-style
+  current_program text,         -- f-current-program
+  weakpoints     text,          -- f-weakpoints
+
+  -- ── Training Background ───────────────────────────────────
+  experience     text,          -- f-experience  (training experience tier)
+  federation     text,          -- f-fed
+  membership_num text,          -- f-membership  (current federation membership #)
+  injuries       text,          -- f-injuries
+
+  -- ── Health & Recovery ─────────────────────────────────────
+  nutrition_score   integer,    -- f-nutrition-score  (1–10)
+  hydration_score   integer,    -- f-hydration-score  (1–10)
+  stress_score      integer,    -- f-stress-score     (1–10)
+  recovery_score    integer,    -- f-recovery         (1–10)
+  external_stressors text,      -- f-external-stressors
+
+  -- ── Coaching Fit ──────────────────────────────────────────
+  learner_type   text,          -- f-learner-type
+  expectations   text,          -- f-expectations
+  concerns       text,          -- f-concerns
+  goals          text,          -- f-goals
+
+  -- ── Source ────────────────────────────────────────────────
+  source         text,          -- f-hear  ('Instagram' | 'Google' | 'Referral' etc.)
+
+  -- ── Flexible overflow for custom / future fields ──────────
+  -- Stores any intake field answers that don't map to a dedicated column above.
+  -- Keyed by field id (e.g. { "f-custom-123": "answer" }).
+  extra_answers  jsonb not null default '{}',
+
+  -- ── CRM ───────────────────────────────────────────────────
   status         lead_status not null default 'new',
   assigned_to    uuid references profiles(id) on delete set null,
-  notes          text,   -- internal staff notes
+  notes          text,          -- internal staff notes
   submitted_at   timestamptz default now(),
   updated_at     timestamptz default now()
 );
 
--- Index for fast per-org queries
-create index leads_org_id_idx on leads(org_id);
-create index leads_status_idx on leads(org_id, status);
+-- Indexes for fast per-org queries and common filters
+create index leads_org_id_idx      on leads(org_id);
+create index leads_status_idx      on leads(org_id, status);
+create index leads_service_idx     on leads(org_id, service);
+create index leads_submitted_idx   on leads(org_id, submitted_at desc);
+-- GIN index so coaches can query extra_answers JSON efficiently
+create index leads_extra_answers_idx on leads using gin(extra_answers);
 
 -- RLS: leads are private to the org
 alter table leads enable row level security;

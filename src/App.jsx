@@ -11,6 +11,7 @@ import { LandingPage } from './pages/LandingPage'
 import { LoginPage, SignupPage } from './pages/AuthPages'
 import DemoPage from './pages/DemoPage'
 import AuthCallbackPage from './pages/AuthCallbackPage'
+import OnboardingPage from './pages/OnboardingPage'
 import { OrgPublicPage } from './pages/OrgPublicPage'
 
 // App pages
@@ -93,10 +94,17 @@ function AppShell() {
   )
 }
 
-/** Guards the /app route — redirects to /login if not authenticated */
+/** Guards the /app route — redirects to /login if not authenticated,
+ *  or to /onboarding if the user is real (non-demo) and has no org yet. */
 function ProtectedApp() {
-  const { profile } = useAuthStore()
+  const { profile, orgMemberships } = useAuthStore()
   if (!profile) return <Navigate to="/login" replace />
+  // Demo users (identified by a mock id prefix or role field) skip onboarding
+  const isDemo = profile.id?.startsWith('mock-') || profile.id?.startsWith('demo-') || profile.isDemo
+  // Real users with no org memberships and onboarding not yet complete
+  if (!isDemo && !profile.onboarding_complete && orgMemberships.length === 0) {
+    return <Navigate to="/onboarding" replace />
+  }
   return <AppShell />
 }
 
@@ -127,6 +135,7 @@ function Root() {
         <Route path="/signup"        element={<SignupPage />} />
         <Route path="/demo"          element={<DemoPage />} />
         <Route path="/auth/callback" element={<AuthCallbackPage />} />
+        <Route path="/onboarding"    element={<OnboardingPage />} />
         <Route path="/org/:slug"     element={<OrgPublicPage />} />
         <Route path="/app"           element={<ProtectedApp />} />
         {/* Fallback */}

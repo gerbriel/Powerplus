@@ -274,3 +274,34 @@ export async function fetchOrgMemberships(userId) {
   if (error) { console.error('[supabase] fetchOrgMemberships:', error.message); return [] }
   return data ?? []
 }
+
+/**
+ * Creates a new organization and adds the caller as owner in one transaction.
+ * Wraps the `create_org_with_owner` Postgres function defined in schema.sql.
+ * Returns the new org_id (uuid) on success, or null on error.
+ */
+export async function createOrgWithOwner({ userId, name, slug, federation, timezone, weightUnit }) {
+  if (!isSupabaseConfigured()) return null
+  const { data, error } = await supabase.rpc('create_org_with_owner', {
+    p_user_id:    userId,
+    p_name:       name,
+    p_slug:       slug,
+    p_federation: federation || null,
+    p_timezone:   timezone   || 'UTC',
+    p_weight_unit: weightUnit || 'kg',
+  })
+  if (error) { console.error('[supabase] createOrgWithOwner:', error.message); return null }
+  return data // the new org uuid
+}
+
+/**
+ * Marks a profile's onboarding as complete.
+ */
+export async function markOnboardingComplete(userId) {
+  if (!isSupabaseConfigured()) return
+  const { error } = await supabase
+    .from('profiles')
+    .update({ onboarding_complete: true })
+    .eq('id', userId)
+  if (error) console.error('[supabase] markOnboardingComplete:', error.message)
+}
