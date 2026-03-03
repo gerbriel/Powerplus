@@ -72,6 +72,9 @@ export const useAuthStore = create((set, get) => ({
       fetchOrgMemberships(session.user.id),
     ])
     const activeOrgId = memberships[0]?.org_id ?? null
+    // Derive role: prefer DB profile, then user_metadata (set at signup), then infer from membership
+    const membershipRole = memberships[0]?.org_role  // e.g. 'owner', 'head_coach', 'athlete'
+    const metaRole = session.user.user_metadata?.role
     set({
       user: session.user,
       profile: profile ?? {
@@ -80,6 +83,7 @@ export const useAuthStore = create((set, get) => ({
         full_name: session.user.user_metadata?.full_name ?? '',
         display_name: session.user.user_metadata?.display_name ?? session.user.email,
         platform_role: 'user',
+        role: metaRole || membershipRole || 'athlete',
       },
       orgMemberships: memberships,
       activeOrgId,
@@ -98,22 +102,33 @@ export const useAuthStore = create((set, get) => ({
       set({ authReady: true })
       return () => {}
     }
-    // Check existing session immediately
+    // Check existing session immediately via getSession (reads from localStorage — no network).
+    // We handle the initial session here, then let onAuthStateChange handle future events only.
+    let initialCheckDone = false
     const { handleAuthSession } = get()
     getSession().then((session) => {
+      initialCheckDone = true
       if (session) {
         handleAuthSession(session).then(() => set({ authReady: true }))
       } else {
         set({ authReady: true })
       }
     })
-    // Listen for future changes (login, logout, token refresh)
+    // Listen for future auth changes. Skip SIGNED_IN during the initial tick
+    // because getSession() already handles the on-load session — firing both
+    // would double-clear stores and cause a race condition.
     const subscription = onAuthStateChange((event, session) => {
-      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
+      if (event === 'SIGNED_IN') {
+        // Only act on SIGNED_IN after the initial check is done (i.e. this is
+        // a real new login, not the token being read from localStorage on load).
+        if (initialCheckDone) get().handleAuthSession(session)
+        return
+      }
+      if (event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
         get().handleAuthSession(session)
       }
       if (event === 'SIGNED_OUT') {
-        set({ user: null, profile: null, orgMemberships: [], activeOrgId: null, isDemo: false })
+        set({ user: null, profile: null, orgMemberships: [], activeOrgId: null, isDemo: false, authReady: true })
       }
     })
     return () => subscription.unsubscribe()
@@ -695,7 +710,7 @@ export const useOrgStore = create((set, get) => ({
 export function resolveRole(profile, membership) {
   const r = profile?.role || membership?.org_role
   if (!r) return 'athlete'
-  if (r === 'head_coach' || r === 'admin') return 'admin'
+  if (r === 'head_coach' || r === 'admin' || r === 'owner') return 'admin'
   if (r === 'super_admin') return 'super_admin'
   if (r === 'coach') return 'coach'
   if (r === 'nutritionist') return 'nutritionist'
@@ -705,7 +720,7 @@ export function resolveRole(profile, membership) {
 // Returns true if the resolved role is a staff role
 export function isStaffRole(profile, membership) {
   const r = resolveRole(profile, membership)
-  return r === 'admin' || r === 'coach' || r === 'nutritionist'
+  return r === 'admin' || r === 'coach' || r === 'nutritionist' || r === 'super_admin'
 }
 
 // ─── Nutrition Store — shared across NutritionPage + RosterPage profiles ──────
