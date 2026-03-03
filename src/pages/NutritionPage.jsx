@@ -24,7 +24,7 @@ import {
   MOCK_INJURY_LOGS, MOCK_STAFF_ASSIGNMENTS, MOCK_ORG_MEMBERS, MOCK_ATHLETE_MEAL_PLANS,
   MOCK_MEAL_HISTORY, MOCK_ATHLETE_RECIPES, MOCK_ATHLETE_PREP_LOG, MOCK_ATHLETE_SHOPPING_LISTS,
 } from '../lib/mockData'
-import { useAuthStore, useUIStore, useNutritionStore, resolveRole, isStaffRole } from '../lib/store'
+import { useAuthStore, useUIStore, useNutritionStore, useGoalsStore, useTrainingStore, resolveRole, isStaffRole } from '../lib/store'
 import { cn, macroPercent } from '../lib/utils'
 
 const TABS = [
@@ -125,6 +125,7 @@ function recipeConflicts(recipe, athlete) {
 // ─── Log Meal Modal ──────────────────────────────────────────────────────────
 function LogMealModal({ open, onClose }) {
   const { athletePrepLog, setAthletePrepLog, boardPlans } = useNutritionStore()
+  const { isDemo } = useAuthStore()
   const MY_ATHLETE_ID = 'u-ath-001'
   const TODAY_DAY     = 'sunday'
 
@@ -141,7 +142,7 @@ function LogMealModal({ open, onClose }) {
   const setMacro = (k, v) => setMacros(prev => ({ ...prev, [k]: v }))
 
   // ── Pantry method state ──
-  const liveSessions = athletePrepLog?.[MY_ATHLETE_ID] ?? MOCK_MEAL_PREP_LOG
+  const liveSessions = athletePrepLog?.[MY_ATHLETE_ID] ?? (isDemo ? MOCK_MEAL_PREP_LOG : [])
   const pantryItems  = liveSessions.flatMap(s =>
     (s.items || [])
       .map(item => ({
@@ -170,7 +171,7 @@ function LogMealModal({ open, onClose }) {
 
   // ── Plan method state (today's nutritionist plan) ──
   const liveDayPlan  = boardPlans?.[MY_ATHLETE_ID]?.[TODAY_DAY]
-    ?? MOCK_ATHLETE_MEAL_PLANS?.[MY_ATHLETE_ID]?.[TODAY_DAY] ?? null
+    ?? (isDemo ? MOCK_ATHLETE_MEAL_PLANS?.[MY_ATHLETE_ID]?.[TODAY_DAY] : null) ?? null
 
   // Set of recipe_ids that are on today's plan — used to badge pantry items
   const planRecipeIds = useMemo(() => {
@@ -257,7 +258,7 @@ function LogMealModal({ open, onClose }) {
         }
         setAthletePrepLog(prev => ({
           ...prev,
-          [MY_ATHLETE_ID]: [newSession, ...(prev[MY_ATHLETE_ID] ?? MOCK_MEAL_PREP_LOG)],
+          [MY_ATHLETE_ID]: [newSession, ...(prev[MY_ATHLETE_ID] ?? (isDemo ? MOCK_MEAL_PREP_LOG : []))],
         }))
       }
     }
@@ -265,7 +266,7 @@ function LogMealModal({ open, onClose }) {
     if (method === 'pantry' && Object.values(servingsToLog).some(v => v > 0)) {
       // Decrement servings_consumed for each logged item
       setAthletePrepLog(prev => {
-        const sessions = prev[MY_ATHLETE_ID] ?? MOCK_MEAL_PREP_LOG
+        const sessions = prev[MY_ATHLETE_ID] ?? (isDemo ? MOCK_MEAL_PREP_LOG : [])
         return {
           ...prev,
           [MY_ATHLETE_ID]: sessions.map(s => ({
@@ -539,7 +540,7 @@ function LogMealModal({ open, onClose }) {
         {/* ── QUICK ADD METHOD ── */}
         {method === 'quick' && (
           <div className="grid grid-cols-2 gap-2">
-            {MOCK_MEAL_PLAN_RECIPES.map(r => (
+            {(isDemo ? MOCK_MEAL_PLAN_RECIPES : []).map(r => (
               <button key={r.id}
                 onClick={() => {
                   setMealTitle(r.name)
@@ -572,7 +573,7 @@ function LogMealModal({ open, onClose }) {
 }
 
 export function NutritionPage() {
-  const { profile, viewAsAthlete, orgMemberships, activeOrgId } = useAuthStore()
+  const { profile, viewAsAthlete, orgMemberships, activeOrgId, isDemo } = useAuthStore()
   const { nutritionDeepLink, clearNutritionDeepLink } = useUIStore()
   const membership = orgMemberships?.find((m) => m.org_id === activeOrgId)
   const canViewAsAthlete = membership?.is_self_athlete === true
@@ -606,7 +607,7 @@ export function NutritionPage() {
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const nutrition = MOCK_NUTRITION_TODAY
+  const nutrition = isDemo ? MOCK_NUTRITION_TODAY : { plan: { calories: 0, protein: 0, carbs: 0, fat: 0, water: 0 }, today: { calories: 0, protein: 0, carbs: 0, fat: 0 }, meals: [], supplements: [] }
 
   return (
     <div className="p-4 md:p-6 max-w-5xl mx-auto space-y-6">
@@ -650,8 +651,10 @@ export function NutritionPage() {
 // ─── Athlete Dashboard Tab ────────────────────────────────────────────────────
 function AthleteDashboardTab({ nutrition, suppChecked, setSuppChecked }) {
   const { boardPlans, athletePrepLog } = useNutritionStore()
+  const { isDemo } = useAuthStore()
   const MY_ATHLETE_ID = 'u-ath-001'
   const TODAY_DAY = 'sunday'
+  const mockMealHistory = isDemo ? MOCK_MEAL_HISTORY : []
 
   // Body weight mock data (12 weeks)
   const [bodyWeightLog, setBodyWeightLog] = useState([
@@ -669,7 +672,7 @@ function AthleteDashboardTab({ nutrition, suppChecked, setSuppChecked }) {
   const weightChange = (latestWeight - firstWeight).toFixed(1)
 
   // Weekly compliance from history
-  const weekHistory = MOCK_MEAL_HISTORY.filter(h => h.athlete_id === MY_ATHLETE_ID && h.date >= '2026-02-23')
+  const weekHistory = mockMealHistory.filter(h => h.athlete_id === MY_ATHLETE_ID && h.date >= '2026-02-23')
   const avgCompliance = weekHistory.length
     ? Math.round(weekHistory.reduce((s, h) => s + h.compliance_pct, 0) / weekHistory.length)
     : 84
@@ -678,7 +681,7 @@ function AthleteDashboardTab({ nutrition, suppChecked, setSuppChecked }) {
   const suppStreak = 8 // mock
 
   // Today's macros vs targets
-  const todayHistory = MOCK_MEAL_HISTORY.find(h => h.athlete_id === MY_ATHLETE_ID && h.date === '2026-03-01')
+  const todayHistory = mockMealHistory.find(h => h.athlete_id === MY_ATHLETE_ID && h.date === '2026-03-01')
   const todayActual  = todayHistory?.totals ?? nutrition.actual
   const todayTargets = todayHistory?.targets ?? nutrition.plan
 
@@ -691,12 +694,12 @@ function AthleteDashboardTab({ nutrition, suppChecked, setSuppChecked }) {
   const plannedProt = todayPlanItems.reduce((s, i) => s + (i?.protein  || 0), 0)
 
   // Prep availability
-  const myPrepSessions = athletePrepLog?.[MY_ATHLETE_ID] ?? MOCK_MEAL_PREP_LOG
+  const myPrepSessions = athletePrepLog?.[MY_ATHLETE_ID] ?? (isDemo ? MOCK_MEAL_PREP_LOG : [])
   const totalServingsLeft = myPrepSessions.flatMap(s => s.items || [])
     .reduce((sum, i) => sum + Math.max(0, (i.servings_made || 0) - (i.servings_consumed || 0)), 0)
 
   // Macro trend data (last 7 days from history)
-  const macroTrend = MOCK_MEAL_HISTORY
+  const macroTrend = mockMealHistory
     .filter(h => h.athlete_id === MY_ATHLETE_ID)
     .slice(-7)
     .map(h => ({
@@ -954,7 +957,8 @@ function AthleteWeeklyPlannerTab({ nutrition }) {
   const WEEK_START     = new Date('2026-02-23')
 
   // Use live board plan if available, else fall back to mock
-  const liveWeekPlan   = boardPlans?.[MY_ATHLETE_ID] ?? MOCK_ATHLETE_MEAL_PLANS?.[MY_ATHLETE_ID] ?? {}
+  const { isDemo } = useAuthStore()
+  const liveWeekPlan   = boardPlans?.[MY_ATHLETE_ID] ?? (isDemo ? MOCK_ATHLETE_MEAL_PLANS?.[MY_ATHLETE_ID] : undefined) ?? {}
   const [expandedDay, setExpandedDay] = useState(TODAY_DAY)
   // Track which items the athlete has marked eaten
   const [eatenOverride, setEatenOverride] = useState({}) // key: `${day}-${itemId}` → bool
@@ -1135,6 +1139,9 @@ function AthleteWeeklyPlannerTab({ nutrition }) {
 function CombinedMyPlan({ nutrition }) {
   // Pull live data from the shared nutrition store (same data the nutritionist manages)
   const { boardPlans, athleteRecipes, athletePrepLog } = useNutritionStore()
+  const { isDemo } = useAuthStore()
+  const { goals } = useGoalsStore()
+  const { blocks, meets } = useTrainingStore()
   // Demo athlete id — in a real app this would come from auth
   const MY_ATHLETE_ID = 'u-ath-001'
 
@@ -1175,7 +1182,8 @@ function CombinedMyPlan({ nutrition }) {
     }
     // Fallback: static mock plan
     const todayKey = 'saturday'
-    const todayPlan = MOCK_ATHLETE_MEAL_PLANS[MY_ATHLETE_ID]?.[todayKey]
+    const mockMealPlans = isDemo ? MOCK_ATHLETE_MEAL_PLANS : {}
+    const todayPlan = mockMealPlans[MY_ATHLETE_ID]?.[todayKey]
     const planItems = todayPlan
       ? Object.entries(todayPlan).flatMap(([slot, items]) =>
           items.map(item => ({
@@ -1191,7 +1199,8 @@ function CombinedMyPlan({ nutrition }) {
           }))
         )
       : []
-    const currentSession = MOCK_MEAL_PREP_LOG.find(s => s.id === 'mpl-001')
+    const mockPrepLog = isDemo ? MOCK_MEAL_PREP_LOG : []
+    const currentSession = mockPrepLog.find(s => s.id === 'mpl-001')
     const prepIds = new Set(planItems.map(i => i.name))
     const prepItems = (currentSession?.items ?? [])
       .filter(item => !prepIds.has(item.recipe_name))
@@ -1273,9 +1282,9 @@ function CombinedMyPlan({ nutrition }) {
   ]
 
   // ── Context data ──
-  const activeBlock = MOCK_TRAINING_BLOCKS.find(b => b.status === 'active')
-  const upcomingMeet = MOCK_MEETS.find(m => m.id === 'meet-1')
-  const linkedGoals = MOCK_GOALS.filter(g => ['g1','g3','g4'].includes(g.id))
+  const activeBlock = blocks.find(b => b.status === 'active') ?? (isDemo ? MOCK_TRAINING_BLOCKS.find(b => b.status === 'active') : null)
+  const upcomingMeet = meets.find(m => m.id === 'meet-1') ?? (isDemo ? MOCK_MEETS.find(m => m.id === 'meet-1') : null)
+  const linkedGoals = goals.length ? goals.filter(g => ['g1','g3','g4'].includes(g.id)) : (isDemo ? MOCK_GOALS.filter(g => ['g1','g3','g4'].includes(g.id)) : [])
   const daysToMeet = upcomingMeet
     ? Math.ceil((new Date(upcomingMeet.date) - new Date()) / (1000 * 60 * 60 * 24))
     : null
@@ -1778,7 +1787,8 @@ function CombinedMyPlan({ nutrition }) {
 
 // ─── Injury Tracker ──────────────────────────────────────────────────────────
 function InjuryTracker() {
-  const [injuries, setInjuries] = useState(MOCK_INJURY_LOGS)
+  const { isDemo } = useAuthStore()
+  const [injuries, setInjuries] = useState(isDemo ? MOCK_INJURY_LOGS : [])
   const [logModal, setLogModal] = useState(null)      // injury id to log update for
   const [addModal, setAddModal] = useState(false)
   const [resolveConfirm, setResolveConfirm] = useState(null)
@@ -2190,7 +2200,9 @@ function RecipeFormModal({ open, onClose, initial, onSave }) {
 
 // ─── Recipes Tab ──────────────────────────────────────────────────────────────
 function RecipesTab({ isStaff, athleteRecipes, setAthleteRecipes }) {
-  const [recipes, setRecipes]             = useState(MOCK_MEAL_PLAN_RECIPES)
+  const { isDemo } = useAuthStore()
+  const mockAthletes = isDemo ? MOCK_ATHLETES : []
+  const [recipes, setRecipes]             = useState(isDemo ? MOCK_MEAL_PLAN_RECIPES : [])
   const [expanded, setExpanded]           = useState(null)
   const [filter, setFilter]               = useState('all')
   const [addOpen, setAddOpen]             = useState(false)
@@ -2231,7 +2243,7 @@ function RecipesTab({ isStaff, athleteRecipes, setAthleteRecipes }) {
   function handleAssignDrop(athleteId) {
     if (!assignDragging) return
     setAssignDragging(null); setAssignDragOver(null)
-    const athlete = MOCK_ATHLETES.find(a => a.id === athleteId)
+    const athlete = mockAthletes.find(a => a.id === athleteId)
     const conflicts = recipeConflicts(assignDragging, athlete)
     if (conflicts.length) {
       setConflictWarning({ recipe: assignDragging, athlete, conflicts })
@@ -2311,7 +2323,7 @@ function RecipesTab({ isStaff, athleteRecipes, setAthleteRecipes }) {
 
             {/* Athlete drop targets */}
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {MOCK_ATHLETES.map(athlete => {
+              {mockAthletes.map(athlete => {
                 const isOver    = assignDragOver === athlete.id
                 const assigned  = (athleteRecipes[athlete.id] || [])
                 const justFlash = assignedFlash?.athleteId === athlete.id
@@ -2448,7 +2460,7 @@ function RecipesTab({ isStaff, athleteRecipes, setAthleteRecipes }) {
             const meta = MEAL_TYPE_META[mealType] || { label: mealType }
             const folderOpen = !collapsedFolders[mealType]
             const anyConflicts = isStaff && groupRecipes.some(r =>
-              MOCK_ATHLETES.some(a => recipeConflicts(r, a).length > 0)
+              mockAthletes.some(a => recipeConflicts(r, a).length > 0)
             )
             return (
               <div key={mealType} className="rounded-xl border border-zinc-700/40 overflow-hidden">
@@ -2475,10 +2487,10 @@ function RecipesTab({ isStaff, athleteRecipes, setAthleteRecipes }) {
                     {groupRecipes.map((recipe) => {
                       const isOpen = expanded === recipe.id
                       const totalTime = recipe.prep_time + (recipe.cook_time || 0)
-                      const assignedAthletes = isStaff ? MOCK_ATHLETES.filter(a =>
+                      const assignedAthletes = isStaff ? mockAthletes.filter(a =>
                         (athleteRecipes?.[a.id] || []).some(r => r.source_recipe_id === recipe.id)
                       ) : []
-                      const athleteConflicts = isStaff ? MOCK_ATHLETES.reduce((acc, a) => {
+                      const athleteConflicts = isStaff ? mockAthletes.reduce((acc, a) => {
                         const c = recipeConflicts(recipe, a)
                         if (c.length) acc[a.id] = c
                         return acc
@@ -2510,7 +2522,7 @@ function RecipesTab({ isStaff, athleteRecipes, setAthleteRecipes }) {
                                 {hasConflicts && (
                                   <span className="text-[9px] text-amber-600 flex items-center gap-0.5">
                                     <AlertTriangle className="w-2.5 h-2.5" />
-                                    {Object.keys(athleteConflicts).map(id => MOCK_ATHLETES.find(a => a.id === id)?.full_name?.split(' ')[0]).join(', ')}
+                                    {Object.keys(athleteConflicts).map(id => mockAthletes.find(a => a.id === id)?.full_name?.split(' ')[0]).join(', ')}
                                   </span>
                                 )}
                               </div>
@@ -2581,7 +2593,7 @@ function RecipesTab({ isStaff, athleteRecipes, setAthleteRecipes }) {
                                   {isStaff && hasConflicts && (
                                     <div className="pt-1.5 border-t border-zinc-700/40 space-y-0.5">
                                       {Object.entries(athleteConflicts).map(([aid, cons]) => {
-                                        const a = MOCK_ATHLETES.find(x => x.id === aid)
+                                        const a = mockAthletes.find(x => x.id === aid)
                                         return (
                                           <p key={aid} className="text-[10px] text-amber-600">
                                             {a?.full_name?.split(' ')[0]}: {cons.map(c => c.type === 'allergen' ? c.value : `not ${c.value}`).join(', ')}
@@ -2693,7 +2705,8 @@ function RecipesTab({ isStaff, athleteRecipes, setAthleteRecipes }) {
 
 // ─── Athlete Recipe Tweak Modal ───────────────────────────────────────────────
 function AthleteRecipeTweakModal({ open, onClose, athleteId, recipe, onSave, saved }) {
-  const athlete = MOCK_ATHLETES.find(a => a.id === athleteId)
+  const { isDemo } = useAuthStore()
+  const athlete = (isDemo ? MOCK_ATHLETES : []).find(a => a.id === athleteId)
   const [form, setForm] = useState(recipe)
   const setF = (k, v) => setForm(prev => ({ ...prev, [k]: v }))
   const setM = (k, v) => setForm(prev => ({ ...prev, macros: { ...prev.macros, [k]: Number(v) } }))
@@ -2839,12 +2852,18 @@ function ItemFormModal({ open, onClose, initial, onSave }) {
 
 // ─── Link Picker ──────────────────────────────────────────────────────────────
 function LinkPicker({ linkedGoalIds, linkedBlockId, linkedMeetId, onChange }) {
+  const { isDemo } = useAuthStore()
+  const { goals: storeGoals } = useGoalsStore()
+  const { blocks: storeBlocks, meets: storeMeets } = useTrainingStore()
+  const goals  = storeGoals.length  ? storeGoals  : (isDemo ? MOCK_GOALS : [])
+  const blocks = storeBlocks.length ? storeBlocks : (isDemo ? MOCK_TRAINING_BLOCKS : [])
+  const meets  = storeMeets.length  ? storeMeets  : (isDemo ? MOCK_MEETS : [])
   return (
     <div className="space-y-3">
       <div>
         <p className="text-xs font-semibold text-zinc-400 mb-2 flex items-center gap-1.5"><Target className="w-3.5 h-3.5 text-purple-400" />Goals</p>
         <div className="flex flex-wrap gap-1.5">
-          {MOCK_GOALS.map(g => {
+          {goals.map(g => {
             const active = linkedGoalIds.includes(g.id)
             return (
               <button key={g.id} onClick={() => onChange({
@@ -2867,7 +2886,7 @@ function LinkPicker({ linkedGoalIds, linkedBlockId, linkedMeetId, onChange }) {
             className={cn('text-xs px-2.5 py-1 rounded-full border transition-colors',
               !linkedBlockId ? 'bg-blue-600/30 border-blue-500/50 text-blue-300' : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:border-zinc-500'
             )}>None</button>
-          {MOCK_TRAINING_BLOCKS.map(b => {
+          {blocks.map(b => {
             const active = linkedBlockId === b.id
             return (
               <button key={b.id} onClick={() => onChange({ linkedGoalIds, linkedBlockId: active ? null : b.id, linkedMeetId })}
@@ -2887,7 +2906,7 @@ function LinkPicker({ linkedGoalIds, linkedBlockId, linkedMeetId, onChange }) {
             className={cn('text-xs px-2.5 py-1 rounded-full border transition-colors',
               !linkedMeetId ? 'bg-orange-600/30 border-orange-500/50 text-orange-300' : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:border-zinc-500'
             )}>None</button>
-          {MOCK_MEETS.map(m => {
+          {meets.map(m => {
             const active = linkedMeetId === m.id
             return (
               <button key={m.id} onClick={() => onChange({ linkedGoalIds, linkedBlockId, linkedMeetId: active ? null : m.id })}
@@ -2906,9 +2925,15 @@ function LinkPicker({ linkedGoalIds, linkedBlockId, linkedMeetId, onChange }) {
 
 // ─── Link Chips (display) ─────────────────────────────────────────────────────
 function LinkChips({ linkedGoalIds = [], linkedBlockId, linkedMeetId }) {
-  const goals  = MOCK_GOALS.filter(g => linkedGoalIds.includes(g.id))
-  const block  = MOCK_TRAINING_BLOCKS.find(b => b.id === linkedBlockId)
-  const meet   = MOCK_MEETS.find(m => m.id === linkedMeetId)
+  const { isDemo } = useAuthStore()
+  const { goals: storeGoals } = useGoalsStore()
+  const { blocks: storeBlocks, meets: storeMeets } = useTrainingStore()
+  const allGoals  = storeGoals.length  ? storeGoals  : (isDemo ? MOCK_GOALS : [])
+  const allBlocks = storeBlocks.length ? storeBlocks : (isDemo ? MOCK_TRAINING_BLOCKS : [])
+  const allMeets  = storeMeets.length  ? storeMeets  : (isDemo ? MOCK_MEETS : [])
+  const goals  = allGoals.filter(g => linkedGoalIds.includes(g.id))
+  const block  = allBlocks.find(b => b.id === linkedBlockId)
+  const meet   = allMeets.find(m => m.id === linkedMeetId)
   if (!goals.length && !block && !meet) return null
   return (
     <div className="flex flex-wrap gap-1">
@@ -2937,7 +2962,9 @@ let _nextSliId  = 5000
 const genSliId  = () => `sli-n${_nextSliId++}`
 
 function AthleteShoppingView({ athleteRecipes, athleteShoppingLists, setAthleteShoppingLists, selectedAthleteId, setSelectedAthleteId, athletePrepLog, boardPlans }) {
-  const athlete    = MOCK_ATHLETES.find(a => a.id === selectedAthleteId)
+  const { isDemo } = useAuthStore()
+  const mockAthletes = isDemo ? MOCK_ATHLETES : []
+  const athlete    = mockAthletes.find(a => a.id === selectedAthleteId)
   const myLists    = athleteShoppingLists?.[selectedAthleteId] ?? []
   const [activeAslId, setActiveAslId] = useState(myLists[0]?.id ?? null)
   const activeList  = myLists.find(l => l.id === activeAslId) ?? myLists[0] ?? null
@@ -2975,7 +3002,7 @@ function AthleteShoppingView({ athleteRecipes, athleteShoppingLists, setAthleteS
     // Athlete-specific recipes
     myRecipes.forEach(r => { map[r.id] = r.name })
     // Global meal plan recipes
-    MOCK_MEAL_PLAN_RECIPES?.forEach(r => { map[r.id] = r.name })
+    ;(isDemo ? MOCK_MEAL_PLAN_RECIPES : []).forEach(r => { map[r.id] = r.name })
     // Athlete prep log items (recipe_id → recipe_name)
     ;(athletePrepLog?.[selectedAthleteId] ?? []).forEach(session => {
       ;(session.items ?? []).forEach(item => {
@@ -3286,9 +3313,7 @@ function AthleteShoppingView({ athleteRecipes, athleteShoppingLists, setAthleteS
       {/* ── Athlete sidebar ─────────────────── */}
       <div className="w-48 flex-shrink-0 space-y-1.5">
         <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider px-1 mb-2">Athletes</p>
-        {MOCK_ATHLETES.map(a => {
-          const dp = a.dietary_profile
-          const aLists = athleteShoppingLists?.[a.id] ?? []
+        {mockAthletes.map(a => {
           const aItems = aLists.filter(l => l.status === 'active').flatMap(l => l.categories.flatMap(c => c.items))
           const aUnchecked = aItems.filter(i => !i.checked).length
           const aBudget = dp?.weekly_food_budget ?? 0
@@ -3918,12 +3943,14 @@ const STORAGE_BADGE = {
 }
 
 function PantryTab({ isAdmin, athletePrepLog, setAthletePrepLog, athleteRecipes }) {
-  const { profile } = useAuthStore()
-  const myAssignments = MOCK_STAFF_ASSIGNMENTS.filter(a => a.staff_id === profile?.id)
+  const { profile, isDemo } = useAuthStore()
+  const mockAthletes = isDemo ? MOCK_ATHLETES : []
+  const mockStaffAssignments = isDemo ? MOCK_STAFF_ASSIGNMENTS : []
+  const myAssignments = mockStaffAssignments.filter(a => a.staff_id === profile?.id)
   const assignedIds   = myAssignments.map(a => a.athlete_id)
   const athletes      = isAdmin
-    ? MOCK_ATHLETES
-    : assignedIds.length > 0 ? MOCK_ATHLETES.filter(a => assignedIds.includes(a.id)) : MOCK_ATHLETES
+    ? mockAthletes
+    : assignedIds.length > 0 ? mockAthletes.filter(a => assignedIds.includes(a.id)) : mockAthletes
 
   const [selectedAthleteId, setSelectedAthleteId] = useState(athletes[0]?.id ?? null)
   const [filterStorage, setFilterStorage] = useState('all') // 'all' | 'fridge' | 'freezer' | 'counter'
@@ -4214,11 +4241,14 @@ let _nextListId = 10
 const genListId = () => `sl-new${_nextListId++}`
 
 function ShoppingListTab({ isStaff, athleteRecipes, athleteShoppingLists, setAthleteShoppingLists, athletePrepLog, boardPlans }) {
-  const [lists, setLists]             = useState(() => MOCK_SHOPPING_LISTS.map(l => ({ ...l, categories: l.categories.map(c => ({ ...c, items: c.items.map(i => ({ ...i })) })) })))
-  const [activeListId, setActiveListId] = useState(MOCK_SHOPPING_LISTS[0].id)
+  const { isDemo } = useAuthStore()
+  const mockAthletes = isDemo ? MOCK_ATHLETES : []
+  const mockShoppingLists = isDemo ? MOCK_SHOPPING_LISTS : []
+  const [lists, setLists]             = useState(() => mockShoppingLists.map(l => ({ ...l, categories: l.categories.map(c => ({ ...c, items: c.items.map(i => ({ ...i })) })) })))
+  const [activeListId, setActiveListId] = useState(mockShoppingLists[0]?.id ?? null)
   const [view, setView]               = useState('list') // 'list' | 'history'
   const [shopMode, setShopMode]       = useState(isStaff ? 'athletes' : 'personal') // 'personal' | 'athletes' | 'templates'
-  const [selectedShopAthleteId, setSelectedShopAthleteId] = useState(MOCK_ATHLETES[0]?.id ?? null)
+  const [selectedShopAthleteId, setSelectedShopAthleteId] = useState(mockAthletes[0]?.id ?? null)
   const [addOpen, setAddOpen]         = useState(false)
   const [editTarget, setEditTarget]   = useState(null)
   const [deleteConfirm, setDeleteConfirm] = useState(null)
@@ -4524,7 +4554,7 @@ function ShoppingListTab({ isStaff, athleteRecipes, athleteShoppingLists, setAth
         const assignTemplate = (tmplId, athleteId) => {
           const tmpl = templates.find(t => t.id === tmplId)
           if (!tmpl) return
-          const athlete = MOCK_ATHLETES.find(a => a.id === athleteId)
+          const athlete = mockAthletes.find(a => a.id === athleteId)
           const newList = {
             id: `sl-tmpl-${Date.now()}`,
             label: `${tmpl.name} – ${athlete?.full_name ?? 'Athlete'}`,
@@ -4673,7 +4703,7 @@ function ShoppingListTab({ isStaff, athleteRecipes, athleteShoppingLists, setAth
               {templates.map(tmpl => {
                 const itemCount = tmpl.categories.flatMap(c => c.items).length
                 const estCost   = tmpl.categories.flatMap(c => c.items).reduce((s, i) => s + (i.price||0), 0)
-                const assigned  = tmpl.assignedAthletes.map(id => MOCK_ATHLETES.find(a => a.id === id)?.full_name).filter(Boolean)
+                const assigned  = tmpl.assignedAthletes.map(id => mockAthletes.find(a => a.id === id)?.full_name).filter(Boolean)
                 return (
                   <Card key={tmpl.id}>
                     <CardBody className="space-y-3">
@@ -4736,7 +4766,7 @@ function ShoppingListTab({ isStaff, athleteRecipes, athleteShoppingLists, setAth
                   <div className="space-y-3 p-4">
                     <p className="text-xs text-zinc-400">Select an athlete — this will create a new active shopping list from this template for them.</p>
                     <div className="space-y-1 max-h-64 overflow-y-auto">
-                      {MOCK_ATHLETES.map(a => {
+                      {mockAthletes.map(a => {
                         const isAssigned = tmpl?.assignedAthletes?.includes(a.id)
                         return (
                           <button key={a.id} onClick={() => assignTemplate(tmplAssignModal, a.id)}
@@ -5138,7 +5168,8 @@ let _nextMpiId  = 100
 const genMpiId  = () => `mpi-n${_nextMpiId++}`
 
 function MealPrepLogTab() {
-  const [sessions, setSessions]     = useState(MOCK_MEAL_PREP_LOG)
+  const { isDemo } = useAuthStore()
+  const [sessions, setSessions]     = useState(isDemo ? MOCK_MEAL_PREP_LOG : [])
   const [expanded, setExpanded]     = useState(null)
   const [newSessionOpen, setNewSessionOpen] = useState(false)
   const [linkModal, setLinkModal]   = useState(null) // sessionId
@@ -5454,6 +5485,7 @@ function MealPrepLogTab() {
 
 // ─── Athlete History ──────────────────────────────────────────────────────────
 function AthleteHistory() {
+  const { isDemo } = useAuthStore()
   const [cadence, setCadence] = useState('weekly') // 'weekly' | 'biweekly' | 'monthly'
 
   const dailyData = [
@@ -5511,7 +5543,7 @@ function AthleteHistory() {
     }]
   }, [cadence])
 
-  const linkedPrepSessions = MOCK_MEAL_PREP_LOG
+  const linkedPrepSessions = isDemo ? MOCK_MEAL_PREP_LOG : []
 
   return (
     <div className="space-y-4">
@@ -5630,8 +5662,17 @@ function AthleteHistory() {
 // ─── Staff Roster ─────────────────────────────────────────────────────────────
 // ─── Athlete Nutrition Profile Modal ─────────────────────────────────────────
 function AthleteNutritionProfile({ athlete, onClose, isAdmin, canEdit: canEditProp }) {
-  const { profile } = useAuthStore()
-  const assignment = MOCK_STAFF_ASSIGNMENTS.find(a => a.staff_id === profile?.id && a.athlete_id === athlete.id)
+  const { profile, isDemo } = useAuthStore()
+  const { goals: storeGoals } = useGoalsStore()
+  const { blocks: storeBlocks } = useTrainingStore()
+  const mockStaffAssignments = isDemo ? MOCK_STAFF_ASSIGNMENTS : []
+  const mockMealHistory = isDemo ? MOCK_MEAL_HISTORY : []
+  const mockMealPlans = isDemo ? MOCK_ATHLETE_MEAL_PLANS : {}
+  const mockTrainingBlocks = storeBlocks.length ? storeBlocks : (isDemo ? MOCK_TRAINING_BLOCKS : [])
+  const mockGoals = storeGoals.length ? storeGoals : (isDemo ? MOCK_GOALS : [])
+  const mockRecipes = isDemo ? MOCK_MEAL_PLAN_RECIPES : []
+  const mockPrepLog = isDemo ? MOCK_MEAL_PREP_LOG : []
+  const assignment = mockStaffAssignments.find(a => a.staff_id === profile?.id && a.athlete_id === athlete.id)
   const canEdit = isAdmin || (canEditProp ?? assignment?.can_edit_nutrition ?? false)
 
   const [profileTab, setProfileTab] = useState('plan') // 'plan' | 'meals' | 'shopping' | 'notes'
@@ -5658,10 +5699,10 @@ function AthleteNutritionProfile({ athlete, onClose, isAdmin, canEdit: canEditPr
   const [weekOffset, setWeekOffset] = useState(0) // 0 = current block week
   const [selectedDay, setSelectedDay] = useState('monday')
   const [mealHistory, setMealHistory] = useState(() =>
-    MOCK_MEAL_HISTORY.filter(e => e.athlete_id === athlete.id)
+    mockMealHistory.filter(e => e.athlete_id === athlete.id)
   )
   const [mealPlan, setMealPlan] = useState(() => {
-    const seed = MOCK_ATHLETE_MEAL_PLANS[athlete.id]
+    const seed = mockMealPlans[athlete.id]
     if (seed) return JSON.parse(JSON.stringify(seed))
     const empty = {}
     DAYS_LIST.forEach(d => { empty[d] = { breakfast:[], lunch:[], dinner:[], snack:[], 'pre-workout':[], 'post-workout':[], supplements:[] } })
@@ -5674,9 +5715,9 @@ function AthleteNutritionProfile({ athlete, onClose, isAdmin, canEdit: canEditPr
   const [mealPlanSaved, setMealPlanSaved] = useState(false)
 
   // Block + week context helpers
-  const activeBlock = MOCK_TRAINING_BLOCKS.find(b => b.id === athlete.current_block_id)
-    || MOCK_TRAINING_BLOCKS.find(b => b.status === 'active')
-  const linkedGoals = MOCK_GOALS.filter(g => activeBlock?.linked_goal_ids?.includes(g.id))
+  const activeBlock = mockTrainingBlocks.find(b => b.id === athlete.current_block_id)
+    || mockTrainingBlocks.find(b => b.status === 'active')
+  const linkedGoals = mockGoals.filter(g => activeBlock?.linked_goal_ids?.includes(g.id))
   const BASE_WEEK = new Date('2026-02-23')
   const weekStart = new Date(BASE_WEEK)
   weekStart.setDate(BASE_WEEK.getDate() + weekOffset * 7)
@@ -6141,7 +6182,7 @@ function AthleteNutritionProfile({ athlete, onClose, isAdmin, canEdit: canEditPr
                               {/* Recipe picker */}
                               {addMode === 'recipe' && (
                                 <div className="space-y-1 max-h-40 overflow-y-auto">
-                                  {MOCK_MEAL_PLAN_RECIPES.map(r => (
+                                  {mockRecipes.map(r => (
                                     <button key={r.id} onClick={() => addItemFromRecipe(r)}
                                       className="w-full flex items-center justify-between p-2 rounded-lg bg-zinc-700/30 hover:bg-zinc-700/60 transition-colors text-left">
                                       <div>
@@ -6157,7 +6198,7 @@ function AthleteNutritionProfile({ athlete, onClose, isAdmin, canEdit: canEditPr
                               {/* Prep log picker */}
                               {addMode === 'prep' && (
                                 <div className="space-y-1 max-h-40 overflow-y-auto">
-                                  {MOCK_MEAL_PREP_LOG.flatMap(session => session.items).map(prepItem => (
+                                  {mockPrepLog.flatMap(session => session.items).map(prepItem => (
                                     <button key={prepItem.id} onClick={() => addItemFromPrep(prepItem)}
                                       className="w-full flex items-center justify-between p-2 rounded-lg bg-zinc-700/30 hover:bg-zinc-700/60 transition-colors text-left">
                                       <div>
@@ -6490,13 +6531,20 @@ function emptyWeekBoard() {
 }
 
 function MealPlannerBoard({ isAdmin, athleteRecipes, setAthleteRecipes, athletePrepLog, setAthletePrepLog, athleteShoppingLists, setAthleteShoppingLists, onBoardPlansChange, initialAthleteId }) {
-  const { profile } = useAuthStore()
+  const { profile, isDemo } = useAuthStore()
+  const { goals: storeGoals } = useGoalsStore()
+  const { blocks: storeBlocks } = useTrainingStore()
+  const mockAthletes = isDemo ? MOCK_ATHLETES : []
+  const mockStaffAssignments = isDemo ? MOCK_STAFF_ASSIGNMENTS : []
+  const mockMealPlans = isDemo ? MOCK_ATHLETE_MEAL_PLANS : {}
+  const mockTrainingBlocks = storeBlocks.length ? storeBlocks : (isDemo ? MOCK_TRAINING_BLOCKS : [])
+  const mockGoals = storeGoals.length ? storeGoals : (isDemo ? MOCK_GOALS : [])
 
-  const myAssignments = MOCK_STAFF_ASSIGNMENTS.filter(a => a.staff_id === profile?.id)
+  const myAssignments = mockStaffAssignments.filter(a => a.staff_id === profile?.id)
   const assignedIds   = myAssignments.map(a => a.athlete_id)
   const athletes      = isAdmin
-    ? MOCK_ATHLETES
-    : assignedIds.length > 0 ? MOCK_ATHLETES.filter(a => assignedIds.includes(a.id)) : MOCK_ATHLETES
+    ? mockAthletes
+    : assignedIds.length > 0 ? mockAthletes.filter(a => assignedIds.includes(a.id)) : mockAthletes
 
   // Pre-select athlete from deep-link if provided, otherwise default to first
   const defaultAthleteId = (initialAthleteId && athletes.find(a => a.id === initialAthleteId))
@@ -6508,7 +6556,7 @@ function MealPlannerBoard({ isAdmin, athleteRecipes, setAthleteRecipes, athleteP
   const [boardPlan, setBoardPlan]                 = useState(() => {
     const init = {}
     athletes.forEach(a => {
-      const seed = MOCK_ATHLETE_MEAL_PLANS[a.id]
+      const seed = mockMealPlans[a.id]
       init[a.id] = seed ? JSON.parse(JSON.stringify(seed)) : emptyWeekBoard()
     })
     return init
@@ -6527,9 +6575,9 @@ function MealPlannerBoard({ isAdmin, athleteRecipes, setAthleteRecipes, athleteP
   useEffect(() => { onBoardPlansChange?.(boardPlan) }, [boardPlan])
 
   const selectedAthlete = athletes.find(a => a.id === selectedAthleteId)
-  const activeBlock     = MOCK_TRAINING_BLOCKS.find(b => b.status === 'active')
-  const blockGoals      = MOCK_GOALS.filter(g => activeBlock?.linked_goal_ids?.includes(g.id))
-  const allGoals        = MOCK_GOALS
+  const activeBlock     = mockTrainingBlocks.find(b => b.status === 'active')
+  const blockGoals      = mockGoals.filter(g => activeBlock?.linked_goal_ids?.includes(g.id))
+  const allGoals        = mockGoals
 
   // Athlete-specific recipes and prep items
   const myRecipes      = (athleteRecipes?.[selectedAthleteId] || [])
@@ -6687,7 +6735,7 @@ function MealPlannerBoard({ isAdmin, athleteRecipes, setAthleteRecipes, athleteP
           activeList.categories.flatMap(c => c.items.map(i => i.name.toLowerCase()))
         )
         // Build ingredient items from recipe (use recipe.ingredients if available, else a single placeholder)
-        const athlete = MOCK_ATHLETES.find(a => a.id === selectedAthleteId)
+        const athlete = mockAthletes.find(a => a.id === selectedAthleteId)
         const newIngredients = (recipe.ingredients ?? []).length > 0
           ? recipe.ingredients
               .filter(ing => !existingNames.has((ing.name ?? ing).toLowerCase()))
@@ -7483,17 +7531,20 @@ function MealPlannerBoard({ isAdmin, athleteRecipes, setAthleteRecipes, athleteP
 }
 
 function StaffRoster({ isAdmin }) {
-  const { profile } = useAuthStore()
+  const { profile, isDemo } = useAuthStore()
+  const mockAthletes = isDemo ? MOCK_ATHLETES : []
+  const mockStaffAssignments = isDemo ? MOCK_STAFF_ASSIGNMENTS : []
+  const mockMealPlans = isDemo ? MOCK_ATHLETE_MEAL_PLANS : {}
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all') // 'all' | 'flags' | 'low_compliance'
   const [profileAthleteId, setProfileAthleteId] = useState(null)
 
   // Admin sees ALL athletes; other staff see only their assignments
-  const myAssignments = MOCK_STAFF_ASSIGNMENTS.filter(a => a.staff_id === profile?.id)
+  const myAssignments = mockStaffAssignments.filter(a => a.staff_id === profile?.id)
   const assignedIds = myAssignments.map(a => a.athlete_id)
   const rosterAthletes = isAdmin
-    ? MOCK_ATHLETES
-    : assignedIds.length > 0 ? MOCK_ATHLETES.filter(a => assignedIds.includes(a.id)) : MOCK_ATHLETES
+    ? mockAthletes
+    : assignedIds.length > 0 ? mockAthletes.filter(a => assignedIds.includes(a.id)) : mockAthletes
 
   const FLAG_META = {
     pain_flag:       { label: 'Pain Flag',        color: 'text-red-400 bg-red-500/15 border-red-500/30' },
@@ -7513,8 +7564,8 @@ function StaffRoster({ isAdmin }) {
     return matchSearch && matchFilter
   })
 
-  const profileAthlete = MOCK_ATHLETES.find(a => a.id === profileAthleteId)
-  const profileAssignment = MOCK_STAFF_ASSIGNMENTS.find(a => a.staff_id === profile?.id && a.athlete_id === profileAthleteId)
+  const profileAthlete = mockAthletes.find(a => a.id === profileAthleteId)
+  const profileAssignment = mockStaffAssignments.find(a => a.staff_id === profile?.id && a.athlete_id === profileAthleteId)
 
   return (
     <>
@@ -7549,7 +7600,7 @@ function StaffRoster({ isAdmin }) {
             const nc = athlete.nutrition_compliance
             const compColor = nc >= 85 ? 'text-green-400' : nc >= 70 ? 'text-yellow-400' : 'text-red-400'
             const compBar = nc >= 85 ? 'green' : nc >= 70 ? 'yellow' : 'red'
-            const hasMealPlan = !!MOCK_ATHLETE_MEAL_PLANS[athlete.id]
+            const hasMealPlan = !!mockMealPlans[athlete.id]
 
             return (
               <Card key={athlete.id} className="hover:border-zinc-600/50 transition-colors">
@@ -7662,11 +7713,14 @@ function StaffRoster({ isAdmin }) {
 
 // ─── Staff Plans ──────────────────────────────────────────────────────────────
 function StaffPlans({ isAdmin }) {
-  const { profile } = useAuthStore()
+  const { profile, isDemo } = useAuthStore()
+  const mockAthletes = isDemo ? MOCK_ATHLETES : []
+  const mockStaffAssignments = isDemo ? MOCK_STAFF_ASSIGNMENTS : []
+  const mockRecipes = isDemo ? MOCK_MEAL_PLAN_RECIPES : []
   const [editingAthleteId, setEditingAthleteId] = useState(null)
   const [planFilter, setPlanFilter] = useState('all') // 'all' | 'low_compliance' | 'no_plan'
   const [plans, setPlans] = useState(() =>
-    Object.fromEntries(MOCK_ATHLETES.map(a => [a.id, {
+    Object.fromEntries(mockAthletes.map(a => [a.id, {
       training: { ...a.nutrition_macros.plan },
       rest: {
         calories: Math.round(a.nutrition_macros.plan.calories * 0.88),
@@ -7679,11 +7733,11 @@ function StaffPlans({ isAdmin }) {
   )
 
   // Admin sees ALL athletes; other staff see only their assignments
-  const myAssignments = MOCK_STAFF_ASSIGNMENTS.filter(a => a.staff_id === profile?.id)
+  const myAssignments = mockStaffAssignments.filter(a => a.staff_id === profile?.id)
   const assignedIds = myAssignments.map(a => a.athlete_id)
   const planAthletes = isAdmin
-    ? MOCK_ATHLETES
-    : assignedIds.length > 0 ? MOCK_ATHLETES.filter(a => assignedIds.includes(a.id)) : MOCK_ATHLETES
+    ? mockAthletes
+    : assignedIds.length > 0 ? mockAthletes.filter(a => assignedIds.includes(a.id)) : mockAthletes
 
   const filtered = planAthletes.filter(a => {
     if (planFilter === 'low_compliance') return a.nutrition_compliance < 80
@@ -7691,7 +7745,7 @@ function StaffPlans({ isAdmin }) {
     return true
   })
 
-  const editingAthlete = MOCK_ATHLETES.find(a => a.id === editingAthleteId)
+  const editingAthlete = mockAthletes.find(a => a.id === editingAthleteId)
   const editingPlan = plans[editingAthleteId]
 
   return (
@@ -7719,7 +7773,7 @@ function StaffPlans({ isAdmin }) {
           const plan = plans[athlete.id]
           const nc = athlete.nutrition_compliance
           const compColor = nc >= 85 ? 'text-green-400' : nc >= 70 ? 'text-yellow-400' : 'text-red-400'
-          const assign = MOCK_STAFF_ASSIGNMENTS.find(a => a.staff_id === profile?.id && a.athlete_id === athlete.id)
+          const assign = mockStaffAssignments.find(a => a.staff_id === profile?.id && a.athlete_id === athlete.id)
           const canEdit = isAdmin || (assign?.can_edit_nutrition ?? true) // admin always can edit
 
           return (
@@ -7850,7 +7904,7 @@ function StaffPlans({ isAdmin }) {
             <div>
               <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-2">Assigned Recipes</p>
               <div className="space-y-1.5">
-                {MOCK_MEAL_PLAN_RECIPES.map(r => {
+                {mockRecipes.map(r => {
                   const meta = MEAL_TYPE_META[r.meal_type] || { label: r.meal_type, color: 'text-zinc-400 bg-zinc-700 border-zinc-600' }
                   return (
                     <div key={r.id} className="flex items-center justify-between p-2 bg-zinc-700/30 rounded-lg">
@@ -7902,14 +7956,19 @@ function StaffPlans({ isAdmin }) {
 
 // ─── Staff Team Overview (admin only) ────────────────────────────────────────
 function StaffTeamOverview() {
+  const { isDemo } = useAuthStore()
+  const mockAthletes = isDemo ? MOCK_ATHLETES : []
+  const mockStaffAssignments = isDemo ? MOCK_STAFF_ASSIGNMENTS : []
+  const mockOrgMembers = isDemo ? MOCK_ORG_MEMBERS : []
+  const mockMealPlans = isDemo ? MOCK_ATHLETE_MEAL_PLANS : {}
   // Aggregate staff members from the org
   const staffRoles = ['head_coach','coach','nutritionist']
-  const orgStaff = MOCK_ORG_MEMBERS.filter(m => m.org_id === 'org-001' && staffRoles.includes(m.org_role))
+  const orgStaff = mockOrgMembers.filter(m => m.org_id === 'org-001' && staffRoles.includes(m.org_role))
 
   const staffCards = orgStaff.map(member => {
-    const assignments = MOCK_STAFF_ASSIGNMENTS.filter(a => a.staff_id === member.user_id)
-    const assignedAthleteIds = assignments.map(a => a.athlete_id).filter(id => MOCK_ATHLETES.find(a => a.id === id))
-    const assignedAthletes = MOCK_ATHLETES.filter(a => assignedAthleteIds.includes(a.id))
+    const assignments = mockStaffAssignments.filter(a => a.staff_id === member.user_id)
+    const assignedAthleteIds = assignments.map(a => a.athlete_id).filter(id => mockAthletes.find(a => a.id === id))
+    const assignedAthletes = mockAthletes.filter(a => assignedAthleteIds.includes(a.id))
     const avgCompliance = assignedAthletes.length > 0
       ? Math.round(assignedAthletes.reduce((s, a) => s + a.nutrition_compliance, 0) / assignedAthletes.length)
       : null
@@ -7918,10 +7977,12 @@ function StaffTeamOverview() {
   })
 
   // Org-wide nutrition stats
-  const orgAvgCompliance = Math.round(MOCK_ATHLETES.reduce((s, a) => s + a.nutrition_compliance, 0) / MOCK_ATHLETES.length)
-  const athletesWithFlags = MOCK_ATHLETES.filter(a => a.flags.length > 0)
-  const athletesLowCompliance = MOCK_ATHLETES.filter(a => a.nutrition_compliance < 80)
-  const athletesWithPlan = Object.keys(MOCK_ATHLETE_MEAL_PLANS).length
+  const orgAvgCompliance = mockAthletes.length > 0
+    ? Math.round(mockAthletes.reduce((s, a) => s + a.nutrition_compliance, 0) / mockAthletes.length)
+    : 0
+  const athletesWithFlags = mockAthletes.filter(a => a.flags.length > 0)
+  const athletesLowCompliance = mockAthletes.filter(a => a.nutrition_compliance < 80)
+  const athletesWithPlan = Object.keys(mockMealPlans).length
 
   const ROLE_META = {
     head_coach:   { label: 'Head Coach',   color: 'text-yellow-300 bg-yellow-500/10 border-yellow-500/20' },
@@ -7934,8 +7995,8 @@ function StaffTeamOverview() {
       {/* Org-wide summary */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <StatCard label="Avg Compliance" value={`${orgAvgCompliance}%`} sub="org-wide" icon={Target} color={orgAvgCompliance >= 85 ? 'green' : orgAvgCompliance >= 70 ? 'yellow' : 'red'} />
-        <StatCard label="Total Athletes" value={`${MOCK_ATHLETES.length}`} sub="on roster" icon={Users} color="blue" />
-        <StatCard label="With Meal Plan" value={`${athletesWithPlan}`} sub={`of ${MOCK_ATHLETES.length}`} icon={ClipboardList} color="purple" />
+        <StatCard label="Total Athletes" value={`${mockAthletes.length}`} sub="on roster" icon={Users} color="blue" />
+        <StatCard label="With Meal Plan" value={`${athletesWithPlan}`} sub={`of ${mockAthletes.length}`} icon={ClipboardList} color="purple" />
         <StatCard label="Needs Attention" value={`${Math.max(athletesWithFlags.length, athletesLowCompliance.length)}`} sub="flagged or low" icon={AlertTriangle} color="orange" />
       </div>
 
@@ -7943,15 +8004,15 @@ function StaffTeamOverview() {
       <Card>
         <CardHeader>
           <CardTitle>Athlete Nutrition Compliance</CardTitle>
-          <CardSubtitle>All {MOCK_ATHLETES.length} athletes</CardSubtitle>
+          <CardSubtitle>All {mockAthletes.length} athletes</CardSubtitle>
         </CardHeader>
         <CardBody>
           <div className="space-y-2">
-            {MOCK_ATHLETES.map(a => {
+            {mockAthletes.map(a => {
               const nc = a.nutrition_compliance
               const compColor = nc >= 85 ? 'text-green-400' : nc >= 70 ? 'text-yellow-400' : 'text-red-400'
               const compBar = nc >= 85 ? 'green' : nc >= 70 ? 'yellow' : 'red'
-              const hasPlan = !!MOCK_ATHLETE_MEAL_PLANS[a.id]
+              const hasPlan = !!mockMealPlans[a.id]
               return (
                 <div key={a.id} className="flex items-center gap-3">
                   <Avatar name={a.full_name} role="athlete" size="xs" />

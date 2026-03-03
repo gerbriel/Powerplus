@@ -20,7 +20,7 @@ import {
   MOCK_ATHLETE_MEAL_PLANS, MOCK_MEAL_PLAN_RECIPES, MOCK_MEAL_PREP_LOG,
   MOCK_MEAL_HISTORY
 } from '../lib/mockData'
-import { useSettingsStore, useAuthStore, useUIStore, useNutritionStore, resolveRole } from '../lib/store'
+import { useSettingsStore, useAuthStore, useUIStore, useNutritionStore, useGoalsStore, useTrainingStore, resolveRole } from '../lib/store'
 import { cn, adherenceColor, flagLabel, formatDate, calcDotsScore, convertWeight } from '../lib/utils'
 
 export function RosterPage() {
@@ -31,24 +31,28 @@ export function RosterPage() {
   const [filterClass, setFilterClass] = useState('all')
   const [viewMode, setViewMode] = useState('list') // 'list' | 'grid'
 
-  const weightClasses = [...new Set(MOCK_ATHLETES.map(a => a.weight_class))].sort()
+  const { isDemo } = useAuthStore()
+  const mockAthletes = isDemo ? MOCK_ATHLETES : []
+  const mockReviewQueue = isDemo ? MOCK_WEEKLY_REVIEW_QUEUE : []
+
+  const weightClasses = [...new Set(mockAthletes.map(a => a.weight_class))].sort()
   const flagOptions = ['all', 'pain_flag', 'missed_sessions', 'low_sleep']
 
   const filteredAthletes = useMemo(() => {
-    return MOCK_ATHLETES.filter(a => {
+    return mockAthletes.filter(a => {
       const matchesSearch = !searchQuery || a.full_name.toLowerCase().includes(searchQuery.toLowerCase())
       const matchesFlag = filterFlag === 'all' || a.flags.includes(filterFlag)
       const matchesClass = filterClass === 'all' || a.weight_class === filterClass
       return matchesSearch && matchesFlag && matchesClass
     })
-  }, [searchQuery, filterFlag, filterClass])
+  }, [mockAthletes, searchQuery, filterFlag, filterClass])
 
   return (
     <div className="p-4 md:p-6 max-w-6xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-zinc-100">My Athletes</h1>
-          <p className="text-sm text-zinc-400 mt-0.5">{MOCK_ATHLETES.length} athletes on your roster</p>
+          <p className="text-sm text-zinc-400 mt-0.5">{mockAthletes.length} athletes on your roster</p>
         </div>
         <div className="flex gap-2">
           <button
@@ -78,7 +82,7 @@ export function RosterPage() {
           <Card>
             <CardHeader><CardTitle>Today's Review Queue</CardTitle></CardHeader>
             <div className="space-y-2">
-              {MOCK_WEEKLY_REVIEW_QUEUE.map((item, i) => (
+              {mockReviewQueue.map((item, i) => (
                 <div key={i} className="flex items-center gap-4 p-3 bg-zinc-700/20 rounded-xl hover:bg-zinc-700/30 transition-colors">
                   <Avatar name={item.athlete} role="athlete" size="sm" />
                   <div className="flex-1 min-w-0">
@@ -134,7 +138,7 @@ export function RosterPage() {
                 {weightClasses.map(wc => <option key={wc} value={wc}>{wc}</option>)}
               </select>
             </div>
-            <p className="text-xs text-zinc-500">{filteredAthletes.length} of {MOCK_ATHLETES.length}</p>
+            <p className="text-xs text-zinc-500">{filteredAthletes.length} of {mockAthletes.length}</p>
             {/* View toggle */}
             <div className="ml-auto flex items-center gap-1 bg-zinc-800 border border-zinc-700 rounded-lg p-0.5">
               <button
@@ -479,7 +483,10 @@ function MessageOverlay({ athlete, onClose }) {
 // ─── Edit Program Overlay ─────────────────────────────────────────────────────
 
 function EditProgramOverlay({ athlete, onClose }) {
-  const block = MOCK_TRAINING_BLOCKS.find(b => b.id === athlete.current_block_id)
+  const { isDemo } = useAuthStore()
+  const { blocks: storeBlocks } = useTrainingStore()
+  const block = storeBlocks.find(b => b.id === athlete.current_block_id)
+    ?? (isDemo ? MOCK_TRAINING_BLOCKS.find(b => b.id === athlete.current_block_id) : null)
   const [sessions, setSessions] = useState(block?.sessions_per_week ?? 4)
   const [rpeTarget, setRpeTarget] = useState('7.5–8.5')
   const [focus, setFocus] = useState(block?.focus ?? '')
@@ -615,13 +622,15 @@ function deepCopyPlan(plan) {
 }
 
 function EditMealPlanOverlay({ athlete, onClose }) {
-  const block = MOCK_TRAINING_BLOCKS.find(b => b.id === athlete.current_block_id)
-    || MOCK_TRAINING_BLOCKS.find(b => b.status === 'active')
-  const linkedGoals = MOCK_GOALS.filter(g => block?.linked_goal_ids?.includes(g.id))
-
+  const { isDemo } = useAuthStore()
+  const { goals: storeGoals } = useGoalsStore()
+  const { blocks: storeBlocks } = useTrainingStore()
+  const { boardPlans, athletePrepLog, athleteRecipes } = useNutritionStore()
   const [weekOffset, setWeekOffset] = useState(0)
   const [selectedDay, setSelectedDay] = useState('monday')
-  const [mealPlan, setMealPlan] = useState(() => deepCopyPlan(MOCK_ATHLETE_MEAL_PLANS?.[athlete.id]))
+  const [mealPlan, setMealPlan] = useState(() => deepCopyPlan(
+    boardPlans?.[athlete.id] ?? (isDemo ? MOCK_ATHLETE_MEAL_PLANS?.[athlete.id] : undefined)
+  ))
   const [expandedSlots, setExpandedSlots] = useState({ breakfast: true })
   const [addMode, setAddMode] = useState(null) // { slot, type: 'recipe'|'prep'|'custom' }
   const [customForm, setCustomForm] = useState({ name: '', calories: '', protein: '', carbs: '', fat: '', notes: '' })
@@ -739,7 +748,8 @@ function EditMealPlanOverlay({ athlete, onClose }) {
   }
 
   // All prep items (flattened)
-  const allPrepItems = MOCK_MEAL_PREP_LOG.flatMap(log => log.items || [])
+  const mockPrepLog = isDemo ? MOCK_MEAL_PREP_LOG : []
+  const allPrepItems = (athletePrepLog?.[athlete.id] ?? mockPrepLog).flatMap(log => log.items || [])
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
@@ -966,7 +976,7 @@ function EditMealPlanOverlay({ athlete, onClose }) {
                             {/* Recipe picker */}
                             {addMode.type === 'recipe' && (
                               <div className="space-y-1.5 max-h-48 overflow-y-auto">
-                                {MOCK_MEAL_PLAN_RECIPES.map(r => (
+                                {(athleteRecipes?.[athlete.id] ?? (isDemo ? MOCK_MEAL_PLAN_RECIPES : [])).map(r => (
                                   <button
                                     key={r.id}
                                     onClick={() => addRecipe(slot, r)}
@@ -1182,8 +1192,12 @@ function AnalyticsOverlay({ athlete, onClose }) {
 
 function OverviewTab({ athlete }) {
   const { weightUnit } = useSettingsStore()
-  const block = MOCK_TRAINING_BLOCKS.find(b => b.id === athlete.current_block_id)
-  const meet = MOCK_MEETS.find(m => m.id === athlete.next_meet_id)
+  const { isDemo } = useAuthStore()
+  const { blocks, meets } = useTrainingStore()
+  const block = blocks.find(b => b.id === athlete.current_block_id)
+    ?? (isDemo ? MOCK_TRAINING_BLOCKS.find(b => b.id === athlete.current_block_id) : null)
+  const meet = meets.find(m => m.id === athlete.next_meet_id)
+    ?? (isDemo ? MOCK_MEETS.find(m => m.id === athlete.next_meet_id) : null)
   const total = athlete.e1rm_squat + athlete.e1rm_bench + athlete.e1rm_deadlift
   const dots = calcDotsScore(total, athlete.bodyweight_kg)
 
@@ -1404,7 +1418,9 @@ function OverviewTab({ athlete }) {
 
 function StrengthTab({ athlete }) {
   const { weightUnit } = useSettingsStore()
-  const history = MOCK_EXERCISE_HISTORY[athlete.full_name] || {}
+  const { isDemo } = useAuthStore()
+  const mockExerciseHistory = isDemo ? MOCK_EXERCISE_HISTORY : {}
+  const history = mockExerciseHistory[athlete.full_name] || {}
   const lifts = ['Back Squat', 'Bench Press', 'Conventional Deadlift']
   const liftColors = { 'Back Squat': 'text-purple-400', 'Bench Press': 'text-blue-400', 'Conventional Deadlift': 'text-orange-400' }
   const total = athlete.e1rm_squat + athlete.e1rm_bench + athlete.e1rm_deadlift
@@ -1579,14 +1595,15 @@ function NutritionTab({ athlete }) {
   const nc = athlete.nutrition_compliance
   const [section, setSection] = useState('overview') // 'overview' | 'macros' | 'plan' | 'pantry' | 'supplements' | 'history'
 
+  const { isDemo } = useAuthStore()
   // Live shared nutrition state
   const { athleteRecipes, athletePrepLog, boardPlans } = useNutritionStore()
 
   // Pull meal history for this athlete
-  const history = MOCK_MEAL_HISTORY.filter(e => e.athlete_id === athlete.id)
+  const history = (isDemo ? MOCK_MEAL_HISTORY : []).filter(e => e.athlete_id === athlete.id)
 
-  // Use live board plan if available, otherwise fall back to static mock
-  const staticPlan   = MOCK_ATHLETE_MEAL_PLANS?.[athlete.id]
+  // Use live board plan if available, otherwise fall back to static mock for demo
+  const staticPlan   = isDemo ? MOCK_ATHLETE_MEAL_PLANS?.[athlete.id] : undefined
   const liveBoardPlan = boardPlans?.[athlete.id]
   const mealPlan = (liveBoardPlan && Object.keys(liveBoardPlan).length > 0) ? liveBoardPlan : staticPlan
 
@@ -2088,7 +2105,10 @@ function NutritionTab({ athlete }) {
 
 function GoalsTab({ athlete }) {
   const { weightUnit } = useSettingsStore()
-  const linkedGoals = MOCK_GOALS.filter(g => (athlete.goal_ids || []).includes(g.id))
+  const { isDemo } = useAuthStore()
+  const { goals: storeGoals } = useGoalsStore()
+  const allGoals = storeGoals.length ? storeGoals : (isDemo ? MOCK_GOALS : [])
+  const linkedGoals = allGoals.filter(g => (athlete.goal_ids || []).includes(g.id))
 
   // Local CRUD state — starts with linked goals, can add/edit/delete
   const [goals, setGoals] = useState(linkedGoals.map(g => ({ ...g })))
