@@ -32,15 +32,18 @@ function painLabel(level) {
 // ─── Staff Injury Overview (sees all athletes) ───────────────────────────────
 function StaffInjuryView() {
   const [selectedAthlete, setSelectedAthlete] = useState(null)
-  const athletesWithInjuries = MOCK_ATHLETES.map((a) => ({
+  const { isDemo } = useAuthStore()
+  const mockAthletes    = isDemo ? MOCK_ATHLETES : []
+  const mockInjuryLogs  = isDemo ? MOCK_INJURY_LOGS : []
+  const athletesWithInjuries = mockAthletes.map((a) => ({
     ...a,
-    injuries: MOCK_INJURY_LOGS.filter((inj) => inj.athlete_id === a.id),
+    injuries: mockInjuryLogs.filter((inj) => inj.athlete_id === a.id),
   }))
   const flagged = athletesWithInjuries.filter((a) => a.injuries.some((i) => !i.resolved))
 
   if (selectedAthlete) {
-    const athlete = MOCK_ATHLETES.find((a) => a.id === selectedAthlete)
-    const injuries = MOCK_INJURY_LOGS.filter((i) => i.athlete_id === selectedAthlete)
+    const athlete = mockAthletes.find((a) => a.id === selectedAthlete)
+    const injuries = mockInjuryLogs.filter((i) => i.athlete_id === selectedAthlete)
     return (
       <div className="space-y-4">
         <button onClick={() => setSelectedAthlete(null)}
@@ -62,13 +65,13 @@ function StaffInjuryView() {
         </CardBody></Card>
         <Card><CardBody className="text-center py-3">
           <p className="text-2xl font-black text-zinc-100">
-            {MOCK_INJURY_LOGS.filter((i) => !i.resolved).length}
+            {mockInjuryLogs.filter((i) => !i.resolved).length}
           </p>
           <p className="text-xs text-zinc-500 mt-0.5">Active injury reports</p>
         </CardBody></Card>
         <Card><CardBody className="text-center py-3">
           <p className="text-2xl font-black text-zinc-100">
-            {MOCK_INJURY_LOGS.filter((i) => !i.resolved && i.reported_to_coach).length}
+            {mockInjuryLogs.filter((i) => !i.resolved && i.reported_to_coach).length}
           </p>
           <p className="text-xs text-zinc-500 mt-0.5">Reported to coaching staff</p>
         </CardBody></Card>
@@ -162,7 +165,7 @@ function StaffInjuryView() {
 
 // ─── Athlete Injury Detail (shared by both athlete self-view and staff drill-down) ─
 function AthleteInjuryDetail({ athlete, injuries: initialInjuries, staffView = false }) {
-  const [injuries, setInjuries] = useState(initialInjuries ?? MOCK_INJURY_LOGS)
+  const [injuries, setInjuries] = useState(initialInjuries ?? [])
   const [logModal, setLogModal] = useState(null)
   const [addModal, setAddModal] = useState(false)
   const [resolveConfirm, setResolveConfirm] = useState(null)
@@ -563,9 +566,12 @@ function AthleteInjuryDetail({ athlete, injuries: initialInjuries, staffView = f
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export function InjuryPage() {
-  const { profile, viewAsAthlete } = useAuthStore()
+  const { profile, viewAsAthlete, isDemo } = useAuthStore()
   const role = profile?.role || 'athlete'
   const isStaff = (role === 'coach' || role === 'nutritionist' || role === 'admin') && !viewAsAthlete
+
+  const demoAthlete  = isDemo ? MOCK_ATHLETES[0] : null
+  const demoInjuries = isDemo ? MOCK_INJURY_LOGS : []
 
   return (
     <div className="p-4 md:p-6 max-w-5xl mx-auto space-y-6">
@@ -585,7 +591,7 @@ export function InjuryPage() {
       {isStaff ? (
         <StaffInjuryView />
       ) : (
-        <AthleteInjuryDetail athlete={MOCK_ATHLETES[0]} injuries={MOCK_INJURY_LOGS} />
+        <AthleteInjuryDetail athlete={demoAthlete} injuries={demoInjuries} />
       )}
     </div>
   )

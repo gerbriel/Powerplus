@@ -4,6 +4,7 @@ import { Card, CardHeader, CardTitle } from '../components/ui/Card'
 import { Badge } from '../components/ui/Badge'
 import { MOCK_RESOURCES } from '../lib/mockData'
 import { cn } from '../lib/utils'
+import { useAuthStore } from '../lib/store'
 
 const CATEGORIES = ['all', 'technique', 'meet_day', 'recovery', 'nutrition', 'rules']
 
@@ -24,11 +25,12 @@ const categoryIcon = {
 }
 
 export function ResourcesPage() {
+  const { isDemo } = useAuthStore()
   const [search, setSearch] = useState('')
   const [activeCategory, setActiveCategory] = useState('all')
   const [selected, setSelected] = useState(null)
 
-  const filtered = MOCK_RESOURCES.filter((r) => {
+  const filtered = (isDemo ? MOCK_RESOURCES : []).filter((r) => {
     const matchCat = activeCategory === 'all' || r.category === activeCategory
     const matchSearch = !search || r.title.toLowerCase().includes(search.toLowerCase()) || r.tags?.some((t) => t.includes(search.toLowerCase()))
     return matchCat && matchSearch

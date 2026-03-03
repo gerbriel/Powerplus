@@ -6,7 +6,7 @@ import { Calculator, TrendingUp, Target, Layers, ChevronDown } from 'lucide-reac
 import { Card, CardBody } from '../components/ui/Card'
 import { Badge } from '../components/ui/Badge'
 import { cn, calcE1RM, calcE1RMBrzycki, calcE1RMLombardi, calcDotsScore, calcWilks, calcGlossbrenner, calcAttemptSuggestions, calcTonnage, convertWeight } from '../lib/utils'
-import { useSettingsStore } from '../lib/store'
+import { useSettingsStore, useAuthStore } from '../lib/store'
 import { MOCK_EXERCISE_HISTORY, MOCK_ATHLETES } from '../lib/mockData'
 
 // ─── Tab definitions ────────────────────────────────────────────────────────
@@ -50,14 +50,16 @@ function ResultBox({ label, value, color = 'text-purple-400', sub }) {
 // ═══════════════════════════════════════════════════════════════════════════════
 function E1RMTab() {
   const { weightUnit } = useSettingsStore()
+  const { isDemo } = useAuthStore()
+  const exerciseHistory = isDemo ? MOCK_EXERCISE_HISTORY : {}
   const [weightInput, setWeightInput] = useState(100)
   const [reps, setReps] = useState(3)
   const [formula, setFormula] = useState('epley')
   const [selectedAthlete, setSelectedAthlete] = useState('Jordan Blake')
   const [selectedExercise, setSelectedExercise] = useState('Back Squat')
 
-  const athletes = Object.keys(MOCK_EXERCISE_HISTORY)
-  const exercises = Object.keys(MOCK_EXERCISE_HISTORY[selectedAthlete] || {})
+  const athletes = Object.keys(exerciseHistory)
+  const exercises = Object.keys(exerciseHistory[selectedAthlete] || {})
 
   // Convert input to kg for calculation
   const weightKg = weightUnit === 'lbs' ? weightInput / 2.20462 : weightInput
@@ -71,7 +73,7 @@ function E1RMTab() {
   const displayE1RM = weightUnit === 'lbs' ? Math.round(e1rmKg * 2.20462) : e1rmKg
 
   // Trend data
-  const historyData = (MOCK_EXERCISE_HISTORY[selectedAthlete]?.[selectedExercise] || []).map((d) => ({
+  const historyData = (exerciseHistory[selectedAthlete]?.[selectedExercise] || []).map((d) => ({
     ...d,
     display_e1rm: weightUnit === 'lbs' ? Math.round(d.e1rm_kg * 2.20462) : d.e1rm_kg,
     display_weight: weightUnit === 'lbs' ? Math.round(d.weight_kg * 2.20462) : d.weight_kg,
@@ -130,7 +132,7 @@ function E1RMTab() {
                 value={selectedAthlete}
                 onChange={(e) => {
                   setSelectedAthlete(e.target.value)
-                  const exs = Object.keys(MOCK_EXERCISE_HISTORY[e.target.value] || {})
+                  const exs = Object.keys(exerciseHistory[e.target.value] || {})
                   setSelectedExercise(exs[0] || '')
                 }}
                 className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-xs text-zinc-100 focus:outline-none focus:border-purple-500"
@@ -464,6 +466,8 @@ function AttemptsTab() {
 // ═══════════════════════════════════════════════════════════════════════════════
 function TonnageTab() {
   const { weightUnit } = useSettingsStore()
+  const { isDemo } = useAuthStore()
+  const exerciseHistory = isDemo ? MOCK_EXERCISE_HISTORY : {}
 
   // Manual entry rows
   const [rows, setRows] = useState([
@@ -496,10 +500,10 @@ function TonnageTab() {
 
   // Trend data from mock history for selected athlete
   const [selectedAthlete, setSelectedAthlete] = useState('Jordan Blake')
-  const athletes = Object.keys(MOCK_EXERCISE_HISTORY)
+  const athletes = Object.keys(exerciseHistory)
 
   // Build weekly tonnage from history
-  const exerciseHistories = Object.entries(MOCK_EXERCISE_HISTORY[selectedAthlete] || {})
+  const exerciseHistories = Object.entries(exerciseHistory[selectedAthlete] || {})
   const weeklyMap = {}
   exerciseHistories.forEach(([, entries]) => {
     entries.forEach(({ date, weight_kg, reps }) => {

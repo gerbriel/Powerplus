@@ -7,6 +7,7 @@ import { Modal } from '../components/ui/Modal'
 import { Tabs } from '../components/ui/Tabs'
 import { MOCK_EXERCISES } from '../lib/mockData'
 import { cn } from '../lib/utils'
+import { useAuthStore } from '../lib/store'
 
 const TABS = [
   { id: 'templates', label: 'Templates' },
@@ -122,6 +123,8 @@ function TemplatesList({ onNew }) {
 }
 
 function WorkoutBuilder() {
+  const { isDemo } = useAuthStore()
+  const exercises = isDemo ? MOCK_EXERCISES : []
   const [blocks, setBlocks] = useState([
     { type: 'warmup', label: 'Warm-Up', exercises: [] },
     { type: 'main', label: 'Main Lift', exercises: [
@@ -218,7 +221,7 @@ function WorkoutBuilder() {
       {/* Add Exercise Modal */}
       <Modal open={!!addExModal} onClose={() => setAddExModal(null)} title="Add Exercise" size="sm">
         <div className="p-4 space-y-2 max-h-72 overflow-y-auto">
-          {MOCK_EXERCISES.map((ex) => (
+          {exercises.map((ex) => (
             <button
               key={ex.id}
               onClick={() => addExercise(addExModal, ex)}
@@ -238,11 +241,12 @@ function WorkoutBuilder() {
 }
 
 function ExerciseLibrary() {
+  const { isDemo } = useAuthStore()
   const [search, setSearch] = useState('')
   const [catFilter, setCatFilter] = useState('all')
   const categories = ['all', 'squat', 'bench', 'deadlift', 'accessory']
 
-  const filtered = MOCK_EXERCISES.filter(e => {
+  const filtered = (isDemo ? MOCK_EXERCISES : []).filter(e => {
     const matchCat = catFilter === 'all' || e.category === catFilter
     const matchSearch = !search || e.name.toLowerCase().includes(search.toLowerCase())
     return matchCat && matchSearch

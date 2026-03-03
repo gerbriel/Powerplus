@@ -12,7 +12,7 @@ import { StatCard } from '../components/ui/StatCard'
 import { Tabs } from '../components/ui/Tabs'
 import { MOCK_MEETS, MOCK_TRAINING_BLOCKS, MOCK_GOALS } from '../lib/mockData'
 import { cn, formatDate, kgToLbs } from '../lib/utils'
-import { useSettingsStore } from '../lib/store'
+import { useSettingsStore, useAuthStore } from '../lib/store'
 
 const FEDERATIONS = ['USAPL', 'IPF', 'USPA', 'NASA', 'RPS', 'SPF', 'WPC', 'Other']
 const EQUIPMENT_OPTS = ['raw', 'single-ply', 'multi-ply', 'wraps']
@@ -48,6 +48,9 @@ function useWeightDisplay() {
 // ── Add/Edit Meet Modal ────────────────────────────────────────────────────
 function MeetFormModal({ open, onClose, existingMeet = null }) {
   const isEdit = !!existingMeet
+  const { isDemo } = useAuthStore()
+  const mockGoals  = isDemo ? MOCK_GOALS : []
+  const mockBlocks = isDemo ? MOCK_TRAINING_BLOCKS : []
   const [form, setForm] = useState(existingMeet || {
     name: '', federation: 'USAPL', location: '', meet_date: '',
     registration_deadline: '', equipment: 'raw', notes: '',
@@ -103,7 +106,7 @@ function MeetFormModal({ open, onClose, existingMeet = null }) {
             <Target className="w-3 h-3" /> Link to Goals & PRs
           </label>
           <div className="space-y-1.5">
-            {MOCK_GOALS.map(g => (
+            {mockGoals.map(g => (
               <button key={g.id} onClick={() => toggleGoal(g.id)}
                 className={cn('w-full flex items-center gap-2 px-3 py-2 rounded-lg border text-xs transition-colors text-left',
                   form.linked_goal_ids?.includes(g.id) ? 'bg-purple-500/10 border-purple-500/30 text-purple-200' : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:border-zinc-500')}>
@@ -118,7 +121,7 @@ function MeetFormModal({ open, onClose, existingMeet = null }) {
             <Layers className="w-3 h-3" /> Link to Training Blocks
           </label>
           <div className="space-y-1.5">
-            {MOCK_TRAINING_BLOCKS.map(tb => (
+            {mockBlocks.map(tb => (
               <button key={tb.id} onClick={() => toggleBlock(tb.id)}
                 className={cn('w-full flex items-center gap-2 px-3 py-2 rounded-lg border text-xs transition-colors text-left',
                   form.linked_block_ids?.includes(tb.id) ? 'bg-purple-500/10 border-purple-500/30 text-purple-200' : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:border-zinc-500')}>
@@ -145,6 +148,9 @@ function MeetFormModal({ open, onClose, existingMeet = null }) {
 
 // ── Add Training Block Modal ──────────────────────────────────────────────
 function AddBlockModal({ open, onClose, meetFilter }) {
+  const { isDemo } = useAuthStore()
+  const mockMeets = isDemo ? MOCK_MEETS : []
+  const mockGoals = isDemo ? MOCK_GOALS : []
   const [form, setForm] = useState({
     name: '', phase: 'accumulation', start_date: '', end_date: '',
     weeks: 4, focus: '', avg_rpe_target: 7.5,
@@ -213,7 +219,7 @@ function AddBlockModal({ open, onClose, meetFilter }) {
           <select value={form.linked_meet_id} onChange={e => upd('linked_meet_id', e.target.value)}
             className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500">
             <option value="">— None —</option>
-            {MOCK_MEETS.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+            {mockMeets.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
           </select>
         </div>
         <div>
@@ -221,7 +227,7 @@ function AddBlockModal({ open, onClose, meetFilter }) {
             <Target className="w-3 h-3" /> Link to Goals
           </label>
           <div className="space-y-1.5">
-            {MOCK_GOALS.map(g => (
+            {mockGoals.map(g => (
               <button key={g.id} onClick={() => toggleGoal(g.id)}
                 className={cn('w-full flex items-center gap-2 px-3 py-2 rounded-lg border text-xs transition-colors text-left',
                   form.linked_goal_ids.includes(g.id) ? 'bg-purple-500/10 border-purple-500/30 text-purple-200' : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:border-zinc-500')}>
@@ -248,6 +254,7 @@ function AddBlockModal({ open, onClose, meetFilter }) {
 // ── Attempt Planner ──────────────────────────────────────────────────────
 function AttemptPlanner({ meet }) {
   const { weightUnit } = useSettingsStore()
+  const { isDemo } = useAuthStore()
   const toUnit = (kg) => weightUnit === 'lbs' ? Math.round(kgToLbs(kg) / 2.5) * 2.5 : kg
   const [attempts, setAttempts] = useState(() => {
     const base = meet?.attempts || { squat:{1:192.5,2:202.5,3:210}, bench:{1:140,2:147.5,3:152.5}, deadlift:{1:260,2:272.5,3:282.5} }
@@ -258,7 +265,7 @@ function AttemptPlanner({ meet }) {
     }
     return base
   })
-  const linkedGoals = MOCK_GOALS.filter(g => meet?.linked_goal_ids?.includes(g.id))
+  const linkedGoals = isDemo ? MOCK_GOALS.filter(g => meet?.linked_goal_ids?.includes(g.id)) : []
   const unit = weightUnit
   const step = unit === 'lbs' ? 5 : 2.5
   const total3 = (attempts.squat[3]||0) + (attempts.bench[3]||0) + (attempts.deadlift[3]||0)
@@ -351,8 +358,12 @@ function AttemptPlanner({ meet }) {
 function TrainingBlocksPanel({ meetFilter = null }) {
   const [addBlockOpen, setAddBlockOpen] = useState(false)
   const [expandedBlock, setExpandedBlock] = useState(null)
-  const blocks = meetFilter ? MOCK_TRAINING_BLOCKS.filter(tb => tb.linked_meet_id === meetFilter) : MOCK_TRAINING_BLOCKS
-  const activeMeet = MOCK_MEETS.find(m => m.id === meetFilter)
+  const { isDemo } = useAuthStore()
+  const allBlocks = isDemo ? MOCK_TRAINING_BLOCKS : []
+  const allMeets  = isDemo ? MOCK_MEETS : []
+  const allGoals  = isDemo ? MOCK_GOALS : []
+  const blocks = meetFilter ? allBlocks.filter(tb => tb.linked_meet_id === meetFilter) : allBlocks
+  const activeMeet = allMeets.find(m => m.id === meetFilter)
 
   return (
     <div className="space-y-4">
@@ -374,8 +385,8 @@ function TrainingBlocksPanel({ meetFilter = null }) {
         {blocks.map(tb => {
           const c = phaseColor[tb.phase] || phaseColor.deload
           const pct = tb.sessions_planned > 0 ? Math.round((tb.sessions_completed / tb.sessions_planned) * 100) : 0
-          const linkedGoals = MOCK_GOALS.filter(g => tb.linked_goal_ids?.includes(g.id))
-          const linkedMeet = MOCK_MEETS.find(m => m.id === tb.linked_meet_id)
+          const linkedGoals = allGoals.filter(g => tb.linked_goal_ids?.includes(g.id))
+          const linkedMeet = allMeets.find(m => m.id === tb.linked_meet_id)
           const isExpanded = expandedBlock === tb.id
           return (
             <Card key={tb.id} className="p-0 overflow-hidden">
@@ -455,8 +466,9 @@ function TrainingBlocksPanel({ meetFilter = null }) {
 // ── Meet Detail ──────────────────────────────────────────────────────────
 function MeetDetailView({ meet, onBack, onEdit }) {
   const [activeTab, setActiveTab] = useState('overview')
-  const linkedBlocks = MOCK_TRAINING_BLOCKS.filter(tb => tb.linked_meet_id === meet.id)
-  const linkedGoals = MOCK_GOALS.filter(g => meet.linked_goal_ids?.includes(g.id))
+  const { isDemo } = useAuthStore()
+  const linkedBlocks = isDemo ? MOCK_TRAINING_BLOCKS.filter(tb => tb.linked_meet_id === meet.id) : []
+  const linkedGoals  = isDemo ? MOCK_GOALS.filter(g => meet.linked_goal_ids?.includes(g.id)) : []
   const daysOut = Math.max(0, Math.round((new Date(meet.meet_date) - new Date()) / 86400000))
   const tabs = [{ id:'overview',label:'Overview' },{ id:'attempts',label:'Attempts & Warm-Up' },{ id:'blocks',label:'Training Blocks' }]
 
@@ -597,6 +609,10 @@ export function MeetsPage() {
   const [selectedMeet, setSelectedMeet] = useState(null)
   const [editMeet, setEditMeet] = useState(null)
   const { weightUnit, toggleWeightUnit } = useSettingsStore()
+  const { isDemo } = useAuthStore()
+  const mockMeets  = isDemo ? MOCK_MEETS : []
+  const mockBlocks = isDemo ? MOCK_TRAINING_BLOCKS : []
+  const mockGoals  = isDemo ? MOCK_GOALS : []
   const daysOut = (ds) => Math.max(0, Math.round((new Date(ds) - new Date()) / 86400000))
 
   const tabs = [
@@ -643,10 +659,10 @@ export function MeetsPage() {
             <StatCard label="Athletes Confirmed" value="4" sub="Spring Classic" icon={Users} color="blue" />
             <StatCard label="Days Out" value={daysOut('2026-04-12')} sub="from today" icon={Calendar} color="purple" />
           </div>
-          {MOCK_MEETS.map(meet => {
+          {mockMeets.map(meet => {
             const d = daysOut(meet.meet_date)
-            const lBlocks = MOCK_TRAINING_BLOCKS.filter(tb => tb.linked_meet_id === meet.id)
-            const lGoals = MOCK_GOALS.filter(g => meet.linked_goal_ids?.includes(g.id))
+            const lBlocks = mockBlocks.filter(tb => tb.linked_meet_id === meet.id)
+            const lGoals = mockGoals.filter(g => meet.linked_goal_ids?.includes(g.id))
             return (
               <Card key={meet.id} className="hover:border-zinc-600 transition-colors">
                 <CardBody>

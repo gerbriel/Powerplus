@@ -588,6 +588,7 @@ function PlatformSystemTab() {
 
 // ─── Org Analytics Drill-down ─────────────────────────────────────────────────
 function OrgAnalyticsView({ org, onBack }) {
+  const { isDemo } = useAuthStore()
   const [subTab, setSubTab] = useState('overview')
   const SUB_TABS = [
     { id: 'overview', label: 'Overview' },
@@ -598,8 +599,8 @@ function OrgAnalyticsView({ org, onBack }) {
   const coaches = org.members.filter((m) => m.role === 'coach' || m.role === 'admin')
   const nutritionists = org.members.filter((m) => m.role === 'nutritionist')
   const athletes = org.members.filter((m) => m.role === 'athlete')
-  // For org-001, use real MOCK_ATHLETES data; for others, generate synthetic profiles
-  const athleteData = org.id === 'org-001'
+  // For org-001 in demo mode, use real MOCK_ATHLETES data; for others, generate synthetic profiles
+  const athleteData = (isDemo && org.id === 'org-001')
     ? MOCK_ATHLETES
     : athletes.map((m, i) => ({
         id: m.user_id,
@@ -1608,7 +1609,7 @@ function OrgFormModal({ open, onClose, initial = null, onSave }) {
 
 // ─── Head Coach: Overview (interconnected data) ───────────────────────────────
 function OverviewTab() {
-  const { profile, activeOrgId } = useAuthStore()
+  const { profile, activeOrgId, isDemo } = useAuthStore()
   const { orgs } = useOrgStore()
   const { goals } = useGoalsStore()
   const { blocks } = useTrainingStore()
@@ -1617,7 +1618,8 @@ function OverviewTab() {
   const staff = org ? org.members.filter((m) => m.role !== 'athlete') : []
   const completedGoals = goals.filter((g) => g.completed).length
   const activeBlocks = blocks.filter((b) => b.status === 'active').length
-  const flaggedAthletes = MOCK_ATHLETES.filter((a) => a.flags?.length > 0).length
+  const mockAthletes = isDemo ? MOCK_ATHLETES : []
+  const flaggedAthletes = mockAthletes.filter((a) => a.flags?.length > 0).length
 
   return (
     <div className="space-y-6">

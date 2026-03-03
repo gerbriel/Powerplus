@@ -5,6 +5,7 @@ import { upsertProfile, isSupabaseConfigured, onAuthStateChange, fetchProfile, f
 export const useAuthStore = create((set, get) => ({
   user: null,
   profile: null,
+  isDemo: false,           // true only when logged in via loginAsDemo
   // All org memberships for the current user: [{ id, org_id, org_role, is_self_athlete, nutrition_permissions }]
   orgMemberships: [],
   // Currently active org context (user can switch orgs)
@@ -24,6 +25,7 @@ export const useAuthStore = create((set, get) => ({
       profile,
       orgMemberships: memberships,
       activeOrgId,
+      isDemo: true,
       viewAsAthlete: false,
     })
     // Seed all other stores with mock data for the demo session
@@ -44,7 +46,7 @@ export const useAuthStore = create((set, get) => ({
     }
   },
 
-  logout: () => set({ user: null, profile: null, orgMemberships: [], activeOrgId: null }),
+  logout: () => set({ user: null, profile: null, orgMemberships: [], activeOrgId: null, isDemo: false }),
 
   // ── Real auth ────────────────────────────────────────────────────────────
 
@@ -80,6 +82,7 @@ export const useAuthStore = create((set, get) => ({
       },
       orgMemberships: memberships,
       activeOrgId,
+      isDemo: false,
       isLoading: false,
       viewAsAthlete: false,
     })
@@ -102,7 +105,7 @@ export const useAuthStore = create((set, get) => ({
         get().handleAuthSession(session)
       }
       if (event === 'SIGNED_OUT') {
-        set({ user: null, profile: null, orgMemberships: [], activeOrgId: null })
+        set({ user: null, profile: null, orgMemberships: [], activeOrgId: null, isDemo: false })
       }
     })
     return () => subscription.unsubscribe()
@@ -113,7 +116,7 @@ export const useAuthStore = create((set, get) => ({
    */
   handleSignOut: async () => {
     if (isSupabaseConfigured()) await supabaseSignOut()
-    set({ user: null, profile: null, orgMemberships: [], activeOrgId: null, viewAsAthlete: false })
+    set({ user: null, profile: null, orgMemberships: [], activeOrgId: null, isDemo: false, viewAsAthlete: false })
     // Clear all stores back to empty (remove any demo or real user data)
     useOrgStore.setState({ orgs: [], staffAssignments: [] })
     useGoalsStore.setState({ goals: [] })

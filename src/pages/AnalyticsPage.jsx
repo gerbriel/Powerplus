@@ -250,6 +250,9 @@ function PlatformAnalyticsView() {
 }
 
 function PersonalAnalytics() {
+  const { isDemo } = useAuthStore()
+  const strengthTrend  = isDemo ? MOCK_STRENGTH_TREND : []
+  const adherenceTrend = isDemo ? MOCK_ADHERENCE_TREND : []
   const radarData = [
     { subject: 'Squat', A: 84 },
     { subject: 'Bench', A: 79 },
@@ -276,7 +279,7 @@ function PersonalAnalytics() {
         </CardHeader>
         <div className="h-56">
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={MOCK_STRENGTH_TREND} margin={{ top: 5, right: 10, bottom: 5, left: -10 }}>
+            <LineChart data={strengthTrend} margin={{ top: 5, right: 10, bottom: 5, left: -10 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#3f3f46" />
               <XAxis dataKey="date" tick={{ fill: '#71717a', fontSize: 11 }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fill: '#71717a', fontSize: 11 }} axisLine={false} tickLine={false} />
@@ -299,7 +302,7 @@ function PersonalAnalytics() {
           </CardHeader>
           <div className="h-48">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={MOCK_ADHERENCE_TREND} margin={{ top: 5, right: 10, bottom: 5, left: -10 }}>
+              <BarChart data={adherenceTrend} margin={{ top: 5, right: 10, bottom: 5, left: -10 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#3f3f46" />
                 <XAxis dataKey="week" tick={{ fill: '#71717a', fontSize: 11 }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fill: '#71717a', fontSize: 11 }} axisLine={false} tickLine={false} domain={[0, 100]} />
@@ -365,6 +368,9 @@ function PersonalAnalytics() {
 }
 
 function TeamAnalytics() {
+  const { isDemo } = useAuthStore()
+  const teamAdherence = isDemo ? MOCK_TEAM_ADHERENCE : []
+  const athletes      = isDemo ? MOCK_ATHLETES : []
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -379,7 +385,7 @@ function TeamAnalytics() {
           <CardHeader><CardTitle>Team Adherence by Athlete</CardTitle></CardHeader>
           <div className="h-52">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={MOCK_TEAM_ADHERENCE} layout="vertical" margin={{ top: 5, right: 20, bottom: 5, left: 10 }}>
+              <BarChart data={teamAdherence} layout="vertical" margin={{ top: 5, right: 20, bottom: 5, left: 10 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#3f3f46" horizontal={false} />
                 <XAxis type="number" tick={{ fill: '#71717a', fontSize: 11 }} domain={[0, 100]} axisLine={false} tickLine={false} />
                 <YAxis dataKey="athlete" type="category" tick={{ fill: '#a1a1aa', fontSize: 11 }} axisLine={false} tickLine={false} width={60} />
@@ -393,7 +399,7 @@ function TeamAnalytics() {
         <Card>
           <CardHeader><CardTitle>Athletes Needing Attention</CardTitle></CardHeader>
           <div className="space-y-3">
-            {MOCK_ATHLETES.filter(a => a.flags.length > 0).map((a) => (
+            {athletes.filter(a => a.flags.length > 0).map((a) => (
               <div key={a.id} className="flex items-center gap-3 p-2.5 bg-zinc-700/30 rounded-lg">
                 <Avatar name={a.full_name} role="athlete" size="sm" />
                 <div className="flex-1 min-w-0">
@@ -424,7 +430,7 @@ function TeamAnalytics() {
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-800">
-              {MOCK_ATHLETES.map((a) => (
+              {athletes.map((a) => (
                 <tr key={a.id} className="hover:bg-zinc-800/30 transition-colors">
                   <td className="py-3 pr-3">
                     <div className="flex items-center gap-2">

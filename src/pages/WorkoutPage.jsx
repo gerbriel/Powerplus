@@ -64,7 +64,10 @@ function AthleteWorkoutPage() {
   const [customModal, setCustomModal] = useState(false)
   const { weightUnit, toggleWeightUnit, gymLocations, preferredLocation, preferredWorkoutTime, preferredDuration } = useSettingsStore()
   const { goals, pushPRToGoals } = useGoalsStore()
+  const { isDemo } = useAuthStore()
   const activeGym = gymLocations?.find(l => l.id === preferredLocation) || gymLocations?.[0]
+
+  const pastWorkouts = isDemo ? MOCK_PAST_WORKOUTS : []
 
   const handleStartWorkout = (workout) => {
     setActiveWorkout(workout)
@@ -107,7 +110,7 @@ function AthleteWorkoutPage() {
   // ── History filtering ────────────────────────────────────────────────────
   const allHistory = [
     ...customWorkouts,
-    ...MOCK_PAST_WORKOUTS,
+    ...pastWorkouts,
   ]
   const filteredHistory = allHistory.filter((s) => {
     const q = historySearch.toLowerCase()
@@ -532,6 +535,11 @@ function CustomWorkoutModal({ open, onClose, onSave }) {
 
 // ─── Training Blocks View ────────────────────────────────────────────────────
 function TrainingBlocksView({ weightUnit, selectedBlock, setSelectedBlock }) {
+  const { isDemo } = useAuthStore()
+  const trainingBlocks = isDemo ? MOCK_TRAINING_BLOCKS : []
+  const mockGoals      = isDemo ? MOCK_GOALS : []
+  const mockMeets      = isDemo ? MOCK_MEETS : []
+
   const phaseMeta = {
     accumulation: { color: 'text-blue-300 bg-blue-500/10 border-blue-500/20', label: 'Accumulation' },
     intensification: { color: 'text-purple-300 bg-purple-500/10 border-purple-500/20', label: 'Intensification' },
@@ -551,16 +559,16 @@ function TrainingBlocksView({ weightUnit, selectedBlock, setSelectedBlock }) {
   return (
     <div className="space-y-3">
       <p className="text-xs text-zinc-500">
-        {MOCK_TRAINING_BLOCKS.filter(b => b.status === 'active').length} active ·{' '}
-        {MOCK_TRAINING_BLOCKS.filter(b => b.status === 'completed').length} completed ·{' '}
-        {MOCK_TRAINING_BLOCKS.filter(b => b.status === 'planned').length} planned
+        {trainingBlocks.filter(b => b.status === 'active').length} active ·{' '}
+        {trainingBlocks.filter(b => b.status === 'completed').length} completed ·{' '}
+        {trainingBlocks.filter(b => b.status === 'planned').length} planned
       </p>
-      {MOCK_TRAINING_BLOCKS.map((block) => {
+      {trainingBlocks.map((block) => {
         const phase = phaseMeta[block.phase] || phaseMeta.accumulation
         const status = statusMeta[block.status] || statusMeta.planned
         const pct = Math.round((block.sessions_completed / block.sessions_planned) * 100)
-        const linkedGoal = MOCK_GOALS.find(g => block.linked_goal_ids?.includes(g.id))
-        const linkedMeet = block.linked_meet_id ? MOCK_MEETS.find(m => m.id === block.linked_meet_id) : null
+        const linkedGoal = mockGoals.find(g => block.linked_goal_ids?.includes(g.id))
+        const linkedMeet = block.linked_meet_id ? mockMeets.find(m => m.id === block.linked_meet_id) : null
         return (
           <button
             key={block.id}
@@ -634,6 +642,7 @@ function TrainingBlocksView({ weightUnit, selectedBlock, setSelectedBlock }) {
 function BlockDetailModal({ block, weightUnit, onBack }) {
   const [detailTab, setDetailTab] = useState('overview')
   const { goals } = useGoalsStore()
+  const { isDemo } = useAuthStore()
 
   const pct = Math.round((block.sessions_completed / block.sessions_planned) * 100)
   const phaseMeta = {
@@ -644,9 +653,9 @@ function BlockDetailModal({ block, weightUnit, onBack }) {
   }
   const phase = phaseMeta[block.phase] || phaseMeta.accumulation
 
-  const linkedGoals = MOCK_GOALS.filter(g => block.linked_goal_ids?.includes(g.id))
-  const linkedMeet = block.linked_meet_id ? MOCK_MEETS.find(m => m.id === block.linked_meet_id) : null
-  const blockSessions = MOCK_PAST_WORKOUTS.filter(s => s.linked_block_id === block.id)
+  const linkedGoals  = isDemo ? MOCK_GOALS.filter(g => block.linked_goal_ids?.includes(g.id)) : []
+  const linkedMeet   = isDemo && block.linked_meet_id ? MOCK_MEETS.find(m => m.id === block.linked_meet_id) : null
+  const blockSessions = isDemo ? MOCK_PAST_WORKOUTS.filter(s => s.linked_block_id === block.id) : []
 
   const sessionsByWeek = blockSessions.reduce((acc, s) => {
     const week = s.week_label || s.date?.slice(0, 7) || 'Week'
@@ -877,8 +886,13 @@ function BlockDetailModal({ block, weightUnit, onBack }) {
 // ─── Week Schedule Card ──────────────────────────────────────────────────────
 function WeekScheduleCard({ weightUnit, onStartWorkout, onViewWorkout }) {
   const { gymLocations, preferredLocation, preferredWorkoutTime, preferredDuration } = useSettingsStore()
+  const { isDemo } = useAuthStore()
   const activeGym = gymLocations?.find(l => l.id === preferredLocation) || gymLocations?.[0]
   const [previewSession, setPreviewSession] = useState(null)
+
+  const weekSchedule   = isDemo ? MOCK_WEEK_SCHEDULE : []
+  const trainingBlocks = isDemo ? MOCK_TRAINING_BLOCKS : []
+  const todayWorkout   = isDemo ? MOCK_TODAY_WORKOUT : null
 
   const statusConfig = {
     completed: { dot: 'bg-green-400', badge: 'text-green-300 bg-green-500/10 border-green-500/20', label: 'Done' },
@@ -887,8 +901,8 @@ function WeekScheduleCard({ weightUnit, onStartWorkout, onViewWorkout }) {
     rest: { dot: 'bg-zinc-700', badge: 'text-zinc-600 bg-zinc-800 border-zinc-700', label: 'Rest' },
   }
 
-  const completedCount = MOCK_WEEK_SCHEDULE.filter(s => s.status === 'completed').length
-  const totalCount = MOCK_WEEK_SCHEDULE.length
+  const completedCount = weekSchedule.filter(s => s.status === 'completed').length
+  const totalCount = weekSchedule.length
 
   return (
     <>
@@ -907,17 +921,17 @@ function WeekScheduleCard({ weightUnit, onStartWorkout, onViewWorkout }) {
             <div className="flex items-center gap-2">
               <div className="w-20 h-1.5 bg-zinc-700 rounded-full overflow-hidden">
                 <div className="h-full bg-purple-500 rounded-full transition-all"
-                  style={{ width: `${(completedCount / totalCount) * 100}%` }} />
+                  style={{ width: totalCount ? `${(completedCount / totalCount) * 100}%` : '0%' }} />
               </div>
-              <span className="text-xs text-zinc-500">{Math.round((completedCount / totalCount) * 100)}%</span>
+              <span className="text-xs text-zinc-500">{totalCount ? Math.round((completedCount / totalCount) * 100) : 0}%</span>
             </div>
           </div>
         </CardHeader>
         <CardBody>
           <div className="space-y-1.5">
-            {MOCK_WEEK_SCHEDULE.map((s) => {
+            {weekSchedule.map((s) => {
               const cfg = statusConfig[s.status] || statusConfig.scheduled
-              const block = s.linked_block_id ? MOCK_TRAINING_BLOCKS.find(b => b.id === s.linked_block_id) : null
+              const block = s.linked_block_id ? trainingBlocks.find(b => b.id === s.linked_block_id) : null
               const mainExercises = s.blocks
                 ? [...new Set(s.blocks.filter(b => b.type === 'main').flatMap(b => b.exercises).map(e => e.name))]
                 : []
@@ -979,7 +993,7 @@ function WeekScheduleCard({ weightUnit, onStartWorkout, onViewWorkout }) {
                   {/* Action */}
                   <div className="flex-shrink-0">
                     {s.status === 'today' ? (
-                      <Button size="sm" onClick={() => onStartWorkout(MOCK_TODAY_WORKOUT)}>Start</Button>
+                      <Button size="sm" onClick={() => todayWorkout && onStartWorkout(todayWorkout)}>Start</Button>
                     ) : s.status === 'completed' ? (
                       <button
                         onClick={() => onViewWorkout(s)}
@@ -1926,13 +1940,17 @@ function LinkedGoalsPanel({ workout, completedSets, weightUnit }) {
 // ─── Staff Training Management Page ──────────────────────────────────────────
 function StaffTrainingPage({ profile, membership }) {
   const { setActivePage } = useUIStore()
+  const { isDemo } = useAuthStore()
   const role = resolveRole(profile, membership)
   const isNutritionist = role === 'nutritionist'
   const [tab, setTab] = useState('overview') // overview | athletes | blocks
 
-  const activeBlock = MOCK_TRAINING_BLOCKS.find(b => b.status === 'active')
-  const upcomingBlock = MOCK_TRAINING_BLOCKS.find(b => b.status === 'planned')
-  const completedBlocks = MOCK_TRAINING_BLOCKS.filter(b => b.status === 'completed')
+  const trainingBlocks  = isDemo ? MOCK_TRAINING_BLOCKS : []
+  const athletes        = isDemo ? MOCK_ATHLETES : []
+
+  const activeBlock     = trainingBlocks.find(b => b.status === 'active')
+  const upcomingBlock   = trainingBlocks.find(b => b.status === 'planned')
+  const completedBlocks = trainingBlocks.filter(b => b.status === 'completed')
 
   const PHASE_COLORS = {
     hypertrophy:     'bg-blue-500/15 text-blue-300 border-blue-500/30',
@@ -1951,7 +1969,7 @@ function StaffTrainingPage({ profile, membership }) {
           <p className="text-sm text-zinc-400 mt-0.5">Athlete training context for nutrition planning</p>
         </div>
         <div className="grid gap-4">
-          {MOCK_ATHLETES.map(a => (
+          {athletes.map(a => (
             <Card key={a.id}>
               <CardHeader>
                 <div className="flex items-center gap-3">
@@ -2069,7 +2087,7 @@ function StaffTrainingPage({ profile, membership }) {
               </CardTitle>
             </CardHeader>
             <CardBody className="space-y-2">
-              {MOCK_ATHLETES.map(a => {
+              {athletes.map(a => {
                 const pct = Math.round((a.sessions_this_week / a.sessions_planned_this_week) * 100)
                 const behind = a.sessions_this_week < a.sessions_planned_this_week
                 return (
@@ -2119,7 +2137,7 @@ function StaffTrainingPage({ profile, membership }) {
       {/* Athlete Sessions tab */}
       {tab === 'athletes' && (
         <div className="space-y-3">
-          {MOCK_ATHLETES.map(a => {
+          {athletes.map(a => {
             const recentSession = a.recent_sessions?.[0]
             return (
               <Card key={a.id}>

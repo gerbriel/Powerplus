@@ -10,11 +10,14 @@ import { useAuthStore } from '../lib/store'
 const REACTIONS = []
 
 export function MessagingPage() {
-  const { profile } = useAuthStore()
+  const { profile, isDemo } = useAuthStore()
   const [activeChannel, setActiveChannel] = useState('ch-1')
   const [message, setMessage] = useState('')
-  const [messages, setMessages] = useState(MOCK_MESSAGES)
+  const [messages, setMessages] = useState(isDemo ? MOCK_MESSAGES : [])
   const [showEmojiFor, setShowEmojiFor] = useState(null)
+
+  const channels       = isDemo ? MOCK_CHANNELS : []
+  const directMessages = isDemo ? MOCK_DIRECT_MESSAGES : []
 
   const handleSend = () => {
     if (!message.trim()) return
@@ -57,7 +60,7 @@ export function MessagingPage() {
           {/* Channels */}
           <div>
             <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider px-2 mb-1">Channels</p>
-            {MOCK_CHANNELS.map((ch) => (
+            {channels.map((ch) => (
               <button
                 key={ch.id}
                 onClick={() => setActiveChannel(ch.id)}
@@ -80,7 +83,7 @@ export function MessagingPage() {
           {/* DMs */}
           <div>
             <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider px-2 mb-1">Direct Messages</p>
-            {MOCK_DIRECT_MESSAGES.map((dm) => (
+            {directMessages.map((dm) => (
               <button
                 key={dm.id}
                 className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition-colors"

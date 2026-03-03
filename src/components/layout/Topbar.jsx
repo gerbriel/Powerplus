@@ -9,52 +9,61 @@ import { useState, useMemo, useRef, useEffect } from 'react'
 
 export function Topbar() {
   const { setMobileNavOpen, notificationsOpen, setNotificationsOpen, setActivePage } = useUIStore()
-  const { profile, handleSignOut } = useAuthStore()
+  const { profile, handleSignOut, isDemo } = useAuthStore()
   const [profileOpen, setProfileOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [searchFocused, setSearchFocused] = useState(false)
   const [activeIdx, setActiveIdx] = useState(-1)
   const searchRef = useRef(null)
   const dropdownRef = useRef(null)
-  const unread = MOCK_NOTIFICATIONS.filter((n) => !n.read).length
+
+  const notifications = isDemo ? MOCK_NOTIFICATIONS : []
+  const athletes      = isDemo ? MOCK_ATHLETES : []
+  const weekSchedule  = isDemo ? MOCK_WEEK_SCHEDULE : []
+  const pastWorkouts  = isDemo ? MOCK_PAST_WORKOUTS : []
+  const goals         = isDemo ? MOCK_GOALS : []
+  const meets         = isDemo ? MOCK_MEETS : []
+  const messages      = isDemo ? MOCK_MESSAGES : []
+
+  const unread = notifications.filter((n) => !n.read).length
 
   const results = useMemo(() => {
     const q = query.trim().toLowerCase()
     if (!q) return []
     const out = []
 
-    MOCK_ATHLETES.forEach(a => {
+    athletes.forEach(a => {
       if (a.full_name.toLowerCase().includes(q)) {
         out.push({ type: 'athlete', icon: Users, label: a.full_name, sub: `${a.weight_class} · ${a.federation}`, action: () => setActivePage('roster'), color: 'text-blue-400' })
       }
     })
 
-    ;[...MOCK_WEEK_SCHEDULE, ...MOCK_PAST_WORKOUTS].forEach(s => {
+    ;[...weekSchedule, ...pastWorkouts].forEach(s => {
       if (s.name?.toLowerCase().includes(q)) {
         out.push({ type: 'workout', icon: Dumbbell, label: s.name, sub: s.date || s.scheduled_date || '', action: () => setActivePage('workouts'), color: 'text-purple-400' })
       }
     })
 
-    MOCK_GOALS.forEach(g => {
+    goals.forEach(g => {
       if (g.title.toLowerCase().includes(q)) {
         out.push({ type: 'goal', icon: Target, label: g.title, sub: `${g.goal_type} · Target: ${g.target_value}${g.target_unit}`, action: () => setActivePage('goals'), color: 'text-yellow-400' })
       }
     })
 
-    MOCK_MEETS.forEach(m => {
+    meets.forEach(m => {
       if (m.name.toLowerCase().includes(q)) {
         out.push({ type: 'meet', icon: Trophy, label: m.name, sub: `${m.meet_date} · ${m.location}`, action: () => setActivePage('meets'), color: 'text-orange-400' })
       }
     })
 
-    MOCK_MESSAGES.forEach(m => {
+    messages.forEach(m => {
       if (m.content.toLowerCase().includes(q)) {
         out.push({ type: 'message', icon: MessageSquare, label: m.sender.name, sub: m.content.slice(0, 60) + (m.content.length > 60 ? '…' : ''), action: () => setActivePage('messages'), color: 'text-green-400' })
       }
     })
 
     return out.slice(0, 8)
-  }, [query])
+  }, [query, isDemo])
 
   function handleSelect(item) {
     item.action()
@@ -212,6 +221,8 @@ export function Topbar() {
 }
 
 function NotificationsPanel({ onClose }) {
+  const { isDemo } = useAuthStore()
+  const notifications = isDemo ? MOCK_NOTIFICATIONS : []
   const notifTypeColor = {
     workout_reminder: 'text-purple-400',
     message: 'text-blue-400',
@@ -225,7 +236,7 @@ function NotificationsPanel({ onClose }) {
         <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300"><X className="w-4 h-4" /></button>
       </div>
       <div className="max-h-80 overflow-y-auto divide-y divide-zinc-800">
-        {MOCK_NOTIFICATIONS.map((n) => (
+        {notifications.map((n) => (
           <div key={n.id} className={cn('px-4 py-3 hover:bg-zinc-800/50 transition-colors', !n.read && 'bg-purple-500/5')}>
             <div className="flex items-start gap-3">
               <div className={cn('w-2 h-2 rounded-full mt-1.5 flex-shrink-0', !n.read ? 'bg-purple-500' : 'bg-transparent')} />

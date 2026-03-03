@@ -226,18 +226,23 @@ function StaffDashboard({ profile, membership }) {
   const isNutritionist = role === 'nutritionist'
   const isAdmin = role === 'admin'
   const { setActivePage } = useUIStore()
+  const { isDemo } = useAuthStore()
 
-  const activeBlock = MOCK_TRAINING_BLOCKS.find(b => b.status === 'active')
-  const upcomingMeet = MOCK_MEETS?.[0]
+  const athletes       = isDemo ? MOCK_ATHLETES : []
+  const trainingBlocks = isDemo ? MOCK_TRAINING_BLOCKS : []
+  const meets          = isDemo ? MOCK_MEETS : []
+
+  const activeBlock = trainingBlocks.find(b => b.status === 'active')
+  const upcomingMeet = meets?.[0]
   const daysToMeet = upcomingMeet
     ? Math.ceil((new Date(upcomingMeet.date) - new Date()) / (1000 * 60 * 60 * 24))
     : null
 
-  const flaggedAthletes = MOCK_ATHLETES.filter(a => a.flags?.length > 0)
-  const lowCompliance = MOCK_ATHLETES.filter(a => a.nutrition_compliance < 80)
-  const missedSessions = MOCK_ATHLETES.filter(a => a.sessions_this_week < a.sessions_planned_this_week)
-  const avgCompliance = Math.round(MOCK_ATHLETES.reduce((s, a) => s + a.nutrition_compliance, 0) / MOCK_ATHLETES.length)
-  const avgAdherence = Math.round(MOCK_ATHLETES.reduce((s, a) => s + a.adherence, 0) / MOCK_ATHLETES.length)
+  const flaggedAthletes = athletes.filter(a => a.flags?.length > 0)
+  const lowCompliance = athletes.filter(a => a.nutrition_compliance < 80)
+  const missedSessions = athletes.filter(a => a.sessions_this_week < a.sessions_planned_this_week)
+  const avgCompliance = athletes.length ? Math.round(athletes.reduce((s, a) => s + a.nutrition_compliance, 0) / athletes.length) : 0
+  const avgAdherence  = athletes.length ? Math.round(athletes.reduce((s, a) => s + a.adherence, 0) / athletes.length) : 0
 
   const FLAG_META = {
     pain_flag:       { label: 'Pain Flag',       color: 'text-red-400 bg-red-500/10 border-red-500/20' },
@@ -282,8 +287,8 @@ function StaffDashboard({ profile, membership }) {
 
       {/* Org Pulse Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <StatCard label="Athletes" value={`${MOCK_ATHLETES.length}`} icon={Users} color="purple"
-          trendLabel={`${MOCK_ATHLETES.filter(a => a.sessions_this_week > 0).length} trained today`} trend={1} />
+        <StatCard label="Athletes" value={`${athletes.length}`} icon={Users} color="purple"
+          trendLabel={`${athletes.filter(a => a.sessions_this_week > 0).length} trained today`} trend={1} />
         <StatCard label="Avg Adherence" value={`${avgAdherence}%`} icon={Zap} color="orange"
           trendLabel="7-day rolling" trend={avgAdherence >= 85 ? 1 : -1} />
         {!isNutritionist && (
@@ -359,7 +364,7 @@ function StaffDashboard({ profile, membership }) {
               </CardTitle>
             </CardHeader>
             <CardBody className="space-y-2">
-              {MOCK_ATHLETES.map(a => {
+              {athletes.map(a => {
                 const trained = a.sessions_this_week > 0 && a.last_session >= '2026-02-28'
                 const recentSession = a.recent_sessions?.[0]
                 return (
@@ -403,7 +408,7 @@ function StaffDashboard({ profile, membership }) {
               </CardTitle>
             </CardHeader>
             <CardBody className="space-y-2">
-              {MOCK_ATHLETES.map(a => {
+              {athletes.map(a => {
                 const nc = a.nutrition_compliance
                 return (
                   <div key={a.id} className="flex items-center gap-3">
@@ -488,14 +493,14 @@ function StaffDashboard({ profile, membership }) {
               <div className="mt-1">
                 <p className="text-xs text-zinc-500 mb-2">Athletes registered</p>
                 <div className="flex -space-x-2">
-                  {MOCK_ATHLETES.filter(a => a.next_meet_id === upcomingMeet.id).slice(0, 5).map(a => (
+                  {athletes.filter(a => a.next_meet_id === upcomingMeet.id).slice(0, 5).map(a => (
                     <div key={a.id} className="w-7 h-7 rounded-full bg-zinc-700 border-2 border-zinc-900 flex items-center justify-center text-xs font-bold text-zinc-300 flex-shrink-0" title={a.full_name}>
                       {a.full_name.charAt(0)}
                     </div>
                   ))}
-                  {MOCK_ATHLETES.filter(a => a.next_meet_id === upcomingMeet.id).length > 5 && (
+                  {athletes.filter(a => a.next_meet_id === upcomingMeet.id).length > 5 && (
                     <div className="w-7 h-7 rounded-full bg-zinc-700 border-2 border-zinc-900 flex items-center justify-center text-xs text-zinc-400">
-                      +{MOCK_ATHLETES.filter(a => a.next_meet_id === upcomingMeet.id).length - 5}
+                      +{athletes.filter(a => a.next_meet_id === upcomingMeet.id).length - 5}
                     </div>
                   )}
                 </div>
@@ -513,7 +518,7 @@ function StaffDashboard({ profile, membership }) {
               </CardTitle>
             </CardHeader>
             <CardBody className="space-y-2">
-              {MOCK_ATHLETES.slice(0, 4).map(a => {
+              {athletes.slice(0, 4).map(a => {
                 const nc = a.nutrition_compliance
                 return (
                   <div key={a.id} className="flex items-center gap-3">
@@ -528,8 +533,8 @@ function StaffDashboard({ profile, membership }) {
                   </div>
                 )
               })}
-              {MOCK_ATHLETES.length > 4 && (
-                <p className="text-xs text-zinc-600 text-center pt-1">+{MOCK_ATHLETES.length - 4} more athletes</p>
+              {athletes.length > 4 && (
+                <p className="text-xs text-zinc-600 text-center pt-1">+{athletes.length - 4} more athletes</p>
               )}
             </CardBody>
           </Card>
@@ -573,13 +578,31 @@ function StaffDashboard({ profile, membership }) {
 
 // ─── Athlete Today Page ────────────────────────────────────────────────────────
 function AthleteTodayPage({ profile, weightUnit, toggleWeightUnit }) {
+  const { isDemo } = useAuthStore()
   const [checkinOpen, setCheckinOpen] = useState(false)
   const [checkinData, setCheckinData] = useState({ sleep_hours: 7, sleep_quality: 7, soreness: 5, motivation: 7, stress: 4, bodyweight: '' })
   const [checkinDone, setCheckinDone] = useState(false)
   const [suppChecked, setSuppChecked] = useState({})
 
-  const nutrition = MOCK_NUTRITION_TODAY
-  const workout = MOCK_TODAY_WORKOUT
+  const nutrition = isDemo ? MOCK_NUTRITION_TODAY : null
+  const workout   = isDemo ? MOCK_TODAY_WORKOUT   : null
+
+  if (!workout || !nutrition) {
+    return (
+      <div className="p-4 md:p-6 max-w-5xl mx-auto space-y-6">
+        <div>
+          <h1 className="text-xl font-bold text-zinc-100">
+            Good {new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 17 ? 'afternoon' : 'evening'}, {profile?.display_name || profile?.full_name?.split(' ')[0] || 'Athlete'}
+          </h1>
+          <p className="text-sm text-zinc-400 mt-0.5">Your coach hasn't assigned a workout yet.</p>
+        </div>
+        <div className="text-center py-16 text-zinc-600">
+          <Dumbbell className="w-10 h-10 mx-auto mb-3 opacity-30" />
+          <p className="text-sm">No workout scheduled for today.</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="p-4 md:p-6 max-w-5xl mx-auto space-y-6">

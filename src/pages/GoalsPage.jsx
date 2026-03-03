@@ -11,7 +11,7 @@ import { Modal } from '../components/ui/Modal'
 import { StatCard } from '../components/ui/StatCard'
 import { MOCK_PAST_WORKOUTS, MOCK_TRAINING_BLOCKS, MOCK_MEETS } from '../lib/mockData'
 import { cn, kgToLbs, calcE1RM } from '../lib/utils'
-import { useGoalsStore, useSettingsStore } from '../lib/store'
+import { useGoalsStore, useSettingsStore, useAuthStore } from '../lib/store'
 
 const GOAL_TYPES = [
   { id: 'strength', label: 'Strength', icon: 'strength', color: 'purple' },
@@ -115,6 +115,7 @@ function GoalModal({ open, onClose, existing = null }) {
 function GoalDetailModal({ goal, open, onClose }) {
   const { weightUnit } = useSettingsStore()
   const { updateGoalProgress } = useGoalsStore()
+  const { isDemo } = useAuthStore()
   const [editVal, setEditVal] = useState('')
   const [editing, setEditing] = useState(false)
 
@@ -129,7 +130,7 @@ function GoalDetailModal({ goal, open, onClose }) {
 
   // Linked workouts — sessions where an exercise has linked_goal_ids including this goal,
   // or where a main exercise name matches the goal lift keyword
-  const allSessions = [...MOCK_PAST_WORKOUTS]
+  const allSessions = isDemo ? [...MOCK_PAST_WORKOUTS] : []
   const linkedSessions = allSessions.filter(s =>
     s.blocks.flatMap(b => b.exercises).some(e =>
       (e.linked_goal_ids || []).includes(goal.id) ||
@@ -142,10 +143,10 @@ function GoalDetailModal({ goal, open, onClose }) {
   )
 
   // Linked training blocks
-  const linkedBlocks = MOCK_TRAINING_BLOCKS.filter(b => (b.linked_goal_ids || []).includes(goal.id))
+  const linkedBlocks = isDemo ? MOCK_TRAINING_BLOCKS.filter(b => (b.linked_goal_ids || []).includes(goal.id)) : []
 
   // Linked meets
-  const linkedMeets = MOCK_MEETS.filter(m => (m.linked_goal_ids || []).includes(goal.id))
+  const linkedMeets = isDemo ? MOCK_MEETS.filter(m => (m.linked_goal_ids || []).includes(goal.id)) : []
 
   // Progress history sorted ascending
   const history = [...(goal.progress_history || [])].sort((a, b) => a.date.localeCompare(b.date))
@@ -358,6 +359,7 @@ function GoalDetailModal({ goal, open, onClose }) {
 function GoalCard({ goal }) {
   const { updateGoalProgress, markGoalComplete, removeGoal } = useGoalsStore()
   const { weightUnit } = useSettingsStore()
+  const { isDemo } = useAuthStore()
   const [expanded, setExpanded] = useState(false)
   const [editing, setEditing] = useState(false)
   const [editVal, setEditVal] = useState(goal.current_value ?? '')
@@ -372,7 +374,7 @@ function GoalCard({ goal }) {
   const conv = (v) => (weightUnit === 'lbs' && goal.target_unit === 'kg') ? Math.round(kgToLbs(v)) : v
 
   // Find sessions that contain exercises linked to this goal
-  const linkedSessions = MOCK_PAST_WORKOUTS.filter(s =>
+  const linkedSessions = isDemo ? MOCK_PAST_WORKOUTS.filter(s =>
     s.blocks.flatMap(b => b.exercises).some(e =>
       (e.linked_goal_ids || []).includes(goal.id) ||
       (goal.goal_type === 'strength' && (
@@ -381,9 +383,9 @@ function GoalCard({ goal }) {
         e.name?.toLowerCase().includes('deadlift') && goal.title.toLowerCase().includes('deadlift')
       ))
     )
-  )
+  ) : []
 
-  const linkedBlocks = MOCK_TRAINING_BLOCKS.filter(b => (b.linked_goal_ids || []).includes(goal.id))
+  const linkedBlocks = isDemo ? MOCK_TRAINING_BLOCKS.filter(b => (b.linked_goal_ids || []).includes(goal.id)) : []
 
   const daysLeft = goal.target_date
     ? Math.max(0, Math.round((new Date(goal.target_date) - new Date()) / 86400000))
