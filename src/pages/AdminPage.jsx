@@ -1,4 +1,5 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
+import toast from 'react-hot-toast'
 import { ResponsiveContainer, BarChart, Bar, CartesianGrid, XAxis, YAxis, Tooltip, Legend } from 'recharts'
 import {
   Users, Shield, Bell, Database, Settings, PlusCircle, Mail, Trash2,
@@ -23,6 +24,7 @@ import { Modal } from '../components/ui/Modal'
 import { MOCK_ATHLETES, MOCK_USERS, MOCK_ORGS, MOCK_TRAINING_BLOCKS, PLAN_META, DEFAULT_INTAKE_FIELDS } from '../lib/mockData'
 import { useAuthStore, useOrgStore, useGoalsStore, useTrainingStore } from '../lib/store'
 import { cn } from '../lib/utils'
+import { fetchOrgJoinRequests, approveJoinRequest, denyJoinRequest } from '../lib/supabase'
 
 const ROLE_MATRIX = [
   { permission: 'View Athlete Profiles', super_admin: true, admin: true, coach: true, nutritionist: true, athlete: false },
@@ -1720,6 +1722,124 @@ function OverviewTab() {
 }
 
 // ─── Head Coach: Team Members ─────────────────────────────────────────────────
+// ── Join Requests Panel ───────────────────────────────────────────────────────
+
+function JoinRequestsPanel({ orgId, onApproved }) {
+  const { isDemo } = useAuthStore()
+  const [requests, setRequests] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState(null) // requestId being processed
+
+  const ROLE_LABELS = {
+    head_coach: 'Head Coach', coach: 'Coach',
+    nutritionist: 'Nutritionist', athlete: 'Athlete',
+  }
+
+  const load = async () => {
+    setLoading(true)
+    const data = await fetchOrgJoinRequests(orgId)
+    setRequests(data)
+    setLoading(false)
+  }
+
+  useEffect(() => { if (orgId && !isDemo) load() }, [orgId])
+
+  const handleApprove = async (req) => {
+    setBusy(req.id)
+    const ok = await approveJoinRequest(req.id)
+    if (ok) {
+      toast.success(`${req.profiles?.full_name || 'User'} approved and added to org.`)
+      setRequests((prev) => prev.filter((r) => r.id !== req.id))
+      onApproved?.()
+    } else {
+      toast.error('Failed to approve request.')
+    }
+    setBusy(null)
+  }
+
+  const handleDeny = async (req) => {
+    setBusy(req.id)
+    const ok = await denyJoinRequest(req.id)
+    if (ok) {
+      toast.success('Request denied.')
+      setRequests((prev) => prev.filter((r) => r.id !== req.id))
+    } else {
+      toast.error('Failed to deny request.')
+    }
+    setBusy(null)
+  }
+
+  if (isDemo) return null
+
+  return (
+    <div className="border-t border-zinc-800 pt-4 mt-2">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-semibold text-zinc-300">Join Requests</p>
+          {requests.length > 0 && (
+            <span className="bg-yellow-500/20 text-yellow-300 text-xs font-semibold px-1.5 py-0.5 rounded-full">
+              {requests.length}
+            </span>
+          )}
+        </div>
+        <button onClick={load} className="text-xs text-zinc-500 hover:text-zinc-300 flex items-center gap-1">
+          <RefreshCw className="w-3 h-3" /> Refresh
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="flex items-center justify-center py-6">
+          <Clock className="w-4 h-4 text-zinc-600 animate-pulse" />
+        </div>
+      ) : requests.length === 0 ? (
+        <p className="text-xs text-zinc-600 text-center py-4">No pending requests</p>
+      ) : (
+        <div className="space-y-2">
+          {requests.map((req) => (
+            <Card key={req.id} className="p-0 border-yellow-500/20 bg-yellow-500/5">
+              <div className="flex items-start gap-3 p-3">
+                <Avatar name={req.profiles?.full_name || '?'} size="sm" />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-semibold text-zinc-100">
+                      {req.profiles?.full_name || 'Unknown'}
+                    </span>
+                    <Badge color="yellow" className="capitalize text-xs">
+                      {ROLE_LABELS[req.requested_role] || req.requested_role}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-zinc-500 mt-0.5">{req.profiles?.email}</p>
+                  {req.message && (
+                    <p className="text-xs text-zinc-400 mt-1 italic">"{req.message}"</p>
+                  )}
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    onClick={() => handleApprove(req)}
+                    disabled={busy === req.id}
+                    className="p-1.5 text-zinc-500 hover:text-green-400 hover:bg-green-500/10 rounded-lg transition-colors disabled:opacity-50"
+                    title="Approve"
+                  >
+                    {busy === req.id ? <Clock className="w-3.5 h-3.5 animate-spin" /> : <UserCheck className="w-3.5 h-3.5" />}
+                  </button>
+                  <button
+                    onClick={() => handleDeny(req)}
+                    disabled={busy === req.id}
+                    className="p-1.5 text-zinc-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors disabled:opacity-50"
+                    title="Deny"
+                  >
+                    <UserX className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function TeamTab({ onInvite }) {
   const { profile, activeOrgId } = useAuthStore()
   const { orgs, updateMemberRole, removeMember } = useOrgStore()
@@ -1784,6 +1904,9 @@ function TeamTab({ onInvite }) {
       <button onClick={onInvite} className="w-full py-4 border-2 border-dashed border-zinc-700 hover:border-zinc-600 rounded-xl text-sm text-zinc-500 hover:text-zinc-400 transition-colors flex items-center justify-center gap-2">
         <PlusCircle className="w-4 h-4" /> Invite New Member
       </button>
+
+      {/* Join Requests — only shown to head coaches / owners */}
+      <JoinRequestsPanel orgId={activeOrgId || profile?.org_id} onApproved={() => {}} />
     </div>
   )
 }

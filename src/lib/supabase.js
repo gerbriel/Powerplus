@@ -296,7 +296,7 @@ export async function createOrgWithOwner({ userId, name, slug, federation, timez
 
 /**
  * Marks a profile's onboarding as complete, and optionally sets the role.
- * role: 'athlete' | 'head_coach'
+ * role: 'athlete' | 'head_coach' | 'coach' | 'nutritionist'
  */
 export async function markOnboardingComplete(userId, role) {
   if (!isSupabaseConfigured()) return
@@ -307,4 +307,91 @@ export async function markOnboardingComplete(userId, role) {
     .update(update)
     .eq('id', userId)
   if (error) console.error('[supabase] markOnboardingComplete:', error.message)
+}
+
+/**
+ * Search organizations by name or slug substring.
+ * Returns [{ id, name, slug, logo_url, federation, member_count }]
+ */
+export async function searchOrgs(query, limit = 10) {
+  if (!isSupabaseConfigured()) return []
+  if (!query || query.trim().length < 2) return []
+  const { data, error } = await supabase.rpc('search_orgs', {
+    p_query: query.trim(),
+    p_limit: limit,
+  })
+  if (error) { console.error('[supabase] searchOrgs:', error.message); return [] }
+  return data ?? []
+}
+
+/**
+ * Submit a join request to an org.
+ * requestedRole: 'athlete' | 'coach' | 'nutritionist' | 'head_coach'
+ * Returns { data, error }
+ */
+export async function createJoinRequest({ userId, orgId, requestedRole, message }) {
+  if (!isSupabaseConfigured()) return { data: null, error: new Error('Supabase not configured') }
+  const { data, error } = await supabase
+    .from('org_join_requests')
+    .insert({
+      user_id: userId,
+      org_id: orgId,
+      requested_role: requestedRole,
+      message: message || null,
+    })
+    .select()
+    .single()
+  if (error) console.error('[supabase] createJoinRequest:', error.message)
+  return { data, error }
+}
+
+/**
+ * Fetch all join requests submitted by a user.
+ * Includes org name for display.
+ */
+export async function fetchMyJoinRequests(userId) {
+  if (!isSupabaseConfigured()) return []
+  const { data, error } = await supabase
+    .from('org_join_requests')
+    .select('*, organizations(id, name, slug, logo_url)')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+  if (error) { console.error('[supabase] fetchMyJoinRequests:', error.message); return [] }
+  return data ?? []
+}
+
+/**
+ * Fetch pending join requests for an org (for staff review).
+ * Includes requester profile info.
+ */
+export async function fetchOrgJoinRequests(orgId) {
+  if (!isSupabaseConfigured()) return []
+  const { data, error } = await supabase
+    .from('org_join_requests')
+    .select('*, profiles(id, full_name, email, avatar_url, role)')
+    .eq('org_id', orgId)
+    .eq('status', 'pending')
+    .order('created_at', { ascending: true })
+  if (error) { console.error('[supabase] fetchOrgJoinRequests:', error.message); return [] }
+  return data ?? []
+}
+
+/**
+ * Approve a join request (calls the approve_join_request DB function).
+ */
+export async function approveJoinRequest(requestId) {
+  if (!isSupabaseConfigured()) return false
+  const { error } = await supabase.rpc('approve_join_request', { p_request_id: requestId })
+  if (error) { console.error('[supabase] approveJoinRequest:', error.message); return false }
+  return true
+}
+
+/**
+ * Deny a join request.
+ */
+export async function denyJoinRequest(requestId) {
+  if (!isSupabaseConfigured()) return false
+  const { error } = await supabase.rpc('deny_join_request', { p_request_id: requestId })
+  if (error) { console.error('[supabase] denyJoinRequest:', error.message); return false }
+  return true
 }
