@@ -11,6 +11,7 @@ export const useAuthStore = create((set, get) => ({
   // Currently active org context (user can switch orgs)
   activeOrgId: null,
   isLoading: false,
+  authReady: false,        // true once the initial session check has completed
 
   // Demo login — sets role without hitting Supabase Auth.
   // If Supabase is configured, upserts the mock profile row so the UUID
@@ -93,11 +94,18 @@ export const useAuthStore = create((set, get) => ({
    * Returns the unsubscribe function.
    */
   initAuth: () => {
-    if (!isSupabaseConfigured()) return () => {}
+    if (!isSupabaseConfigured()) {
+      set({ authReady: true })
+      return () => {}
+    }
     // Check existing session immediately
     const { handleAuthSession } = get()
     getSession().then((session) => {
-      if (session) handleAuthSession(session)
+      if (session) {
+        handleAuthSession(session).then(() => set({ authReady: true }))
+      } else {
+        set({ authReady: true })
+      }
     })
     // Listen for future changes (login, logout, token refresh)
     const subscription = onAuthStateChange((event, session) => {

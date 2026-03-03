@@ -97,7 +97,17 @@ function AppShell() {
 /** Guards the /app route — redirects to /login if not authenticated,
  *  or to /onboarding if the user is real (non-demo) and has no org yet. */
 function ProtectedApp() {
-  const { profile, orgMemberships } = useAuthStore()
+  const { profile, orgMemberships, authReady } = useAuthStore()
+  // Wait for the initial session check to finish before making any routing decision.
+  // Without this, Zustand resets to null on refresh and we'd redirect before the
+  // async getSession() comes back.
+  if (!authReady) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-[#0d1117]">
+        <div className="w-6 h-6 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    )
+  }
   if (!profile) return <Navigate to="/login" replace />
   // Demo users (identified by a mock id prefix or role field) skip onboarding
   const isDemo = profile.id?.startsWith('mock-') || profile.id?.startsWith('demo-') || profile.isDemo
