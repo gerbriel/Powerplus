@@ -694,6 +694,14 @@ function WeightMgmtTab() {
   // ── Lose Weight inputs ───────────────────────────────────────────
   const [age, setAge]           = useState(25)
   const [heightCm, setHeightCm] = useState(175)
+  const [heightUnit, setHeightUnit] = useState('cm') // 'cm' | 'in'
+  // display ↔ storage helpers
+  const heightDisplay = heightUnit === 'in' ? Math.round(heightCm / 2.54 * 10) / 10 : heightCm
+  const onHeightChange = (v) => setHeightCm(heightUnit === 'in' ? Math.round(v * 2.54) : v)
+  const onHeightUnitToggle = (u) => {
+    setHeightUnit(u)
+    // value stays the same cm internally — display just recalculates
+  }
   const [goalBW, setGoalBW]     = useState(isLbs ? 187 : 85)
   const [activity, setActivity] = useState('moderate')
   const [deficit, setDeficit]   = useState(500) // kcal/day
@@ -1027,13 +1035,34 @@ function WeightMgmtTab() {
             <CardBody className="space-y-4">
               <h3 className="text-sm font-semibold text-zinc-200">Body & Goal Inputs</h3>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                <NumInput
-                  label="Height (cm)"
-                  value={heightCm}
-                  onChange={setHeightCm}
-                  min={100}
-                  step={1}
-                />
+                {/* Height with cm/in toggle */}
+                <div className="flex flex-col gap-1">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-medium text-zinc-400">Height</label>
+                    <div className="flex gap-0.5 bg-zinc-700 rounded-md p-0.5">
+                      {['cm', 'in'].map((u) => (
+                        <button
+                          key={u}
+                          onClick={() => onHeightUnitToggle(u)}
+                          className={cn(
+                            'px-2 py-0.5 rounded text-xs font-medium transition-colors',
+                            heightUnit === u ? 'bg-purple-600 text-white' : 'text-zinc-400 hover:text-zinc-200'
+                          )}
+                        >
+                          {u}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <input
+                    type="number"
+                    min={heightUnit === 'in' ? 40 : 100}
+                    step={heightUnit === 'in' ? 0.5 : 1}
+                    value={heightDisplay}
+                    onChange={(e) => onHeightChange(Number(e.target.value))}
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-purple-500"
+                  />
+                </div>
                 <NumInput
                   label={`Goal Weight (${unit})`}
                   value={goalBW}
@@ -1207,13 +1236,34 @@ function WeightMgmtTab() {
             <CardBody className="space-y-4">
               <h3 className="text-sm font-semibold text-zinc-200">Bulk Inputs</h3>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                <NumInput
-                  label="Height (cm)"
-                  value={heightCm}
-                  onChange={setHeightCm}
-                  min={100}
-                  step={1}
-                />
+                {/* Height with cm/in toggle */}
+                <div className="flex flex-col gap-1">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-medium text-zinc-400">Height</label>
+                    <div className="flex gap-0.5 bg-zinc-700 rounded-md p-0.5">
+                      {['cm', 'in'].map((u) => (
+                        <button
+                          key={u}
+                          onClick={() => onHeightUnitToggle(u)}
+                          className={cn(
+                            'px-2 py-0.5 rounded text-xs font-medium transition-colors',
+                            heightUnit === u ? 'bg-purple-600 text-white' : 'text-zinc-400 hover:text-zinc-200'
+                          )}
+                        >
+                          {u}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <input
+                    type="number"
+                    min={heightUnit === 'in' ? 40 : 100}
+                    step={heightUnit === 'in' ? 0.5 : 1}
+                    value={heightDisplay}
+                    onChange={(e) => onHeightChange(Number(e.target.value))}
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-purple-500"
+                  />
+                </div>
                 <NumInput
                   label={`Goal Weight (${unit})`}
                   value={bulkGoalBW}
