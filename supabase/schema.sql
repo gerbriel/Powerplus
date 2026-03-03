@@ -8,43 +8,44 @@
 create extension if not exists "uuid-ossp";
 
 -- ============================================================
--- ENUMS
+-- ENUMS  (idempotent — safe to re-run)
 -- ============================================================
 
--- Platform-level role (stored on the profile — what the user IS by default)
-create type platform_role as enum ('super_admin', 'user');
+do $$ begin
+  create type platform_role as enum ('super_admin', 'user');
+exception when duplicate_object then null; end $$;
 
--- Org-scoped role (what the user IS within a specific org)
--- A single user can be a coach in org-A and an athlete in org-B
-create type org_role as enum (
-  'owner',          -- org creator / billing admin
-  'head_coach',     -- full control: programs, nutrition, meets, staff
-  'coach',          -- programs, athlete management
-  'nutritionist',   -- nutrition plans, meal prep, shopping lists
-  'athlete',        -- own data, self-log
-  'analyst'         -- read-only, reporting
-);
+do $$ begin
+  create type org_role as enum (
+    'owner',
+    'head_coach',
+    'coach',
+    'nutritionist',
+    'athlete',
+    'analyst'
+  );
+exception when duplicate_object then null; end $$;
 
--- Nutrition-specific access flags (used when no nutritionist exists)
--- head_coach and athlete can be granted these permissions explicitly
-create type nutrition_permission as enum (
-  'view_plan',
-  'edit_plan',
-  'create_meal_prep',
-  'assign_meal_prep',
-  'edit_shopping_list',
-  'view_supplement_log',
-  'edit_supplement_log'
-);
+do $$ begin
+  create type nutrition_permission as enum (
+    'view_plan',
+    'edit_plan',
+    'create_meal_prep',
+    'assign_meal_prep',
+    'edit_shopping_list',
+    'view_supplement_log',
+    'edit_supplement_log'
+  );
+exception when duplicate_object then null; end $$;
 
-create type workout_status as enum ('planned', 'in_progress', 'completed', 'missed', 'skipped');
-create type check_in_type as enum ('morning', 'post_workout', 'evening');
-create type message_type as enum ('text', 'file', 'video', 'announcement');
-create type goal_type as enum ('strength', 'nutrition', 'meet', 'process');
-create type meet_status as enum ('upcoming', 'registered', 'completed', 'cancelled');
-create type pain_level as enum ('0','1','2','3','4','5','6','7','8','9','10');
-create type block_type as enum ('accumulation', 'intensification', 'peak', 'deload', 'transition');
-create type nutrition_log_cadence as enum ('daily', 'weekly', 'biweekly', 'monthly');
+do $$ begin create type workout_status as enum ('planned', 'in_progress', 'completed', 'missed', 'skipped'); exception when duplicate_object then null; end $$;
+do $$ begin create type check_in_type as enum ('morning', 'post_workout', 'evening'); exception when duplicate_object then null; end $$;
+do $$ begin create type message_type as enum ('text', 'file', 'video', 'announcement'); exception when duplicate_object then null; end $$;
+do $$ begin create type goal_type as enum ('strength', 'nutrition', 'meet', 'process'); exception when duplicate_object then null; end $$;
+do $$ begin create type meet_status as enum ('upcoming', 'registered', 'completed', 'cancelled'); exception when duplicate_object then null; end $$;
+do $$ begin create type pain_level as enum ('0','1','2','3','4','5','6','7','8','9','10'); exception when duplicate_object then null; end $$;
+do $$ begin create type block_type as enum ('accumulation', 'intensification', 'peak', 'deload', 'transition'); exception when duplicate_object then null; end $$;
+do $$ begin create type nutrition_log_cadence as enum ('daily', 'weekly', 'biweekly', 'monthly'); exception when duplicate_object then null; end $$;
 
 -- ============================================================
 -- USERS / PROFILES  (standalone — NOT tied to any single org)
@@ -53,7 +54,7 @@ create type nutrition_log_cadence as enum ('daily', 'weekly', 'biweekly', 'month
 -- Org membership is tracked separately in org_members.
 -- A user can be in multiple orgs with different roles in each.
 -- They can also be a solo athlete with no org at all.
-create table profiles (
+create table if not exists profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   email text unique not null,
   full_name text not null,
@@ -79,7 +80,7 @@ create table profiles (
 -- ============================================================
 -- ORGANIZATIONS  (formerly "teams")
 -- ============================================================
-create table organizations (
+create table if not exists organizations (
   id uuid primary key default uuid_generate_v4(),
   name text not null,
   slug text unique,
@@ -111,7 +112,7 @@ create table organizations (
 -- ============================================================
 -- This replaces team_members.
 -- A user can appear in this table once per org, with a different org_role each time.
-create table org_members (
+create table if not exists org_members (
   id uuid primary key default uuid_generate_v4(),
   org_id uuid references organizations(id) on delete cascade,
   user_id uuid references profiles(id) on delete cascade,
@@ -130,7 +131,7 @@ create table org_members (
 );
 
 -- Pending invitations (email not yet registered or not yet accepted)
-create table org_invitations (
+create table if not exists org_invitations (
   id uuid primary key default uuid_generate_v4(),
   org_id uuid references organizations(id) on delete cascade,
   invited_email text not null,
@@ -147,7 +148,7 @@ create table org_invitations (
 -- ============================================================
 -- TRAINING GROUPS  (sub-groups within an org)
 -- ============================================================
-create table training_groups (
+create table if not exists training_groups (
   id uuid primary key default uuid_generate_v4(),
   org_id uuid references organizations(id) on delete cascade,
   name text not null,
@@ -157,7 +158,7 @@ create table training_groups (
   created_at timestamptz default now()
 );
 
-create table group_members (
+create table if not exists group_members (
   id uuid primary key default uuid_generate_v4(),
   group_id uuid references training_groups(id) on delete cascade,
   athlete_id uuid references profiles(id) on delete cascade,
@@ -170,7 +171,7 @@ create table group_members (
 -- (A coach or nutritionist assigned to specific athletes,
 --  can span across orgs if both parties share the org)
 -- ============================================================
-create table staff_athlete_assignments (
+create table if not exists staff_athlete_assignments (
   id uuid primary key default uuid_generate_v4(),
   org_id uuid references organizations(id) on delete cascade,
   staff_id uuid references profiles(id) on delete cascade,
@@ -193,7 +194,7 @@ create table staff_athlete_assignments (
 -- ============================================================
 -- EXERCISES LIBRARY
 -- ============================================================
-create table exercises (
+create table if not exists exercises (
   id uuid primary key default uuid_generate_v4(),
   name text not null,
   category text not null, -- squat, bench, deadlift, accessory, gpp, mobility
@@ -213,7 +214,7 @@ create table exercises (
 -- ============================================================
 -- PROGRAM TEMPLATES
 -- ============================================================
-create table program_templates (
+create table if not exists program_templates (
   id uuid primary key default uuid_generate_v4(),
   name text not null,
   description text,
@@ -228,7 +229,7 @@ create table program_templates (
   updated_at timestamptz default now()
 );
 
-create table program_template_weeks (
+create table if not exists program_template_weeks (
   id uuid primary key default uuid_generate_v4(),
   template_id uuid references program_templates(id) on delete cascade,
   week_number integer not null,
@@ -237,7 +238,7 @@ create table program_template_weeks (
   is_deload boolean default false
 );
 
-create table workout_templates (
+create table if not exists workout_templates (
   id uuid primary key default uuid_generate_v4(),
   template_id uuid references program_templates(id) on delete cascade,
   week_id uuid references program_template_weeks(id) on delete cascade,
@@ -248,7 +249,7 @@ create table workout_templates (
   created_at timestamptz default now()
 );
 
-create table workout_template_exercises (
+create table if not exists workout_template_exercises (
   id uuid primary key default uuid_generate_v4(),
   workout_template_id uuid references workout_templates(id) on delete cascade,
   exercise_id uuid references exercises(id),
@@ -268,7 +269,7 @@ create table workout_template_exercises (
 -- ============================================================
 -- PROGRAM INSTANCES (assigned to athletes)
 -- ============================================================
-create table program_instances (
+create table if not exists program_instances (
   id uuid primary key default uuid_generate_v4(),
   template_id uuid references program_templates(id),
   athlete_id uuid references profiles(id) on delete cascade,
@@ -288,7 +289,7 @@ create table program_instances (
 -- ============================================================
 -- WORKOUT SESSIONS
 -- ============================================================
-create table workout_sessions (
+create table if not exists workout_sessions (
   id uuid primary key default uuid_generate_v4(),
   athlete_id uuid references profiles(id) on delete cascade,
   program_instance_id uuid references program_instances(id),
@@ -306,7 +307,7 @@ create table workout_sessions (
   created_at timestamptz default now()
 );
 
-create table workout_sets (
+create table if not exists workout_sets (
   id uuid primary key default uuid_generate_v4(),
   session_id uuid references workout_sessions(id) on delete cascade,
   exercise_id uuid references exercises(id),
@@ -329,7 +330,7 @@ create table workout_sets (
 -- ============================================================
 -- PERSONAL RECORDS
 -- ============================================================
-create table personal_records (
+create table if not exists personal_records (
   id uuid primary key default uuid_generate_v4(),
   athlete_id uuid references profiles(id) on delete cascade,
   exercise_id uuid references exercises(id),
@@ -349,7 +350,7 @@ create table personal_records (
 -- ============================================================
 -- CHECK-INS (Daily wellness)
 -- ============================================================
-create table daily_checkins (
+create table if not exists daily_checkins (
   id uuid primary key default uuid_generate_v4(),
   athlete_id uuid references profiles(id) on delete cascade,
   check_date date not null,
@@ -376,7 +377,7 @@ create table daily_checkins (
 -- A nutrition plan belongs to one athlete but can be created/edited
 -- by: the athlete themselves, their assigned nutritionist, or the
 -- head_coach (when no nutritionist exists in the org).
-create table nutrition_plans (
+create table if not exists nutrition_plans (
   id uuid primary key default uuid_generate_v4(),
   athlete_id uuid references profiles(id) on delete cascade,
   -- Who created / last modified this plan
@@ -412,7 +413,7 @@ create table nutrition_plans (
 -- ============================================================
 -- NUTRITION LOGS  (daily compliance records)
 -- ============================================================
-create table nutrition_logs (
+create table if not exists nutrition_logs (
   id uuid primary key default uuid_generate_v4(),
   athlete_id uuid references profiles(id) on delete cascade,
   nutrition_plan_id uuid references nutrition_plans(id),
@@ -443,7 +444,7 @@ create table nutrition_logs (
 -- ============================================================
 -- A supplement stack is a named set of supplements assigned to an athlete
 -- (can be created by the athlete, nutritionist, or head_coach)
-create table supplement_stacks (
+create table if not exists supplement_stacks (
   id uuid primary key default uuid_generate_v4(),
   athlete_id uuid references profiles(id) on delete cascade,
   created_by uuid references profiles(id),
@@ -453,7 +454,7 @@ create table supplement_stacks (
   created_at timestamptz default now()
 );
 
-create table supplement_stack_items (
+create table if not exists supplement_stack_items (
   id uuid primary key default uuid_generate_v4(),
   stack_id uuid references supplement_stacks(id) on delete cascade,
   supplement_name text not null,
@@ -464,7 +465,7 @@ create table supplement_stack_items (
 );
 
 -- Daily supplement log (check off per day)
-create table supplement_logs (
+create table if not exists supplement_logs (
   id uuid primary key default uuid_generate_v4(),
   athlete_id uuid references profiles(id) on delete cascade,
   stack_item_id uuid references supplement_stack_items(id),
@@ -480,7 +481,7 @@ create table supplement_logs (
 -- MEAL PREP RECIPES LIBRARY
 -- ============================================================
 -- Recipes can be org-wide (shared by nutritionist/coach) or personal (athlete-created)
-create table meal_prep_recipes (
+create table if not exists meal_prep_recipes (
   id uuid primary key default uuid_generate_v4(),
   created_by uuid references profiles(id),
   org_id uuid references organizations(id),   -- NULL = personal recipe
@@ -504,7 +505,7 @@ create table meal_prep_recipes (
 -- A prep session = one batch-cooking event (e.g. "Sunday Week 8 Prep")
 -- Can be created by: athlete, nutritionist, or head_coach
 -- Can be assigned to an athlete by: nutritionist or head_coach
-create table meal_prep_sessions (
+create table if not exists meal_prep_sessions (
   id uuid primary key default uuid_generate_v4(),
   athlete_id uuid references profiles(id) on delete cascade,
   created_by uuid references profiles(id),
@@ -525,7 +526,7 @@ create table meal_prep_sessions (
   created_at timestamptz default now()
 );
 
-create table meal_prep_session_items (
+create table if not exists meal_prep_session_items (
   id uuid primary key default uuid_generate_v4(),
   session_id uuid references meal_prep_sessions(id) on delete cascade,
   recipe_id uuid references meal_prep_recipes(id),
@@ -542,7 +543,7 @@ create table meal_prep_session_items (
 -- ============================================================
 -- Lists belong to an athlete. Can be created/edited by:
 -- the athlete, their nutritionist, or the head_coach.
-create table shopping_lists (
+create table if not exists shopping_lists (
   id uuid primary key default uuid_generate_v4(),
   athlete_id uuid references profiles(id) on delete cascade,
   created_by uuid references profiles(id),
@@ -562,7 +563,7 @@ create table shopping_lists (
   updated_at timestamptz default now()
 );
 
-create table shopping_list_categories (
+create table if not exists shopping_list_categories (
   id uuid primary key default uuid_generate_v4(),
   list_id uuid references shopping_lists(id) on delete cascade,
   name text not null,
@@ -570,7 +571,7 @@ create table shopping_list_categories (
   order_index integer default 0
 );
 
-create table shopping_list_items (
+create table if not exists shopping_list_items (
   id uuid primary key default uuid_generate_v4(),
   list_id uuid references shopping_lists(id) on delete cascade,
   category_id uuid references shopping_list_categories(id) on delete set null,
@@ -594,7 +595,7 @@ create table shopping_list_items (
 -- ============================================================
 -- TRAINING BLOCKS  (named periodization phases)
 -- ============================================================
-create table training_blocks (
+create table if not exists training_blocks (
   id uuid primary key default uuid_generate_v4(),
   org_id uuid references organizations(id),
   athlete_id uuid references profiles(id) on delete cascade,  -- NULL = org-wide template
@@ -611,7 +612,7 @@ create table training_blocks (
 -- ============================================================
 -- GOALS
 -- ============================================================
-create table goals (
+create table if not exists goals (
   id uuid primary key default uuid_generate_v4(),
   athlete_id uuid references profiles(id) on delete cascade,
   created_by uuid references profiles(id),
@@ -635,7 +636,7 @@ create table goals (
 -- ============================================================
 -- MEETS (Competition calendar)
 -- ============================================================
-create table meets (
+create table if not exists meets (
   id uuid primary key default uuid_generate_v4(),
   org_id uuid references organizations(id),
   -- an athlete can add their own private meet even without an org
@@ -652,11 +653,13 @@ create table meets (
   created_at timestamptz default now()
 );
 
--- Add the deferred FK on goals now that meets exists
-alter table goals add constraint goals_linked_meet_id_fkey
-  foreign key (linked_meet_id) references meets(id);
+-- Add the deferred FK on goals now that meets exists (idempotent)
+do $$ begin
+  alter table goals add constraint goals_linked_meet_id_fkey
+    foreign key (linked_meet_id) references meets(id);
+exception when duplicate_object then null; end $$;
 
-create table athlete_meet_entries (
+create table if not exists athlete_meet_entries (
   id uuid primary key default uuid_generate_v4(),
   meet_id uuid references meets(id) on delete cascade,
   athlete_id uuid references profiles(id) on delete cascade,
@@ -682,7 +685,7 @@ create table athlete_meet_entries (
 -- ============================================================
 -- MESSAGING
 -- ============================================================
-create table channels (
+create table if not exists channels (
   id uuid primary key default uuid_generate_v4(),
   org_id uuid references organizations(id) on delete cascade,
   name text not null,
@@ -693,7 +696,7 @@ create table channels (
   created_at timestamptz default now()
 );
 
-create table channel_members (
+create table if not exists channel_members (
   id uuid primary key default uuid_generate_v4(),
   channel_id uuid references channels(id) on delete cascade,
   user_id uuid references profiles(id) on delete cascade,
@@ -703,7 +706,7 @@ create table channel_members (
   unique(channel_id, user_id)
 );
 
-create table messages (
+create table if not exists messages (
   id uuid primary key default uuid_generate_v4(),
   channel_id uuid references channels(id) on delete cascade,
   sender_id uuid references profiles(id),
@@ -718,7 +721,7 @@ create table messages (
   created_at timestamptz default now()
 );
 
-create table message_reactions (
+create table if not exists message_reactions (
   id uuid primary key default uuid_generate_v4(),
   message_id uuid references messages(id) on delete cascade,
   user_id uuid references profiles(id) on delete cascade,
@@ -730,7 +733,7 @@ create table message_reactions (
 -- ============================================================
 -- EVENTS / CALENDAR
 -- ============================================================
-create table events (
+create table if not exists events (
   id uuid primary key default uuid_generate_v4(),
   org_id uuid references organizations(id),
   created_by uuid references profiles(id),
@@ -749,7 +752,7 @@ create table events (
 -- ============================================================
 -- RESOURCES / KNOWLEDGE BASE
 -- ============================================================
-create table resources (
+create table if not exists resources (
   id uuid primary key default uuid_generate_v4(),
   org_id uuid references organizations(id),
   created_by uuid references profiles(id),
@@ -767,7 +770,7 @@ create table resources (
 -- ============================================================
 -- ANNOUNCEMENTS / WINS BOARD
 -- ============================================================
-create table announcements (
+create table if not exists announcements (
   id uuid primary key default uuid_generate_v4(),
   org_id uuid references organizations(id) on delete cascade,
   author_id uuid references profiles(id),
@@ -784,7 +787,7 @@ create table announcements (
 -- ============================================================
 -- INJURY / PAIN LOG
 -- ============================================================
-create table injury_logs (
+create table if not exists injury_logs (
   id uuid primary key default uuid_generate_v4(),
   athlete_id uuid references profiles(id) on delete cascade,
   body_area text not null,
@@ -802,7 +805,7 @@ create table injury_logs (
 -- ============================================================
 -- NOTIFICATIONS
 -- ============================================================
-create table notifications (
+create table if not exists notifications (
   id uuid primary key default uuid_generate_v4(),
   user_id uuid references profiles(id) on delete cascade,
   title text not null,
@@ -816,7 +819,7 @@ create table notifications (
 -- ============================================================
 -- AUDIT LOG
 -- ============================================================
-create table audit_logs (
+create table if not exists audit_logs (
   id uuid primary key default uuid_generate_v4(),
   actor_id uuid references profiles(id),
   action text not null,
@@ -931,18 +934,22 @@ alter table audit_logs                enable row level security;
 
 -- ── profiles ────────────────────────────────────────────────
 -- Anyone can read public profiles (names, avatars)
+drop policy if exists "profiles: any org member can read" on profiles;
 create policy "profiles: any org member can read"
   on profiles for select using (true);
 
 -- Users can only update their own profile
+drop policy if exists "profiles: owner can update" on profiles;
 create policy "profiles: owner can update"
   on profiles for update using (auth.uid() = id);
 
+drop policy if exists "profiles: owner can insert" on profiles;
 create policy "profiles: owner can insert"
   on profiles for insert with check (auth.uid() = id);
 
 -- ── organizations ────────────────────────────────────────────
 -- Any member of the org can read the org record
+drop policy if exists "orgs: members can read" on organizations;
 create policy "orgs: members can read"
   on organizations for select
   using (
@@ -953,6 +960,7 @@ create policy "orgs: members can read"
   );
 
 -- Only owners can update the org record
+drop policy if exists "orgs: owner can update" on organizations;
 create policy "orgs: owner can update"
   on organizations for update
   using (
@@ -961,6 +969,7 @@ create policy "orgs: owner can update"
 
 -- ── org_members ──────────────────────────────────────────────
 -- Members can see membership rows for their own orgs
+drop policy if exists "org_members: member can view own org" on org_members;
 create policy "org_members: member can view own org"
   on org_members for select
   using (
@@ -972,6 +981,7 @@ create policy "org_members: member can view own org"
   );
 
 -- Owners and head_coaches can manage memberships
+drop policy if exists "org_members: owner/head_coach can manage" on org_members;
 create policy "org_members: owner/head_coach can manage"
   on org_members for all
   using (
@@ -979,28 +989,33 @@ create policy "org_members: owner/head_coach can manage"
   );
 
 -- ── org_invitations ──────────────────────────────────────────
+drop policy if exists "invitations: org admins can manage" on org_invitations;
 create policy "invitations: org admins can manage"
   on org_invitations for all
   using (
     get_user_org_role(org_id, auth.uid()) in ('owner', 'head_coach')
   );
 
+drop policy if exists "invitations: invitee can read own" on org_invitations;
 create policy "invitations: invitee can read own"
   on org_invitations for select
   using (invited_email = (select email from profiles where id = auth.uid()));
 
 -- ── staff_athlete_assignments ────────────────────────────────
+drop policy if exists "assignments: org admins can manage" on staff_athlete_assignments;
 create policy "assignments: org admins can manage"
   on staff_athlete_assignments for all
   using (
     get_user_org_role(org_id, auth.uid()) in ('owner', 'head_coach')
   );
 
+drop policy if exists "assignments: staff can read own" on staff_athlete_assignments;
 create policy "assignments: staff can read own"
   on staff_athlete_assignments for select
   using (staff_id = auth.uid() or athlete_id = auth.uid());
 
 -- ── training_groups / group_members ─────────────────────────
+drop policy if exists "training_groups: org members can read" on training_groups;
 create policy "training_groups: org members can read"
   on training_groups for select
   using (
@@ -1010,12 +1025,14 @@ create policy "training_groups: org members can read"
     )
   );
 
+drop policy if exists "training_groups: coaches can manage" on training_groups;
 create policy "training_groups: coaches can manage"
   on training_groups for all
   using (
     get_user_org_role(org_id, auth.uid()) in ('owner', 'head_coach', 'coach')
   );
 
+drop policy if exists "group_members: org members can read" on group_members;
 create policy "group_members: org members can read"
   on group_members for select
   using (
@@ -1029,6 +1046,7 @@ create policy "group_members: org members can read"
 -- ── exercises ────────────────────────────────────────────────
 -- Global exercises (org_id IS NULL) readable by all authenticated users
 -- Org exercises readable by org members
+drop policy if exists "exercises: global or org member can read" on exercises;
 create policy "exercises: global or org member can read"
   on exercises for select
   using (
@@ -1039,6 +1057,7 @@ create policy "exercises: global or org member can read"
     )
   );
 
+drop policy if exists "exercises: coaches can manage org exercises" on exercises;
 create policy "exercises: coaches can manage org exercises"
   on exercises for all
   using (
@@ -1047,6 +1066,7 @@ create policy "exercises: coaches can manage org exercises"
   );
 
 -- ── program_templates ────────────────────────────────────────
+drop policy if exists "program_templates: org members can read" on program_templates;
 create policy "program_templates: org members can read"
   on program_templates for select
   using (
@@ -1057,6 +1077,7 @@ create policy "program_templates: org members can read"
     )
   );
 
+drop policy if exists "program_templates: coaches can manage" on program_templates;
 create policy "program_templates: coaches can manage"
   on program_templates for all
   using (
@@ -1066,10 +1087,12 @@ create policy "program_templates: coaches can manage"
 
 -- ── workout_sessions ─────────────────────────────────────────
 -- Athletes see their own; assigned staff can see assigned athletes'
+drop policy if exists "workout_sessions: athlete sees own" on workout_sessions;
 create policy "workout_sessions: athlete sees own"
   on workout_sessions for select
   using (auth.uid() = athlete_id);
 
+drop policy if exists "workout_sessions: assigned staff can read" on workout_sessions;
 create policy "workout_sessions: assigned staff can read"
   on workout_sessions for select
   using (
@@ -1081,15 +1104,18 @@ create policy "workout_sessions: assigned staff can read"
     )
   );
 
+drop policy if exists "workout_sessions: athlete can insert/update own" on workout_sessions;
 create policy "workout_sessions: athlete can insert/update own"
   on workout_sessions for insert
   with check (auth.uid() = athlete_id);
 
+drop policy if exists "workout_sessions: athlete can update own" on workout_sessions;
 create policy "workout_sessions: athlete can update own"
   on workout_sessions for update
   using (auth.uid() = athlete_id);
 
 -- ── workout_sets ─────────────────────────────────────────────
+drop policy if exists "workout_sets: athlete sees own" on workout_sets;
 create policy "workout_sets: athlete sees own"
   on workout_sets for select
   using (
@@ -1099,6 +1125,7 @@ create policy "workout_sets: athlete sees own"
     )
   );
 
+drop policy if exists "workout_sets: assigned staff can read" on workout_sets;
 create policy "workout_sets: assigned staff can read"
   on workout_sets for select
   using (
@@ -1112,10 +1139,12 @@ create policy "workout_sets: assigned staff can read"
   );
 
 -- ── personal_records ─────────────────────────────────────────
+drop policy if exists "prs: athlete sees own" on personal_records;
 create policy "prs: athlete sees own"
   on personal_records for select
   using (auth.uid() = athlete_id);
 
+drop policy if exists "prs: assigned staff can read" on personal_records;
 create policy "prs: assigned staff can read"
   on personal_records for select
   using (
@@ -1128,10 +1157,12 @@ create policy "prs: assigned staff can read"
   );
 
 -- ── daily_checkins ────────────────────────────────────────────
+drop policy if exists "checkins: athlete sees own" on daily_checkins;
 create policy "checkins: athlete sees own"
   on daily_checkins for select
   using (auth.uid() = athlete_id);
 
+drop policy if exists "checkins: assigned staff can read" on daily_checkins;
 create policy "checkins: assigned staff can read"
   on daily_checkins for select
   using (
@@ -1146,6 +1177,7 @@ create policy "checkins: assigned staff can read"
 -- ── training_blocks ───────────────────────────────────────────
 -- Org templates (athlete_id IS NULL): all org members can read
 -- Athlete-specific: athlete or assigned staff
+drop policy if exists "training_blocks: org members read org templates" on training_blocks;
 create policy "training_blocks: org members read org templates"
   on training_blocks for select
   using (
@@ -1156,10 +1188,12 @@ create policy "training_blocks: org members read org templates"
     )
   );
 
+drop policy if exists "training_blocks: athlete reads own" on training_blocks;
 create policy "training_blocks: athlete reads own"
   on training_blocks for select
   using (athlete_id = auth.uid());
 
+drop policy if exists "training_blocks: coaches manage" on training_blocks;
 create policy "training_blocks: coaches manage"
   on training_blocks for all
   using (
@@ -1167,10 +1201,12 @@ create policy "training_blocks: coaches manage"
   );
 
 -- ── goals ─────────────────────────────────────────────────────
+drop policy if exists "goals: athlete sees own" on goals;
 create policy "goals: athlete sees own"
   on goals for select
   using (auth.uid() = athlete_id);
 
+drop policy if exists "goals: assigned staff can read" on goals;
 create policy "goals: assigned staff can read"
   on goals for select
   using (
@@ -1182,6 +1218,7 @@ create policy "goals: assigned staff can read"
   );
 
 -- ── meets ─────────────────────────────────────────────────────
+drop policy if exists "meets: org members can read" on meets;
 create policy "meets: org members can read"
   on meets for select
   using (
@@ -1191,6 +1228,7 @@ create policy "meets: org members can read"
     )
   );
 
+drop policy if exists "meets: coaches can manage" on meets;
 create policy "meets: coaches can manage"
   on meets for all
   using (
@@ -1198,10 +1236,12 @@ create policy "meets: coaches can manage"
   );
 
 -- ── athlete_meet_entries ──────────────────────────────────────
+drop policy if exists "meet_entries: athlete sees own" on athlete_meet_entries;
 create policy "meet_entries: athlete sees own"
   on athlete_meet_entries for select
   using (auth.uid() = athlete_id);
 
+drop policy if exists "meet_entries: org members can read" on athlete_meet_entries;
 create policy "meet_entries: org members can read"
   on athlete_meet_entries for select
   using (
@@ -1214,10 +1254,12 @@ create policy "meet_entries: org members can read"
 
 -- ── nutrition_plans ───────────────────────────────────────────
 -- Athlete sees own; staff with can_view_nutrition sees assigned athlete plans
+drop policy if exists "nutrition_plans: athlete sees own" on nutrition_plans;
 create policy "nutrition_plans: athlete sees own"
   on nutrition_plans for select
   using (auth.uid() = athlete_id);
 
+drop policy if exists "nutrition_plans: staff with view nutrition can read" on nutrition_plans;
 create policy "nutrition_plans: staff with view nutrition can read"
   on nutrition_plans for select
   using (
@@ -1229,10 +1271,12 @@ create policy "nutrition_plans: staff with view nutrition can read"
     )
   );
 
+drop policy if exists "nutrition_plans: athlete can insert own" on nutrition_plans;
 create policy "nutrition_plans: athlete can insert own"
   on nutrition_plans for insert
   with check (auth.uid() = athlete_id);
 
+drop policy if exists "nutrition_plans: athlete or authorized staff can update" on nutrition_plans;
 create policy "nutrition_plans: athlete or authorized staff can update"
   on nutrition_plans for update
   using (
@@ -1246,10 +1290,12 @@ create policy "nutrition_plans: athlete or authorized staff can update"
   );
 
 -- ── nutrition_logs ────────────────────────────────────────────
+drop policy if exists "nutrition_logs: athlete sees own" on nutrition_logs;
 create policy "nutrition_logs: athlete sees own"
   on nutrition_logs for select
   using (auth.uid() = athlete_id);
 
+drop policy if exists "nutrition_logs: staff with view nutrition" on nutrition_logs;
 create policy "nutrition_logs: staff with view nutrition"
   on nutrition_logs for select
   using (
@@ -1261,15 +1307,18 @@ create policy "nutrition_logs: staff with view nutrition"
     )
   );
 
+drop policy if exists "nutrition_logs: athlete can insert own" on nutrition_logs;
 create policy "nutrition_logs: athlete can insert own"
   on nutrition_logs for insert
   with check (auth.uid() = athlete_id);
 
 -- ── supplement_stacks / items / logs ─────────────────────────
+drop policy if exists "supplement_stacks: athlete sees own" on supplement_stacks;
 create policy "supplement_stacks: athlete sees own"
   on supplement_stacks for select
   using (auth.uid() = athlete_id);
 
+drop policy if exists "supplement_stacks: staff with view supplement" on supplement_stacks;
 create policy "supplement_stacks: staff with view supplement"
   on supplement_stacks for select
   using (
@@ -1281,6 +1330,7 @@ create policy "supplement_stacks: staff with view supplement"
     )
   );
 
+drop policy if exists "supplement_stack_items: readable via stack owner" on supplement_stack_items;
 create policy "supplement_stack_items: readable via stack owner"
   on supplement_stack_items for select
   using (
@@ -1298,10 +1348,12 @@ create policy "supplement_stack_items: readable via stack owner"
     )
   );
 
+drop policy if exists "supplement_logs: athlete sees own" on supplement_logs;
 create policy "supplement_logs: athlete sees own"
   on supplement_logs for select
   using (auth.uid() = athlete_id);
 
+drop policy if exists "supplement_logs: staff with view nutrition" on supplement_logs;
 create policy "supplement_logs: staff with view nutrition"
   on supplement_logs for select
   using (
@@ -1316,6 +1368,7 @@ create policy "supplement_logs: staff with view nutrition"
 -- ── meal_prep_recipes ─────────────────────────────────────────
 -- Org templates: all org members can read
 -- Personal recipes: owner can read
+drop policy if exists "meal_prep_recipes: org template readable by members" on meal_prep_recipes;
 create policy "meal_prep_recipes: org template readable by members"
   on meal_prep_recipes for select
   using (
@@ -1326,10 +1379,12 @@ create policy "meal_prep_recipes: org template readable by members"
     )
   );
 
+drop policy if exists "meal_prep_recipes: personal readable by owner" on meal_prep_recipes;
 create policy "meal_prep_recipes: personal readable by owner"
   on meal_prep_recipes for select
   using (is_org_template = false and created_by = auth.uid());
 
+drop policy if exists "meal_prep_recipes: nutritionist/head_coach can manage org templates" on meal_prep_recipes;
 create policy "meal_prep_recipes: nutritionist/head_coach can manage org templates"
   on meal_prep_recipes for all
   using (
@@ -1338,10 +1393,12 @@ create policy "meal_prep_recipes: nutritionist/head_coach can manage org templat
   );
 
 -- ── meal_prep_sessions / items ────────────────────────────────
+drop policy if exists "meal_prep_sessions: athlete sees own" on meal_prep_sessions;
 create policy "meal_prep_sessions: athlete sees own"
   on meal_prep_sessions for select
   using (auth.uid() = athlete_id);
 
+drop policy if exists "meal_prep_sessions: staff with create_meal_prep" on meal_prep_sessions;
 create policy "meal_prep_sessions: staff with create_meal_prep"
   on meal_prep_sessions for select
   using (
@@ -1354,6 +1411,7 @@ create policy "meal_prep_sessions: staff with create_meal_prep"
     )
   );
 
+drop policy if exists "meal_prep_session_items: readable via session" on meal_prep_session_items;
 create policy "meal_prep_session_items: readable via session"
   on meal_prep_session_items for select
   using (
@@ -1374,10 +1432,12 @@ create policy "meal_prep_session_items: readable via session"
   );
 
 -- ── shopping_lists / categories / items ───────────────────────
+drop policy if exists "shopping_lists: athlete sees own" on shopping_lists;
 create policy "shopping_lists: athlete sees own"
   on shopping_lists for select
   using (auth.uid() = athlete_id);
 
+drop policy if exists "shopping_lists: staff with edit_shopping_list" on shopping_lists;
 create policy "shopping_lists: staff with edit_shopping_list"
   on shopping_lists for select
   using (
@@ -1390,6 +1450,7 @@ create policy "shopping_lists: staff with edit_shopping_list"
     )
   );
 
+drop policy if exists "shopping_lists: athlete or authorized staff can update" on shopping_lists;
 create policy "shopping_lists: athlete or authorized staff can update"
   on shopping_lists for update
   using (
@@ -1402,6 +1463,7 @@ create policy "shopping_lists: athlete or authorized staff can update"
     )
   );
 
+drop policy if exists "shopping_list_categories: readable via list access" on shopping_list_categories;
 create policy "shopping_list_categories: readable via list access"
   on shopping_list_categories for select
   using (
@@ -1421,6 +1483,7 @@ create policy "shopping_list_categories: readable via list access"
     )
   );
 
+drop policy if exists "shopping_list_items: readable via list access" on shopping_list_items;
 create policy "shopping_list_items: readable via list access"
   on shopping_list_items for select
   using (
@@ -1442,6 +1505,7 @@ create policy "shopping_list_items: readable via list access"
   );
 
 -- ── channels / channel_members / messages ────────────────────
+drop policy if exists "channels: org members can read" on channels;
 create policy "channels: org members can read"
   on channels for select
   using (
@@ -1451,6 +1515,7 @@ create policy "channels: org members can read"
     )
   );
 
+drop policy if exists "channel_members: members can read own channel memberships" on channel_members;
 create policy "channel_members: members can read own channel memberships"
   on channel_members for select
   using (
@@ -1462,6 +1527,7 @@ create policy "channel_members: members can read own channel memberships"
     )
   );
 
+drop policy if exists "messages: channel members can read" on messages;
 create policy "messages: channel members can read"
   on messages for select
   using (
@@ -1471,6 +1537,7 @@ create policy "messages: channel members can read"
     )
   );
 
+drop policy if exists "messages: channel members can insert" on messages;
 create policy "messages: channel members can insert"
   on messages for insert
   with check (
@@ -1480,10 +1547,12 @@ create policy "messages: channel members can insert"
     )
   );
 
+drop policy if exists "messages: sender can update own" on messages;
 create policy "messages: sender can update own"
   on messages for update
   using (sender_id = auth.uid());
 
+drop policy if exists "message_reactions: channel members can manage" on message_reactions;
 create policy "message_reactions: channel members can manage"
   on message_reactions for all
   using (
@@ -1496,6 +1565,7 @@ create policy "message_reactions: channel members can manage"
   );
 
 -- ── events ───────────────────────────────────────────────────
+drop policy if exists "events: org members can read" on events;
 create policy "events: org members can read"
   on events for select
   using (
@@ -1505,6 +1575,7 @@ create policy "events: org members can read"
     )
   );
 
+drop policy if exists "events: coaches can manage" on events;
 create policy "events: coaches can manage"
   on events for all
   using (
@@ -1512,6 +1583,7 @@ create policy "events: coaches can manage"
   );
 
 -- ── resources ────────────────────────────────────────────────
+drop policy if exists "resources: org members can read published" on resources;
 create policy "resources: org members can read published"
   on resources for select
   using (
@@ -1522,6 +1594,7 @@ create policy "resources: org members can read published"
     )
   );
 
+drop policy if exists "resources: coaches can manage" on resources;
 create policy "resources: coaches can manage"
   on resources for all
   using (
@@ -1529,6 +1602,7 @@ create policy "resources: coaches can manage"
   );
 
 -- ── announcements ────────────────────────────────────────────
+drop policy if exists "announcements: org members can read" on announcements;
 create policy "announcements: org members can read"
   on announcements for select
   using (
@@ -1538,6 +1612,7 @@ create policy "announcements: org members can read"
     )
   );
 
+drop policy if exists "announcements: coaches can manage" on announcements;
 create policy "announcements: coaches can manage"
   on announcements for all
   using (
@@ -1545,10 +1620,12 @@ create policy "announcements: coaches can manage"
   );
 
 -- ── injury_logs ──────────────────────────────────────────────
+drop policy if exists "injury_logs: athlete sees own" on injury_logs;
 create policy "injury_logs: athlete sees own"
   on injury_logs for select
   using (auth.uid() = athlete_id);
 
+drop policy if exists "injury_logs: assigned staff can read" on injury_logs;
 create policy "injury_logs: assigned staff can read"
   on injury_logs for select
   using (
@@ -1560,25 +1637,30 @@ create policy "injury_logs: assigned staff can read"
     )
   );
 
+drop policy if exists "injury_logs: athlete can insert/update own" on injury_logs;
 create policy "injury_logs: athlete can insert/update own"
   on injury_logs for insert
   with check (auth.uid() = athlete_id);
 
+drop policy if exists "injury_logs: athlete can update own" on injury_logs;
 create policy "injury_logs: athlete can update own"
   on injury_logs for update
   using (auth.uid() = athlete_id);
 
 -- ── notifications ────────────────────────────────────────────
+drop policy if exists "notifications: user sees own" on notifications;
 create policy "notifications: user sees own"
   on notifications for select
   using (auth.uid() = user_id);
 
+drop policy if exists "notifications: user can update own (mark read)" on notifications;
 create policy "notifications: user can update own (mark read)"
   on notifications for update
   using (auth.uid() = user_id);
 
 -- ── audit_logs ───────────────────────────────────────────────
 -- Only platform admins can read audit logs
+drop policy if exists "audit_logs: super_admin only" on audit_logs;
 create policy "audit_logs: super_admin only"
   on audit_logs for select
   using (
@@ -1658,7 +1740,7 @@ $$ language plpgsql security definer;
 -- Each org has exactly one public page config.
 -- Accessible at /org/:slug without authentication.
 -- ============================================================
-create table org_public_pages (
+create table if not exists org_public_pages (
   id             uuid primary key default uuid_generate_v4(),
   org_id         uuid unique not null references organizations(id) on delete cascade,
   published      boolean not null default false,
@@ -1691,10 +1773,12 @@ create table org_public_pages (
 -- RLS: anyone can read a published page (public intake form)
 alter table org_public_pages enable row level security;
 
+drop policy if exists "Public can read published pages" on org_public_pages;
 create policy "Public can read published pages"
   on org_public_pages for select
   using (published = true);
 
+drop policy if exists "Org admins can manage their page" on org_public_pages;
 create policy "Org admins can manage their page"
   on org_public_pages for all
   using (
@@ -1709,9 +1793,9 @@ create policy "Org admins can manage their page"
 -- ============================================================
 -- LEADS  (intake form submissions → potential athletes)
 -- ============================================================
-create type lead_status as enum ('new', 'contacted', 'onboarded', 'declined');
+do $$ begin create type lead_status as enum ('new', 'contacted', 'onboarded', 'declined'); exception when duplicate_object then null; end $$;
 
-create table leads (
+create table if not exists leads (
   id             uuid primary key default uuid_generate_v4(),
   org_id         uuid not null references organizations(id) on delete cascade,
 
@@ -1791,16 +1875,17 @@ create table leads (
 );
 
 -- Indexes for fast per-org queries and common filters
-create index leads_org_id_idx      on leads(org_id);
-create index leads_status_idx      on leads(org_id, status);
-create index leads_service_idx     on leads(org_id, service);
-create index leads_submitted_idx   on leads(org_id, submitted_at desc);
+create index if not exists leads_org_id_idx        on leads(org_id);
+create index if not exists leads_status_idx        on leads(org_id, status);
+create index if not exists leads_service_idx       on leads(org_id, service);
+create index if not exists leads_submitted_idx     on leads(org_id, submitted_at desc);
 -- GIN index so coaches can query extra_answers JSON efficiently
-create index leads_extra_answers_idx on leads using gin(extra_answers);
+create index if not exists leads_extra_answers_idx on leads using gin(extra_answers);
 
 -- RLS: leads are private to the org
 alter table leads enable row level security;
 
+drop policy if exists "Org staff can view and manage leads" on leads;
 create policy "Org staff can view and manage leads"
   on leads for all
   using (
@@ -1813,6 +1898,7 @@ create policy "Org staff can view and manage leads"
   );
 
 -- Public insert (anyone submitting the intake form)
+drop policy if exists "Anyone can submit an intake form" on leads;
 create policy "Anyone can submit an intake form"
   on leads for insert
   with check (true);
@@ -1828,10 +1914,12 @@ begin
 end;
 $$ language plpgsql;
 
+drop trigger if exists leads_updated_at on leads;
 create trigger leads_updated_at
   before update on leads
   for each row execute procedure set_updated_at();
 
+drop trigger if exists org_public_pages_updated_at on org_public_pages;
 create trigger org_public_pages_updated_at
   before update on org_public_pages
   for each row execute procedure set_updated_at();
