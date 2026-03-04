@@ -599,8 +599,11 @@ function calcDayTotals(dayPlan) {
   return { calories: cal, protein: prot, carbs, fat }
 }
 
-// Reference week start: Monday 2026-02-23 (Block 2 Week 3)
-const BASE_WEEK_DATE = new Date('2026-02-23')
+// Reference week start: current week's Monday
+const _rosterNow = new Date(); _rosterNow.setHours(0,0,0,0)
+const _rosterDow = _rosterNow.getDay()
+const BASE_WEEK_DATE = new Date(_rosterNow)
+BASE_WEEK_DATE.setDate(_rosterNow.getDate() - (_rosterDow === 0 ? 6 : _rosterDow - 1))
 
 function getWeekRange(offset) {
   const start = new Date(BASE_WEEK_DATE)
