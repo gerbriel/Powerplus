@@ -3341,6 +3341,8 @@ function AthleteShoppingView({ athleteRecipes, athleteShoppingLists, setAthleteS
       <div className="w-48 flex-shrink-0 space-y-1.5">
         <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider px-1 mb-2">Athletes</p>
         {mockAthletes.map(a => {
+          const aLists = athleteShoppingLists?.[a.id] ?? []
+          const dp = a.dietary_profile
           const aItems = aLists.filter(l => l.status === 'active').flatMap(l => l.categories.flatMap(c => c.items))
           const aUnchecked = aItems.filter(i => !i.checked).length
           const aBudget = dp?.weekly_food_budget ?? 0

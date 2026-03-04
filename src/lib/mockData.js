@@ -3,12 +3,13 @@
 // ─── Stable mock UUIDs — these match the rows seeded in supabase/mock_seed.sql ───
 // Do NOT change these without re-running mock_seed.sql in your Supabase project.
 export const MOCK_USER_IDS = {
-  super_admin:  '00000000-0000-0000-0000-000000000001',
-  admin:        '00000000-0000-0000-0000-000000000002',
-  coach:        '00000000-0000-0000-0000-000000000003',
-  nutritionist: '00000000-0000-0000-0000-000000000004',
-  athlete:      '00000000-0000-0000-0000-000000000005',
-  athlete2:     '00000000-0000-0000-0000-000000000006',
+  super_admin:       '00000000-0000-0000-0000-000000000001',
+  admin:             '00000000-0000-0000-0000-000000000002',
+  coach:             '00000000-0000-0000-0000-000000000003',
+  nutritionist:      '00000000-0000-0000-0000-000000000004',
+  athlete:           '00000000-0000-0000-0000-000000000005',
+  athlete2:          '00000000-0000-0000-0000-000000000006',
+  assistant_coach:   '00000000-0000-0000-0000-000000000007',
 }
 export const MOCK_ORG_ID = '00000000-0000-0000-0000-000000000010'
 
@@ -78,6 +79,20 @@ export const MOCK_USERS = {
     federation: 'USAPL',
     equipment_type: 'raw',
     bio: 'Competing since 2021. Current total: 672.5kg',
+  },
+  assistant_coach: {
+    id: MOCK_USER_IDS.assistant_coach,
+    email: 'assistant@powerplus.app',
+    full_name: 'Ryan Park',
+    display_name: 'Coach Ryan',
+    platform_role: 'user',
+    self_coach: false,
+    avatar_url: null,
+    weight_class: null,
+    federation: 'USAPL',
+    equipment_type: 'raw',
+    bio: 'Assistant coach focused on technique and athlete monitoring.',
+    role: 'coach',
   },
 }
 
@@ -1871,11 +1886,13 @@ export const MOCK_ORG_MEMBERS = [
   // Dr. Priya: nutritionist
   { id: 'om-003', org_id: MOCK_ORG_ID, user_id: MOCK_USER_IDS.nutritionist, org_role: 'nutritionist', is_self_athlete: true,  nutrition_permissions: [], joined_at: '2024-02-10' },
   // Jordan Blake: athlete at primary org
-  { id: 'om-004', org_id: MOCK_ORG_ID, user_id: MOCK_USER_IDS.athlete,      org_role: 'athlete',      is_self_athlete: false, nutrition_permissions: ['view_plan'], joined_at: '2024-03-01' },
+  { id: 'om-004', org_id: MOCK_ORG_ID, user_id: MOCK_USER_IDS.athlete,           org_role: 'athlete',   is_self_athlete: false, nutrition_permissions: ['view_plan'], joined_at: '2024-03-01' },
   // Jordan Blake: ALSO an athlete at org-002 (multi-org example)
-  { id: 'om-005', org_id: 'org-002',   user_id: MOCK_USER_IDS.athlete,      org_role: 'athlete',      is_self_athlete: false, nutrition_permissions: ['view_plan', 'edit_plan'], joined_at: '2025-01-10' },
+  { id: 'om-005', org_id: 'org-002',   user_id: MOCK_USER_IDS.athlete,           org_role: 'athlete',   is_self_athlete: false, nutrition_permissions: ['view_plan', 'edit_plan'], joined_at: '2025-01-10' },
   // Chris Nakamura: head_coach at org-002 (no nutritionist → gets all nutrition permissions by role)
-  { id: 'om-006', org_id: 'org-002',   user_id: 'u-coach-ext-001',          org_role: 'head_coach',   is_self_athlete: false, nutrition_permissions: [], joined_at: '2024-06-01' },
+  { id: 'om-006', org_id: 'org-002',   user_id: 'u-coach-ext-001',               org_role: 'head_coach', is_self_athlete: false, nutrition_permissions: [], joined_at: '2024-06-01' },
+  // Ryan Park: assistant coach (mapped to 'coach' role)
+  { id: 'om-007', org_id: MOCK_ORG_ID, user_id: MOCK_USER_IDS.assistant_coach,   org_role: 'coach',     is_self_athlete: false, nutrition_permissions: [], joined_at: '2024-04-01' },
 ]
 
 // ─── Staff–athlete assignments (granular per-athlete permissions) ─────────────
