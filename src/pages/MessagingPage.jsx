@@ -30,9 +30,10 @@ const EMOJI_CATEGORIES = {
   'Nature':    ['🌟','⭐','🌙','☀️','🌊','💨','🌿','🔥','❄️','🌈'],
 }
 
-// ── Giphy fetch (public beta key — swap for prod key) ────────────────────────
-const GIPHY_KEY = 'dc6zaTOxFJmzC'
+// ── Giphy fetch (key from env — set VITE_GIPHY_KEY in .env) ─────────────────
+const GIPHY_KEY = import.meta.env.VITE_GIPHY_KEY || ''
 async function searchGiphy(query, limit = 12) {
+  if (!GIPHY_KEY) return []
   try {
     const res  = await fetch(`https://api.giphy.com/v1/gifs/search?api_key=${GIPHY_KEY}&q=${encodeURIComponent(query)}&limit=${limit}&rating=g`)
     const data = await res.json()
@@ -40,6 +41,7 @@ async function searchGiphy(query, limit = 12) {
   } catch { return [] }
 }
 async function trendingGiphy(limit = 12) {
+  if (!GIPHY_KEY) return []
   try {
     const res  = await fetch(`https://api.giphy.com/v1/gifs/trending?api_key=${GIPHY_KEY}&limit=${limit}&rating=g`)
     const data = await res.json()

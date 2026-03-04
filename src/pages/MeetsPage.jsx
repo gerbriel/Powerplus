@@ -567,11 +567,21 @@ function MeetDetailView({ meet, onBack, onEdit }) {
 // ── Meet History ──────────────────────────────────────────────────────────
 function MeetHistory() {
   const { show } = useWeightDisplay()
-  const history = [
+  const { isDemo } = useAuthStore()
+  const history = isDemo ? [
     { name:'Fall Classic 2025', date:'Oct 18, 2025', squat:195, bench:140, deadlift:267.5, total:602.5, dots:362.4, placement:3, weight_class:'93kg' },
     { name:'Summer Strength 2025', date:'Jun 14, 2025', squat:185, bench:132.5, deadlift:255, total:572.5, dots:344.7, placement:2, weight_class:'93kg' },
     { name:'State Championships 2024', date:'Nov 9, 2024', squat:175, bench:125, deadlift:245, total:545, dots:328.1, placement:4, weight_class:'93kg' },
-  ]
+  ] : []
+  if (history.length === 0) {
+    return (
+      <div className="text-center py-12 text-zinc-600">
+        <Trophy className="w-8 h-8 mx-auto mb-2 opacity-30" />
+        <p className="text-sm">No meet history yet.</p>
+        <p className="text-xs mt-1">Results will appear here after you log a competition.</p>
+      </div>
+    )
+  }
   return (
     <div className="space-y-3">
       {history.map((meet, i) => (

@@ -1137,15 +1137,27 @@ function ScheduledWorkoutModal({ session, weightUnit, onClose }) {
 
 // ─── DOTS score widget ───────────────────────────────────────────────────────
 function DotsScoreRow({ weightUnit }) {
+  const { isDemo } = useAuthStore()
   const [bw, setBw] = useState(83)
-  const squat = 220, bench = 155, deadlift = 280
-  const total = squat + bench + deadlift
-  const dots = calcDotsScore(total, bw, true)
+  const squat = isDemo ? 220 : null
+  const bench = isDemo ? 155 : null
+  const deadlift = isDemo ? 280 : null
+  const total = (squat != null && bench != null && deadlift != null) ? squat + bench + deadlift : null
+  const dots = total != null ? calcDotsScore(total, bw, true) : null
 
   const bwDisplay = weightUnit === 'lbs' ? kgToLbs(bw) : bw
-  const totalDisplay = weightUnit === 'lbs'
-    ? `${kgToLbs(total)} lbs`
-    : `${total} kg`
+  const totalDisplay = total != null
+    ? (weightUnit === 'lbs' ? `${kgToLbs(total)} lbs` : `${total} kg`)
+    : '—'
+
+  if (total == null) {
+    return (
+      <div className="p-3 bg-zinc-800/40 border border-zinc-700/50 rounded-xl">
+        <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">DOTS Score</p>
+        <p className="text-xs text-zinc-600 mt-1">Log competition lifts to calculate your DOTS score.</p>
+      </div>
+    )
+  }
 
   return (
     <div className="p-3 bg-purple-500/5 border border-purple-500/20 rounded-xl">
