@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { MOCK_USERS, MOCK_GOALS, MOCK_TRAINING_BLOCKS, MOCK_MEETS, MOCK_ORGS, MOCK_ORG_MEMBERS, MOCK_STAFF_ASSIGNMENTS, MOCK_ATHLETE_RECIPES, MOCK_ATHLETE_PREP_LOG, MOCK_ATHLETE_SHOPPING_LISTS, MOCK_ATHLETE_MEAL_PLANS, MOCK_CHANNELS, MOCK_MESSAGES, MOCK_DIRECT_MESSAGES } from './mockData'
-import { upsertProfile, isSupabaseConfigured, onAuthStateChange, fetchProfile, fetchOrgMemberships, signOut as supabaseSignOut, getSession } from './supabase'
+import { upsertProfile, isSupabaseConfigured, onAuthStateChange, fetchProfile, fetchOrgMemberships, signOut as supabaseSignOut, getSession, fetchChannels as sbFetchChannels, createChannel as sbCreateChannel, updateChannel as sbUpdateChannel, archiveChannel as sbArchiveChannel, fetchMessages as sbFetchMessages, sendMessage as sbSendMessage, editMessage as sbEditMessage, deleteMessage as sbDeleteMessage, toggleReaction as sbToggleReaction, findOrCreateDM as sbFindOrCreateDM, findOrCreateGroup as sbFindOrCreateGroup, markChannelRead as sbMarkChannelRead } from './supabase'
 
 export const useAuthStore = create((set, get) => ({
   user: null,
@@ -768,21 +768,21 @@ export const useNutritionStore = create((set) => ({
 // Manages channels, DMs, and per-channel/DM message threads entirely client-side.
 // isDemo bootstraps with mock data; real users start empty.
 export const useMessagingStore = create((set, get) => ({
-  // channels: [{ id, name, description, type: 'public'|'private'|'announcement', members: [userId], created_by, created_at, org_id }]
+  // channels: [{ id, name, description, type: 'public'|'private'|'announcement'|'dm'|'group', members: [userId], created_by, created_at, org_id }]
   channels: [],
-  // messages keyed by channel id or dm id: { [channelId]: [msg, ...] }
+  // messages keyed by channel id: { [channelId]: [msg, ...] }
   messagesByThread: {},
   // directMessages: [{ id, participants: [userId, userId], last_message, last_at, unread: {[userId]: n} }]
   directMessages: [],
+  // track which threads have been fetched from DB to avoid refetching
+  _fetchedThreads: new Set(),
 
-  // ── Init (called once on app load) ────────────────────────────────────
-  initMessaging: (isDemo, orgId, currentUserId) => {
+  // ── Init (called once on app load or org change) ───────────────────────
+  initMessaging: async (isDemo, orgId, currentUserId) => {
     const existing = get()
-    // Never re-seed if already initialized — preserves any CUD actions made this session
     if (existing.channels.length > 0) return
 
     if (isDemo) {
-      // Seed channels + messages from mock data (first load only)
       const channels = MOCK_CHANNELS.map((ch) => ({
         ...ch,
         description: ch.name === 'general' ? 'Team-wide discussion' : ch.name === 'announcements' ? 'Important announcements from coaches' : ch.name === 'wins-board' ? 'Share your wins and PRs here 🏆' : ch.name === 'meet-prep-spring-2026' ? 'Spring 2026 meet preparation' : 'Staff only channel',
@@ -803,8 +803,12 @@ export const useMessagingStore = create((set, get) => ({
         unread: { [currentUserId]: dm.unread },
       }))
       set({ channels, messagesByThread: mockMsgsByChannel, directMessages: dms })
-    } else {
-      // Real user: auto-create #general for the org
+      return
+    }
+
+    // Real user — load channels from Supabase
+    if (!isSupabaseConfigured() || !orgId) {
+      // No DB: seed a local #general only
       const general = {
         id: `ch-${orgId}-general`,
         name: 'general',
@@ -816,61 +820,121 @@ export const useMessagingStore = create((set, get) => ({
         org_id: orgId,
       }
       set({ channels: [general], messagesByThread: {}, directMessages: [] })
+      return
     }
+
+    const rawChannels = await sbFetchChannels(orgId)
+    if (rawChannels.length === 0) {
+      // First time: create #general in DB
+      const ch = await sbCreateChannel({
+        orgId,
+        name: 'general',
+        description: 'Team-wide discussion',
+        channelType: 'public',
+        createdBy: currentUserId,
+        memberIds: [currentUserId],
+      })
+      if (ch) {
+        const mapped = _mapChannel(ch)
+        set({ channels: [mapped], messagesByThread: {}, directMessages: [] })
+      }
+      return
+    }
+
+    // Split into regular channels vs DM/group threads
+    const publicChannels = rawChannels.filter(c => !['dm','group'].includes(c.channel_type))
+    const dmChannels     = rawChannels.filter(c => ['dm','group'].includes(c.channel_type))
+
+    set({
+      channels:       publicChannels.map(_mapChannel),
+      directMessages: dmChannels.map(c => _mapDMChannel(c, currentUserId)),
+      messagesByThread: {},
+    })
   },
 
   // ── Channel CUD ────────────────────────────────────────────────────────
-  createChannel: ({ name, description, type, members, createdBy, orgId }) => {
-    const id = `ch-${Date.now()}`
-    const channel = {
-      id,
-      name: name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''),
-      description: description || '',
-      type: type || 'public',
-      members: type === 'public' ? ['all'] : members || [],
-      created_by: createdBy,
-      created_at: new Date().toISOString(),
-      org_id: orgId,
+  createChannel: async ({ name, description, type, members, createdBy, orgId, allOrgMemberIds = [] }) => {
+    const slug = name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
+    const memberIds = type === 'public' ? allOrgMemberIds : (members || [])
+
+    if (isSupabaseConfigured()) {
+      const ch = await sbCreateChannel({ orgId, name: slug, description: description || '', channelType: type || 'public', createdBy, memberIds })
+      if (!ch) return null
+      const mapped = _mapChannel(ch)
+      set((s) => ({ channels: [...s.channels, mapped] }))
+      return ch.id
     }
+    // Offline fallback
+    const id = `ch-${Date.now()}`
+    const channel = { id, name: slug, description: description || '', type: type || 'public', members: type === 'public' ? ['all'] : memberIds, created_by: createdBy, created_at: new Date().toISOString(), org_id: orgId }
     set((s) => ({ channels: [...s.channels, channel] }))
     return id
   },
 
-  updateChannel: (channelId, updates) =>
-    set((s) => ({
-      channels: s.channels.map((ch) => ch.id === channelId ? { ...ch, ...updates } : ch),
-    })),
+  updateChannel: async (channelId, updates) => {
+    set((s) => ({ channels: s.channels.map((ch) => ch.id === channelId ? { ...ch, ...updates } : ch) }))
+    if (isSupabaseConfigured()) await sbUpdateChannel(channelId, updates)
+  },
 
-  deleteChannel: (channelId) =>
+  deleteChannel: async (channelId) => {
     set((s) => {
       const { [channelId]: _, ...rest } = s.messagesByThread
       return { channels: s.channels.filter((ch) => ch.id !== channelId), messagesByThread: rest }
-    }),
+    })
+    if (isSupabaseConfigured()) await sbArchiveChannel(channelId)
+  },
 
   // ── Messages ──────────────────────────────────────────────────────────
-  sendMessage: (threadId, { senderId, senderName, senderRole, content, type = 'text', mediaUrl = null, gifUrl = null, formatting = null }) => {
-    const msg = {
-      id: `msg-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,
-      thread_id: threadId,
-      sender: { id: senderId, name: senderName, role: senderRole },
-      content,
-      type,   // 'text' | 'image' | 'video' | 'gif'
-      mediaUrl,
-      gifUrl,
-      formatting, // { bold, italic, underline }
-      timestamp: new Date().toISOString(),
-      reactions: [],
-      edited: false,
-    }
+  // Load messages for a thread on first open
+  loadMessages: async (threadId) => {
+    const { _fetchedThreads, messagesByThread } = get()
+    if (_fetchedThreads.has(threadId)) return
+    if (!isSupabaseConfigured()) return
+
+    const rows = await sbFetchMessages(threadId)
+    const msgs = rows.map(_mapMessage)
     set((s) => ({
-      messagesByThread: {
-        ...s.messagesByThread,
-        [threadId]: [...(s.messagesByThread[threadId] || []), msg],
-      },
+      messagesByThread: { ...s.messagesByThread, [threadId]: msgs },
+      _fetchedThreads: new Set([...s._fetchedThreads, threadId]),
     }))
   },
 
-  editMessage: (threadId, msgId, newContent) =>
+  sendMessage: async (threadId, { senderId, senderName, senderRole, content, type = 'text', mediaUrl = null, gifUrl = null, formatting = null }) => {
+    // Optimistic local insert
+    const tempId = `msg-tmp-${Date.now()}`
+    const optimistic = {
+      id: tempId, thread_id: threadId,
+      sender: { id: senderId, name: senderName, role: senderRole },
+      content, type, mediaUrl, gifUrl, formatting,
+      timestamp: new Date().toISOString(), reactions: [], edited: false,
+    }
+    set((s) => ({
+      messagesByThread: { ...s.messagesByThread, [threadId]: [...(s.messagesByThread[threadId] || []), optimistic] },
+    }))
+
+    if (isSupabaseConfigured()) {
+      const saved = await sbSendMessage({ channelId: threadId, senderId, content, messageType: type, mediaUrl, gifUrl, formatting })
+      if (saved) {
+        // Replace temp with real row
+        const real = _mapMessage(saved)
+        set((s) => ({
+          messagesByThread: {
+            ...s.messagesByThread,
+            [threadId]: (s.messagesByThread[threadId] || []).map(m => m.id === tempId ? real : m),
+          },
+        }))
+      }
+    }
+
+    // Update last_message on DM thread
+    set((s) => ({
+      directMessages: s.directMessages.map(dm =>
+        dm.id === threadId ? { ...dm, last_message: content, last_at: new Date().toISOString() } : dm
+      ),
+    }))
+  },
+
+  editMessage: async (threadId, msgId, newContent) => {
     set((s) => ({
       messagesByThread: {
         ...s.messagesByThread,
@@ -878,17 +942,22 @@ export const useMessagingStore = create((set, get) => ({
           m.id === msgId ? { ...m, content: newContent, edited: true } : m
         ),
       },
-    })),
+    }))
+    if (isSupabaseConfigured()) await sbEditMessage(msgId, newContent)
+  },
 
-  deleteMessage: (threadId, msgId) =>
+  deleteMessage: async (threadId, msgId) => {
     set((s) => ({
       messagesByThread: {
         ...s.messagesByThread,
         [threadId]: (s.messagesByThread[threadId] || []).filter((m) => m.id !== msgId),
       },
-    })),
+    }))
+    if (isSupabaseConfigured()) await sbDeleteMessage(msgId)
+  },
 
-  reactToMessage: (threadId, msgId, emoji, userId) =>
+  reactToMessage: async (threadId, msgId, emoji, userId) => {
+    // Optimistic update
     set((s) => ({
       messagesByThread: {
         ...s.messagesByThread,
@@ -896,7 +965,6 @@ export const useMessagingStore = create((set, get) => ({
           if (m.id !== msgId) return m
           const existing = m.reactions.find((r) => r.emoji === emoji)
           if (existing) {
-            // Toggle: if user already reacted, remove them; otherwise add
             const userReacted = existing.reactors?.includes(userId)
             if (userReacted) {
               const newCount = existing.count - 1
@@ -908,52 +976,64 @@ export const useMessagingStore = create((set, get) => ({
           return { ...m, reactions: [...m.reactions, { emoji, count: 1, reactors: [userId] }] }
         }),
       },
-    })),
+    }))
+    if (isSupabaseConfigured()) await sbToggleReaction(msgId, userId, emoji)
+  },
 
   // ── Direct Messages ────────────────────────────────────────────────────
-  openDM: (currentUserId, targetUserId, targetName, targetRole) => {
+  openDM: async (currentUserId, targetUserId, targetName, targetRole, orgId) => {
     const existing = get().directMessages.find((dm) =>
       dm.type !== 'group' &&
       dm.participants.includes(currentUserId) && dm.participants.includes(targetUserId)
     )
     if (existing) return existing.id
+
+    if (isSupabaseConfigured() && orgId) {
+      const ch = await sbFindOrCreateDM(orgId, currentUserId, targetUserId)
+      if (ch) {
+        const mapped = _mapDMChannel(ch, currentUserId, targetName, targetRole)
+        set((s) => ({ directMessages: [...s.directMessages, mapped] }))
+        return ch.id
+      }
+    }
+
+    // Offline fallback
     const id = `dm-${Date.now()}`
     set((s) => ({
       directMessages: [...s.directMessages, {
-        id,
-        type: 'dm',
+        id, type: 'dm',
         participants: [currentUserId, targetUserId],
-        display_name: targetName,
-        display_role: targetRole,
-        last_message: '',
-        last_at: new Date().toISOString(),
-        unread: {},
+        display_name: targetName, display_role: targetRole,
+        last_message: '', last_at: new Date().toISOString(), unread: {},
       }],
     }))
     return id
   },
 
-  // ── Group Messages ──────────────────────────────────────────────────────
-  // participantIds = [userId, ...], groupName = string
-  openGroupMessage: (currentUserId, participantIds, groupName) => {
+  openGroupMessage: async (currentUserId, participantIds, groupName, orgId) => {
     const allIds = [...new Set([currentUserId, ...participantIds])]
+
+    if (isSupabaseConfigured() && orgId) {
+      const ch = await sbFindOrCreateGroup(orgId, currentUserId, participantIds, groupName)
+      if (ch) {
+        const mapped = _mapDMChannel(ch, currentUserId, groupName, null)
+        set((s) => ({ directMessages: [...s.directMessages, mapped] }))
+        return ch.id
+      }
+    }
+
     const id = `gm-${Date.now()}`
     set((s) => ({
       directMessages: [...s.directMessages, {
-        id,
-        type: 'group',
-        participants: allIds,
-        display_name: groupName,
-        display_role: null,
-        last_message: '',
-        last_at: new Date().toISOString(),
-        unread: {},
+        id, type: 'group', participants: allIds,
+        display_name: groupName, display_role: null,
+        last_message: '', last_at: new Date().toISOString(), unread: {},
       }],
     }))
     return id
   },
 
-  markRead: (threadId, userId) =>
+  markRead: (threadId, userId) => {
     set((s) => ({
       directMessages: s.directMessages.map((dm) =>
         dm.id === threadId ? { ...dm, unread: { ...dm.unread, [userId]: 0 } } : dm
@@ -961,5 +1041,66 @@ export const useMessagingStore = create((set, get) => ({
       channels: s.channels.map((ch) =>
         ch.id === threadId ? { ...ch, unread: 0 } : ch
       ),
-    })),
+    }))
+    if (isSupabaseConfigured()) sbMarkChannelRead(threadId, userId)
+  },
 }))
+
+// ── Private mapping helpers ────────────────────────────────────────────────
+function _mapChannel(ch) {
+  return {
+    id:          ch.id,
+    name:        ch.name,
+    description: ch.description || '',
+    type:        ch.channel_type || ch.type || 'public',
+    members:     (ch.channel_members || []).map(m => m.user_id),
+    created_by:  ch.created_by,
+    created_at:  ch.created_at,
+    org_id:      ch.org_id,
+  }
+}
+
+function _mapDMChannel(ch, currentUserId, displayNameFallback = null, displayRoleFallback = null) {
+  const otherMembers = (ch.channel_members || []).filter(m => m.user_id !== currentUserId)
+  return {
+    id:           ch.id,
+    type:         ch.channel_type === 'group' ? 'group' : 'dm',
+    participants: (ch.channel_members || []).map(m => m.user_id),
+    display_name: displayNameFallback || ch.description || ch.name,
+    display_role: displayRoleFallback || null,
+    last_message: '',
+    last_at:      ch.created_at,
+    unread:       {},
+  }
+}
+
+function _mapMessage(row) {
+  return {
+    id:         row.id,
+    thread_id:  row.channel_id,
+    sender: {
+      id:   row.sender?.id   || row.sender_id,
+      name: row.sender?.display_name || row.sender?.full_name || 'Unknown',
+      role: row.sender?.role || 'athlete',
+    },
+    content:    row.content,
+    type:       row.message_type || 'text',
+    mediaUrl:   row.media_url  || null,
+    gifUrl:     row.gif_url    || null,
+    formatting: row.formatting || null,
+    timestamp:  row.created_at,
+    edited:     !!row.edited_at,
+    reactions:  _mapReactions(row.reactions || []),
+  }
+}
+
+function _mapReactions(rows) {
+  // Group by emoji: [{ emoji, count, reactors: [userId] }]
+  const map = {}
+  for (const r of rows) {
+    if (!map[r.emoji]) map[r.emoji] = { emoji: r.emoji, count: 0, reactors: [] }
+    map[r.emoji].count++
+    map[r.emoji].reactors.push(r.user_id)
+  }
+  return Object.values(map)
+}
