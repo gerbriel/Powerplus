@@ -37,8 +37,8 @@ const SAMPLE_EVENTS = {
 
 export function CalendarPage() {
   const { profile, isDemo } = useAuthStore()
-  const [year, setYear] = useState(2026)
-  const [month, setMonth] = useState(1) // 0-indexed, Feb
+  const [year, setYear] = useState(new Date().getFullYear())
+  const [month, setMonth] = useState(new Date().getMonth()) // 0-indexed
   const [selectedDay, setSelectedDay] = useState(null)
   const [addEventOpen, setAddEventOpen] = useState(false)
 
@@ -100,7 +100,9 @@ export function CalendarPage() {
                 if (!day) return <div key={`empty-${i}`} className="h-20 border-b border-r border-zinc-800/50" />
                 const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
                 const events = (isDemo ? SAMPLE_EVENTS[dateKey] : null) || []
-                const isToday = dateKey === '2026-02-28'
+                const todayDate = new Date()
+                const todayKey = `${todayDate.getFullYear()}-${String(todayDate.getMonth() + 1).padStart(2, '0')}-${String(todayDate.getDate()).padStart(2, '0')}`
+                const isToday = dateKey === todayKey
                 const isSelected = selectedDay === dateKey
                 return (
                   <div

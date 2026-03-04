@@ -127,7 +127,7 @@ function LogMealModal({ open, onClose }) {
   const { athletePrepLog, setAthletePrepLog, boardPlans } = useNutritionStore()
   const { isDemo } = useAuthStore()
   const MY_ATHLETE_ID = 'u-ath-001'
-  const TODAY_DAY     = 'sunday'
+  const TODAY_DAY = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][new Date().getDay()]
 
   const [method, setMethod]   = useState('macros') // 'macros' | 'pantry' | 'plan' | 'quick'
   const [mealType, setMealType] = useState('lunch')
@@ -658,18 +658,18 @@ function AthleteDashboardTab({ nutrition, suppChecked, setSuppChecked }) {
   const { boardPlans, athletePrepLog } = useNutritionStore()
   const { isDemo } = useAuthStore()
   const MY_ATHLETE_ID = 'u-ath-001'
-  const TODAY_DAY = 'sunday'
+  const TODAY_DAY = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][new Date().getDay()]
   const mockMealHistory = isDemo ? MOCK_MEAL_HISTORY : []
 
-  // Body weight mock data (12 weeks)
-  const [bodyWeightLog, setBodyWeightLog] = useState([
+  // Body weight log — starts empty for real users, uses demo data for demo session
+  const [bodyWeightLog, setBodyWeightLog] = useState(isDemo ? [
     { date: '2025-12-08', weight: 93.2 }, { date: '2025-12-15', weight: 93.0 },
     { date: '2025-12-22', weight: 92.8 }, { date: '2026-01-05', weight: 92.5 },
     { date: '2026-01-12', weight: 92.1 }, { date: '2026-01-19', weight: 91.8 },
     { date: '2026-01-26', weight: 91.5 }, { date: '2026-02-02', weight: 91.2 },
     { date: '2026-02-09', weight: 91.0 }, { date: '2026-02-16', weight: 90.8 },
     { date: '2026-02-23', weight: 90.5 }, { date: '2026-03-01', weight: 90.2 },
-  ])
+  ] : [])
   const [newWeight, setNewWeight] = useState('')
   const [logWeightOpen, setLogWeightOpen] = useState(false)
   const latestWeight = bodyWeightLog[bodyWeightLog.length - 1]?.weight ?? 0
@@ -680,10 +680,10 @@ function AthleteDashboardTab({ nutrition, suppChecked, setSuppChecked }) {
   const weekHistory = mockMealHistory.filter(h => h.athlete_id === MY_ATHLETE_ID && h.date >= '2026-02-23')
   const avgCompliance = weekHistory.length
     ? Math.round(weekHistory.reduce((s, h) => s + h.compliance_pct, 0) / weekHistory.length)
-    : 84
+    : isDemo ? 84 : 0
 
   // Supplement streak
-  const suppStreak = 8 // mock
+  const suppStreak = isDemo ? 8 : 0 // real value would come from DB
 
   // Today's macros vs targets
   const todayHistory = mockMealHistory.find(h => h.athlete_id === MY_ATHLETE_ID && h.date === '2026-03-01')
@@ -734,9 +734,9 @@ function AthleteDashboardTab({ nutrition, suppChecked, setSuppChecked }) {
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div>
               <CardTitle className="flex items-center gap-2"><Flame className="w-4 h-4 text-orange-400" />Today's Macros</CardTitle>
-              <CardSubtitle>Sun, Mar 1 · {liveDayPlan ? 'Nutritionist Plan' : 'Your targets'}</CardSubtitle>
+              <CardSubtitle>{new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} · {liveDayPlan ? 'Nutritionist Plan' : 'Your targets'}</CardSubtitle>
             </div>
-            <span className="text-xs px-2 py-1 bg-purple-500/10 border border-purple-500/20 text-purple-300 rounded-lg font-medium">Training Day</span>
+            {isDemo && <span className="text-xs px-2 py-1 bg-purple-500/10 border border-purple-500/20 text-purple-300 rounded-lg font-medium">Training Day</span>}
           </div>
         </CardHeader>
         <CardBody className="space-y-3">
@@ -924,7 +924,7 @@ function AthleteDashboardTab({ nutrition, suppChecked, setSuppChecked }) {
           <div className="grid grid-cols-2 gap-4">
             {[
               { label: 'Training Day', plan: nutrition.plan, accent: 'border-purple-500/30 bg-purple-500/5' },
-              { label: 'Rest Day',     plan: { calories: 2800, protein: 200, carbs: 300, fat: 85, water: 3500 }, accent: 'border-zinc-700/40 bg-zinc-800/20' },
+              { label: 'Rest Day',     plan: isDemo ? { calories: 2800, protein: 200, carbs: 300, fat: 85, water: 3500 } : { calories: 0, protein: 0, carbs: 0, fat: 0, water: 0 }, accent: 'border-zinc-700/40 bg-zinc-800/20' },
             ].map(({ label, plan, accent }) => (
               <div key={label} className={cn('rounded-xl border p-3 space-y-2', accent)}>
                 <p className="text-xs font-semibold text-zinc-400">{label}</p>
@@ -953,18 +953,27 @@ function AthleteDashboardTab({ nutrition, suppChecked, setSuppChecked }) {
 function AthleteWeeklyPlannerTab({ nutrition }) {
   const { boardPlans, athletePrepLog } = useNutritionStore()
   const MY_ATHLETE_ID = 'u-ath-001'
-  const TODAY_DAY     = 'sunday'
 
   const BOARD_DAY_KEYS = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday']
   const SLOT_LABELS    = { breakfast:'Breakfast', lunch:'Lunch', dinner:'Dinner', snack:'Snack', 'pre-workout':'Pre-Workout', 'post-workout':'Post-Workout', supplements:'Supplements' }
   const SLOT_ORDER     = ['breakfast','pre-workout','lunch','snack','dinner','post-workout','supplements']
   const DAY_LABELS     = { monday:'Mon', tuesday:'Tue', wednesday:'Wed', thursday:'Thu', friday:'Fri', saturday:'Sat', sunday:'Sun' }
-  const WEEK_START     = new Date('2026-02-23')
+  // Dynamically compute the start of the current week (Monday)
+  const today = new Date()
+  const dayOfWeek = today.getDay() // 0=Sun, 1=Mon, ...
+  const daysToMonday = (dayOfWeek === 0 ? -6 : 1 - dayOfWeek)
+  const WEEK_START = new Date(today)
+  WEEK_START.setDate(today.getDate() + daysToMonday)
+  WEEK_START.setHours(0, 0, 0, 0)
+  const WEEK_END = new Date(WEEK_START)
+  WEEK_END.setDate(WEEK_START.getDate() + 6)
+  const weekLabel = `${WEEK_START.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${WEEK_END.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+  const TODAY_DAY_KEY = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][today.getDay()]
 
   // Use live board plan if available, else fall back to mock
   const { isDemo } = useAuthStore()
   const liveWeekPlan   = boardPlans?.[MY_ATHLETE_ID] ?? (isDemo ? MOCK_ATHLETE_MEAL_PLANS?.[MY_ATHLETE_ID] : undefined) ?? {}
-  const [expandedDay, setExpandedDay] = useState(TODAY_DAY)
+  const [expandedDay, setExpandedDay] = useState(TODAY_DAY_KEY)
   // Track which items the athlete has marked eaten
   const [eatenOverride, setEatenOverride] = useState({}) // key: `${day}-${itemId}` → bool
 
@@ -987,8 +996,8 @@ function AthleteWeeklyPlannerTab({ nutrition }) {
     const totalCals   = allItems.reduce((s, i) => s + (i?.calories || 0), 0)
     const totalProt   = allItems.reduce((s, i) => s + (i?.protein  || 0), 0)
     const hasItems    = totalItems > 0
-    const isPast      = d < new Date('2026-03-01') // before today
-    const isToday     = dayKey === TODAY_DAY
+    const isPast      = d < today // before today
+    const isToday     = dayKey === TODAY_DAY_KEY
     return { dayKey, label: DAY_LABELS[dayKey], date: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), hasItems, totalItems, eatenCount, compliance, totalCals, totalProt, isPast, isToday }
   })
 
@@ -1008,7 +1017,7 @@ function AthleteWeeklyPlannerTab({ nutrition }) {
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div>
               <CardTitle className="flex items-center gap-2"><CalendarDays className="w-4 h-4 text-purple-400" />My Meal Plan</CardTitle>
-              <CardSubtitle>Week of Feb 23 – Mar 1, 2026 · Set by your nutritionist</CardSubtitle>
+              <CardSubtitle>Week of {weekLabel} · Set by your nutritionist</CardSubtitle>
             </div>
             <span className="text-xs px-2 py-1 rounded-lg border bg-purple-500/10 border-purple-500/20 text-purple-300 font-medium">
               Week 8 — Intensification
@@ -1062,7 +1071,7 @@ function AthleteWeeklyPlannerTab({ nutrition }) {
                 <CardTitle className="flex items-center gap-2">
                   <CalendarDays className="w-4 h-4 text-zinc-400" />
                   {DAY_LABELS[expandedDay]} — {daySummaries.find(d => d.dayKey === expandedDay)?.date}
-                  {expandedDay === TODAY_DAY && (
+                  {expandedDay === TODAY_DAY_KEY && (
                     <span className="text-xs px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30 font-medium">Today</span>
                   )}
                 </CardTitle>
