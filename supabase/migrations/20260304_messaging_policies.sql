@@ -9,7 +9,7 @@ create policy "channels: org staff can insert"
       select 1 from org_members
       where org_id = channels.org_id
         and user_id = auth.uid()
-        and org_role in ('owner','admin','coach','nutritionist','head_coach')
+        and org_role in ('owner','head_coach','coach','nutritionist','analyst')
     )
     -- or DM channels created by any org member
     or (
@@ -21,7 +21,7 @@ create policy "channels: org staff can insert"
     )
   );
 
--- channels: creator or admin can update
+-- channels: creator or owner/head_coach can update
 drop policy if exists "channels: creator or admin can update" on channels;
 create policy "channels: creator or admin can update"
   on channels for update
@@ -31,11 +31,11 @@ create policy "channels: creator or admin can update"
       select 1 from org_members
       where org_id = channels.org_id
         and user_id = auth.uid()
-        and org_role in ('owner','admin')
+        and org_role in ('owner','head_coach')
     )
   );
 
--- channels: creator or admin can delete
+-- channels: creator or owner/head_coach can delete
 drop policy if exists "channels: creator or admin can delete" on channels;
 create policy "channels: creator or admin can delete"
   on channels for delete
@@ -45,7 +45,7 @@ create policy "channels: creator or admin can delete"
       select 1 from org_members
       where org_id = channels.org_id
         and user_id = auth.uid()
-        and org_role in ('owner','admin')
+        and org_role in ('owner','head_coach')
     )
   );
 
@@ -62,7 +62,7 @@ create policy "channel_members: org members can insert"
     )
   );
 
--- channel_members: members can remove themselves; admins can remove anyone
+-- channel_members: members can remove themselves; owner/head_coach can remove anyone
 drop policy if exists "channel_members: can delete" on channel_members;
 create policy "channel_members: can delete"
   on channel_members for delete
@@ -73,7 +73,7 @@ create policy "channel_members: can delete"
       join org_members om on om.org_id = ch.org_id
       where ch.id = channel_members.channel_id
         and om.user_id = auth.uid()
-        and om.org_role in ('owner','admin')
+        and om.org_role in ('owner','head_coach')
     )
   );
 
@@ -89,7 +89,7 @@ create policy "messages: sender or admin can delete"
       join org_members om on om.org_id = ch.org_id
       where cm.channel_id = messages.channel_id
         and om.user_id = auth.uid()
-        and om.org_role in ('owner','admin')
+        and om.org_role in ('owner','head_coach')
     )
   );
 
