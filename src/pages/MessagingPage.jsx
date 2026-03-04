@@ -90,7 +90,7 @@ export function MessagingPage() {
     channels, messagesByThread, directMessages,
     initMessaging, createChannel, updateChannel, deleteChannel,
     sendMessage, editMessage, deleteMessage, reactToMessage,
-    openDM, openGroupMessage, markRead,
+    openDM, openGroupMessage, markRead, loadMessages,
   } = useMessagingStore()
 
   const org    = orgs.find((o) => o.id === (activeOrgId || profile?.org_id))
@@ -116,8 +116,10 @@ export function MessagingPage() {
 
   useEffect(() => {
     if (!activeThread && channels.length > 0) {
-      setActiveThread(channels[0].id)
+      const firstId = channels[0].id
+      setActiveThread(firstId)
       setThreadType('channel')
+      loadMessages(firstId)
     }
   }, [channels.length]) // eslint-disable-line
 
@@ -145,21 +147,22 @@ export function MessagingPage() {
   // Is the current user an observer (admin viewing a thread they're not part of)?
   const isObserver = isAdmin && activeDM && !activeDM.participants.includes(userId)
 
-  function selectChannel(id) { setActiveThread(id); setThreadType('channel'); markRead(id, userId) }
-  function selectDM(id) { setActiveThread(id); setThreadType('dm'); markRead(id, userId) }
+  function selectChannel(id) { setActiveThread(id); setThreadType('channel'); markRead(id, userId); loadMessages(id) }
+  function selectDM(id) { setActiveThread(id); setThreadType('dm'); markRead(id, userId); loadMessages(id) }
 
-  function handleCreateChannel(data) {
-    const id = createChannel({ ...data, createdBy: userId, orgId })
+  async function handleCreateChannel(data) {
+    const allOrgMemberIds = members.map(m => m.id || m.user_id).filter(Boolean)
+    const id = await createChannel({ ...data, createdBy: userId, orgId, allOrgMemberIds })
     setCreateCh(false)
-    setActiveThread(id); setThreadType('channel')
+    if (id) { setActiveThread(id); setThreadType('channel'); }
   }
-  function handleOpenDM(tId, tName, tRole) {
-    const id = openDM(userId, tId, tName, tRole)
-    setNewDMOpen(false); setActiveThread(id); setThreadType('dm')
+  async function handleOpenDM(tId, tName, tRole) {
+    const id = await openDM(userId, tId, tName, tRole, orgId)
+    setNewDMOpen(false); if (id) { setActiveThread(id); setThreadType('dm'); loadMessages(id) }
   }
-  function handleOpenGroup(participantIds, groupName) {
-    const id = openGroupMessage(userId, participantIds, groupName)
-    setNewGroupOpen(false); setActiveThread(id); setThreadType('dm')
+  async function handleOpenGroup(participantIds, groupName) {
+    const id = await openGroupMessage(userId, participantIds, groupName, orgId)
+    setNewGroupOpen(false); if (id) { setActiveThread(id); setThreadType('dm'); loadMessages(id) }
   }
 
   return (

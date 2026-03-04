@@ -395,3 +395,225 @@ export async function denyJoinRequest(requestId) {
   if (error) { console.error('[supabase] denyJoinRequest:', error.message); return false }
   return true
 }
+
+// ── Messaging helpers ────────────────────────────────────────────────────────
+
+/**
+ * Fetch all channels for an org that the current user is a member of.
+ * Returns channels with their member list.
+ */
+export async function fetchChannels(orgId) {
+  if (!isSupabaseConfigured()) return []
+  const { data, error } = await supabase
+    .from('channels')
+    .select(`
+      id, name, description, channel_type, created_by, created_at, org_id, is_archived,
+      channel_members ( user_id, role, last_read_at )
+    `)
+    .eq('org_id', orgId)
+    .eq('is_archived', false)
+    .order('created_at', { ascending: true })
+  if (error) { console.error('[supabase] fetchChannels:', error.message); return [] }
+  return data ?? []
+}
+
+/**
+ * Create a new channel and add the creator (and optionally other members) to channel_members.
+ * For public channels, also bulk-inserts all org members.
+ */
+export async function createChannel({ orgId, name, description, channelType, createdBy, memberIds = [] }) {
+  if (!isSupabaseConfigured()) return null
+  const { data: channel, error } = await supabase
+    .from('channels')
+    .insert({ org_id: orgId, name, description, channel_type: channelType, created_by: createdBy })
+    .select()
+    .single()
+  if (error) { console.error('[supabase] createChannel:', error.message); return null }
+
+  // Add members — always include creator; for public channels add all provided org member IDs
+  const allMemberIds = [...new Set([createdBy, ...memberIds])]
+  const memberRows = allMemberIds.map(uid => ({ channel_id: channel.id, user_id: uid, role: uid === createdBy ? 'admin' : 'member' }))
+  const { error: mErr } = await supabase.from('channel_members').insert(memberRows)
+  if (mErr) console.error('[supabase] createChannel members:', mErr.message)
+
+  return channel
+}
+
+/**
+ * Update a channel's name/description.
+ */
+export async function updateChannel(channelId, updates) {
+  if (!isSupabaseConfigured()) return false
+  const { error } = await supabase.from('channels').update(updates).eq('id', channelId)
+  if (error) { console.error('[supabase] updateChannel:', error.message); return false }
+  return true
+}
+
+/**
+ * Soft-delete (archive) a channel.
+ */
+export async function archiveChannel(channelId) {
+  if (!isSupabaseConfigured()) return false
+  const { error } = await supabase.from('channels').update({ is_archived: true }).eq('id', channelId)
+  if (error) { console.error('[supabase] archiveChannel:', error.message); return false }
+  return true
+}
+
+/**
+ * Fetch messages for a channel, ordered oldest-first.
+ * Joins sender profile for display name + role.
+ */
+export async function fetchMessages(channelId, limit = 100) {
+  if (!isSupabaseConfigured()) return []
+  const { data, error } = await supabase
+    .from('messages')
+    .select(`
+      id, channel_id, content, message_type, file_url, media_url, gif_url, formatting,
+      is_pinned, edited_at, created_at,
+      sender:profiles!sender_id ( id, full_name, display_name, role, avatar_url ),
+      reactions:message_reactions ( id, emoji, user_id )
+    `)
+    .eq('channel_id', channelId)
+    .order('created_at', { ascending: true })
+    .limit(limit)
+  if (error) { console.error('[supabase] fetchMessages:', error.message); return [] }
+  return data ?? []
+}
+
+/**
+ * Insert a new message into a channel.
+ */
+export async function sendMessage({ channelId, senderId, content, messageType = 'text', mediaUrl = null, gifUrl = null, formatting = null }) {
+  if (!isSupabaseConfigured()) return null
+  const { data, error } = await supabase
+    .from('messages')
+    .insert({
+      channel_id:   channelId,
+      sender_id:    senderId,
+      content,
+      message_type: messageType,
+      media_url:    mediaUrl,
+      gif_url:      gifUrl,
+      formatting,
+    })
+    .select(`
+      id, channel_id, content, message_type, file_url, media_url, gif_url, formatting,
+      is_pinned, edited_at, created_at,
+      sender:profiles!sender_id ( id, full_name, display_name, role, avatar_url )
+    `)
+    .single()
+  if (error) { console.error('[supabase] sendMessage:', error.message); return null }
+  return data
+}
+
+/**
+ * Edit a message's content.
+ */
+export async function editMessage(messageId, content) {
+  if (!isSupabaseConfigured()) return false
+  const { error } = await supabase
+    .from('messages')
+    .update({ content, edited_at: new Date().toISOString() })
+    .eq('id', messageId)
+  if (error) { console.error('[supabase] editMessage:', error.message); return false }
+  return true
+}
+
+/**
+ * Delete a message.
+ */
+export async function deleteMessage(messageId) {
+  if (!isSupabaseConfigured()) return false
+  const { error } = await supabase.from('messages').delete().eq('id', messageId)
+  if (error) { console.error('[supabase] deleteMessage:', error.message); return false }
+  return true
+}
+
+/**
+ * Toggle a reaction on a message (upsert/delete from message_reactions).
+ */
+export async function toggleReaction(messageId, userId, emoji) {
+  if (!isSupabaseConfigured()) return false
+  // Try to delete first; if nothing deleted, insert
+  const { data: deleted } = await supabase
+    .from('message_reactions')
+    .delete()
+    .eq('message_id', messageId)
+    .eq('user_id', userId)
+    .eq('emoji', emoji)
+    .select()
+  if (deleted?.length > 0) return true // removed
+  const { error } = await supabase.from('message_reactions').insert({ message_id: messageId, user_id: userId, emoji })
+  if (error) console.error('[supabase] toggleReaction:', error.message)
+  return !error
+}
+
+/**
+ * Find or create a DM channel between two users in an org.
+ * Returns the channel row.
+ */
+export async function findOrCreateDM(orgId, userIdA, userIdB) {
+  if (!isSupabaseConfigured()) return null
+  // Look for an existing DM channel where both users are members
+  const { data: existing } = await supabase
+    .rpc('find_dm_channel', { p_org_id: orgId, p_user_a: userIdA, p_user_b: userIdB })
+  if (existing) return existing
+
+  // Create a new DM channel
+  return createChannel({
+    orgId,
+    name:        `dm-${userIdA}-${userIdB}`,
+    description: '',
+    channelType: 'dm',
+    createdBy:   userIdA,
+    memberIds:   [userIdB],
+  })
+}
+
+/**
+ * Find or create a group channel for a set of participants.
+ * groupName is the display name for the group.
+ */
+export async function findOrCreateGroup(orgId, createdBy, participantIds, groupName) {
+  if (!isSupabaseConfigured()) return null
+  return createChannel({
+    orgId,
+    name:        groupName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '').slice(0, 40),
+    description: groupName,
+    channelType: 'group',
+    createdBy,
+    memberIds:   participantIds,
+  })
+}
+
+/**
+ * Update the last_read_at timestamp for a user in a channel.
+ */
+export async function markChannelRead(channelId, userId) {
+  if (!isSupabaseConfigured()) return false
+  const { error } = await supabase
+    .from('channel_members')
+    .update({ last_read_at: new Date().toISOString() })
+    .eq('channel_id', channelId)
+    .eq('user_id', userId)
+  if (error) console.error('[supabase] markChannelRead:', error.message)
+  return !error
+}
+
+/**
+ * Subscribe to new messages on a channel via Supabase Realtime.
+ * Returns an unsubscribe function.
+ */
+export function subscribeToChannel(channelId, onMessage) {
+  if (!isSupabaseConfigured()) return () => {}
+  const sub = supabase
+    .channel(`messages:${channelId}`)
+    .on('postgres_changes', {
+      event: 'INSERT',
+      schema: 'public',
+      table: 'messages',
+      filter: `channel_id=eq.${channelId}`,
+    }, (payload) => onMessage(payload.new))
+    .subscribe()
+  return () => supabase.removeChannel(sub)
+}
