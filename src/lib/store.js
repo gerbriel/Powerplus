@@ -18,7 +18,10 @@ export const useAuthStore = create((set, get) => ({
   // exists in the profiles table for subsequent DB writes.
   loginAsDemo: async (role) => {
     const baseProfile = MOCK_USERS[role] || MOCK_USERS.athlete
-    const profile = { ...baseProfile, role: role === 'super_admin' ? 'super_admin' : role }
+    // assistant_coach has role:'coach' baked into its MOCK_USERS entry;
+    // for all others, use the role key directly.
+    const resolvedRole = role === 'assistant_coach' ? 'coach' : (role === 'super_admin' ? 'super_admin' : role)
+    const profile = { ...baseProfile, role: resolvedRole }
     const memberships = MOCK_ORG_MEMBERS.filter((m) => m.user_id === profile.id)
     const activeOrgId = memberships[0]?.org_id ?? null
     set({
