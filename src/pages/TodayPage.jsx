@@ -267,7 +267,7 @@ function StaffDashboard({ profile, membership }) {
             {greeting}, {profile?.display_name || profile?.full_name?.split(' ')[0]}
           </h1>
           <p className="text-sm text-zinc-400 mt-0.5">
-            Sunday, March 1, 2026 · {
+            {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })} · {
               role === 'nutritionist' ? 'Nutrition & Athlete Overview' :
               role === 'admin' ? 'Head Coach Dashboard' :
               'Coaching Dashboard'
@@ -366,7 +366,8 @@ function StaffDashboard({ profile, membership }) {
             </CardHeader>
             <CardBody className="space-y-2">
               {athletes.map(a => {
-                const trained = a.sessions_this_week > 0 && a.last_session >= '2026-02-28'
+                const todayStr = new Date().toISOString().slice(0, 10)
+                const trained = a.sessions_this_week > 0 && a.last_session >= todayStr
                 const recentSession = a.recent_sessions?.[0]
                 return (
                   <div key={a.id} className="flex items-center gap-3 p-2 rounded-xl bg-zinc-800/30 border border-zinc-700/20">

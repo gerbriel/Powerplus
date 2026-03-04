@@ -654,11 +654,18 @@ export function MeetsPage() {
       {/* Upcoming meets list */}
       {!selectedMeet && tab === 'upcoming' && (
         <div className="space-y-4">
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-            <StatCard label="Next Meet" value="Apr 12" sub="Spring Classic 2026" icon={Trophy} color="yellow" />
-            <StatCard label="Athletes Confirmed" value="4" sub="Spring Classic" icon={Users} color="blue" />
-            <StatCard label="Days Out" value={daysOut('2026-04-12')} sub="from today" icon={Calendar} color="purple" />
-          </div>
+          {mockMeets.length > 0 && (() => {
+            const nextMeet = mockMeets[0]
+            const nextDate = new Date(nextMeet.meet_date)
+            const nextLabel = nextDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+            return (
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                <StatCard label="Next Meet" value={nextLabel} sub={nextMeet.name} icon={Trophy} color="yellow" />
+                <StatCard label="Athletes Confirmed" value={nextMeet.athletes_confirmed ?? '—'} sub={nextMeet.name} icon={Users} color="blue" />
+                <StatCard label="Days Out" value={daysOut(nextMeet.meet_date)} sub="from today" icon={Calendar} color="purple" />
+              </div>
+            )
+          })()}
           {mockMeets.map(meet => {
             const d = daysOut(meet.meet_date)
             const lBlocks = mockBlocks.filter(tb => tb.linked_meet_id === meet.id)
