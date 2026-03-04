@@ -241,13 +241,14 @@ function LogMealModal({ open, onClose }) {
           ),
         }))
       } else {
+        const _todayStr = new Date().toISOString().slice(0, 10)
         const newSession = {
           id:    'mpl-quick',
           label: 'Quick Logged Meals',
-          date:  '2026-03-01',
+          date:  _todayStr,
           cadence: 'daily',
-          week_start: '2026-03-01',
-          week_end:   '2026-03-01',
+          week_start: _todayStr,
+          week_end:   _todayStr,
           linked_goal_ids: [],
           linked_block_id: null,
           linked_meet_id:  null,
@@ -659,6 +660,13 @@ function AthleteDashboardTab({ nutrition, suppChecked, setSuppChecked }) {
   const { isDemo } = useAuthStore()
   const MY_ATHLETE_ID = 'u-ath-001'
   const TODAY_DAY = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][new Date().getDay()]
+  // Compute current week's Monday → Sunday for subtitle labels
+  const _wNow = new Date(); _wNow.setHours(0,0,0,0)
+  const _wDow = _wNow.getDay()
+  const _wMon = new Date(_wNow); _wMon.setDate(_wNow.getDate() - (_wDow === 0 ? 6 : _wDow - 1))
+  const _wSun = new Date(_wMon); _wSun.setDate(_wMon.getDate() + 6)
+  const _fmtW = d => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  const currentWeekLabel = `${_fmtW(_wMon)} – ${_fmtW(_wSun)}, ${_wSun.getFullYear()}`
   const mockMealHistory = isDemo ? MOCK_MEAL_HISTORY : []
 
   // Body weight log — starts empty for real users, uses demo data for demo session
@@ -835,7 +843,7 @@ function AthleteDashboardTab({ nutrition, suppChecked, setSuppChecked }) {
                   className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-purple-500" />
                 <Button size="sm" onClick={() => {
                   if (!newWeight) return
-                  setBodyWeightLog(prev => [...prev, { date: '2026-03-01', weight: Number(newWeight) }])
+                  setBodyWeightLog(prev => [...prev, { date: new Date().toISOString().slice(0, 10), weight: Number(newWeight) }])
                   setNewWeight(''); setLogWeightOpen(false)
                 }}><Check className="w-3.5 h-3.5" /></Button>
                 <Button size="sm" variant="ghost" onClick={() => setLogWeightOpen(false)}><X className="w-3.5 h-3.5" /></Button>
@@ -1248,7 +1256,11 @@ function CombinedMyPlan({ nutrition }) {
     const FALLBACK_TYPES = ['training','rest','training','training','rest','training','rest']
     const FALLBACK_COMPLIANCE = [92, null, 88, 75, null, 100, null]
     const days = []
-    const start = new Date('2026-02-23') // week start (Mon Feb 23, 2026)
+    // Compute current week's Monday
+    const now = new Date(); now.setHours(0, 0, 0, 0)
+    const dayOfWeek = now.getDay() // 0=Sun, 1=Mon...
+    const start = new Date(now)
+    start.setDate(now.getDate() - ((dayOfWeek === 0 ? 7 : dayOfWeek) - 1)) // rewind to Monday
     const BOARD_DAY_KEYS = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday']
     const liveWeekPlan = boardPlans?.[MY_ATHLETE_ID] ?? null
     // Determine which days have prep session coverage from the athlete's prep log
@@ -1390,7 +1402,7 @@ function CombinedMyPlan({ nutrition }) {
           <div className="flex items-center justify-between">
             <div>
               <CardTitle>Nutrition Plan</CardTitle>
-              <CardSubtitle>Assigned by Dr. Priya · Updated Feb 2026</CardSubtitle>
+              <CardSubtitle>{isDemo ? 'Assigned by Dr. Priya · Updated Feb 2026' : 'Your macro targets for training and rest days'}</CardSubtitle>
             </div>
             {editing ? (
               <div className="flex gap-2">
@@ -1450,7 +1462,7 @@ function CombinedMyPlan({ nutrition }) {
           <CardTitle className="flex items-center gap-2">
             <CalendarDays className="w-4 h-4 text-blue-400" />Week Overview
           </CardTitle>
-          <CardSubtitle>Feb 23 – Mar 1, 2026 · Track your daily targets</CardSubtitle>
+          <CardSubtitle>{currentWeekLabel} · Track your daily targets</CardSubtitle>
         </CardHeader>
         <CardBody>
           <div className="grid grid-cols-7 gap-1.5">
@@ -1515,7 +1527,7 @@ function CombinedMyPlan({ nutrition }) {
               <CardTitle className="flex items-center gap-2">
                 <CalendarDays className="w-4 h-4 text-purple-400" />This Week's Plan
               </CardTitle>
-              <CardSubtitle>Set by your nutritionist · Feb 23 – Mar 1, 2026</CardSubtitle>
+              <CardSubtitle>Set by your nutritionist · {currentWeekLabel}</CardSubtitle>
             </CardHeader>
             <CardBody className="space-y-2">
               {/* Day selector strip */}
@@ -3006,7 +3018,8 @@ function AthleteShoppingView({ athleteRecipes, athleteShoppingLists, setAthleteS
   const barColor    = spent > budget ? 'bg-red-500' : spent > budget * 0.85 ? 'bg-yellow-500' : 'bg-teal-500'
 
   // Days until shopping date
-  const today = new Date('2026-03-01')
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
   const shopDate = activeList?.shopping_date ? new Date(activeList.shopping_date) : null
   const daysToShop = shopDate ? Math.ceil((shopDate - today) / (1000 * 60 * 60 * 24)) : null
 
@@ -5522,7 +5535,7 @@ function AthleteHistory() {
   const { isDemo } = useAuthStore()
   const [cadence, setCadence] = useState('weekly') // 'weekly' | 'biweekly' | 'monthly'
 
-  const dailyData = [
+  const dailyData = isDemo ? [
     { date: 'Mar 1',  compliance: 87, protein: 193, calories: 3150, bw: 92.3 },
     { date: 'Feb 28', compliance: 84, protein: 178, calories: 3050, bw: 92.4 },
     { date: 'Feb 27', compliance: 91, protein: 196, calories: 3200, bw: 92.6 },
@@ -5537,15 +5550,16 @@ function AthleteHistory() {
     { date: 'Feb 18', compliance: 85, protein: 182, calories: 3080, bw: 92.7 },
     { date: 'Feb 17', compliance: 89, protein: 190, calories: 3130, bw: 92.6 },
     { date: 'Feb 16', compliance: 94, protein: 202, calories: 3280, bw: 92.4 },
-  ]
+  ] : []
 
   const grouped = useMemo(() => {
+    if (dailyData.length === 0) return []
     if (cadence === 'weekly') {
       const weeks = [
         { label: 'Week 8 — Feb 23–Mar 1', days: dailyData.slice(0, 7) },
         { label: 'Week 7 — Feb 16–22',    days: dailyData.slice(7, 14) },
       ]
-      return weeks.map(w => ({
+      return weeks.filter(w => w.days.length > 0).map(w => ({
         ...w,
         avgCompliance: Math.round(w.days.reduce((s, d) => s + d.compliance, 0) / w.days.length),
         avgProtein:    Math.round(w.days.reduce((s, d) => s + d.protein, 0) / w.days.length),
@@ -5575,7 +5589,7 @@ function AthleteHistory() {
       startBw: dailyData[dailyData.length - 1].bw,
       endBw:   dailyData[0].bw,
     }]
-  }, [cadence])
+  }, [cadence, dailyData])
 
   const linkedPrepSessions = isDemo ? MOCK_MEAL_PREP_LOG : []
 
@@ -5597,7 +5611,12 @@ function AthleteHistory() {
         ))}
       </div>
 
-      {grouped.map(period => (
+      {grouped.length === 0 ? (
+        <div className="text-center py-12 text-zinc-600">
+          <BarChart2 className="w-8 h-8 mx-auto mb-2 opacity-30" />
+          <p className="text-sm">No history logged yet.</p>
+        </div>
+      ) : grouped.map(period => (
         <div key={period.label} className="space-y-3">
           {/* Period summary card */}
           <Card>
@@ -5757,14 +5776,17 @@ function AthleteNutritionProfile({ athlete, onClose, isAdmin, canEdit: canEditPr
   const activeBlock = mockTrainingBlocks.find(b => b.id === athlete.current_block_id)
     || mockTrainingBlocks.find(b => b.status === 'active')
   const linkedGoals = mockGoals.filter(g => activeBlock?.linked_goal_ids?.includes(g.id))
-  const BASE_WEEK = new Date('2026-02-23')
+  // Compute current week's Monday as base
+  const _now1 = new Date(); _now1.setHours(0,0,0,0)
+  const _dow1 = _now1.getDay()
+  const BASE_WEEK = new Date(_now1); BASE_WEEK.setDate(_now1.getDate() - (_dow1 === 0 ? 6 : _dow1 - 1))
   const weekStart = new Date(BASE_WEEK)
   weekStart.setDate(BASE_WEEK.getDate() + weekOffset * 7)
   const weekEnd = new Date(weekStart)
   weekEnd.setDate(weekStart.getDate() + 6)
   const fmtDate = d => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
   const weekRangeLabel = `${fmtDate(weekStart)} – ${fmtDate(weekEnd)}`
-  const weekNumber = 3 + weekOffset // Block 2 week 3 = base
+  const weekNumber = 1 + weekOffset // week 1 = current week as base
 
   function saveMealPlanToHistory() {
     const dt = dayTotals(selectedDay)
@@ -6649,15 +6671,16 @@ function MealPlannerBoard({ isAdmin, athleteRecipes, setAthleteRecipes, athleteP
   ).filter(item => item.servings_remaining > 0)
 
   // Week range label
-  const BASE      = new Date('2026-02-23')
-  const TODAY     = new Date('2026-03-01') // current date — drops blocked before this
+  const TODAY     = new Date(); TODAY.setHours(0, 0, 0, 0) // current date — drops blocked before this
+  const _dow2 = TODAY.getDay()
+  const BASE      = new Date(TODAY); BASE.setDate(TODAY.getDate() - (_dow2 === 0 ? 6 : _dow2 - 1))
   const weekStart = new Date(BASE)
   weekStart.setDate(BASE.getDate() + weekOffset * 7)
   const weekEnd = new Date(weekStart)
   weekEnd.setDate(weekStart.getDate() + 6)
   const fmtD      = d => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
   const weekLabel  = `${fmtD(weekStart)} – ${fmtD(weekEnd)}`
-  const weekNum    = 3 + weekOffset
+  const weekNum    = 1 + weekOffset
 
   // Determine which days are in the past (before today) — drops & edits blocked
   const DAY_DATE_MAP = useMemo(() => {

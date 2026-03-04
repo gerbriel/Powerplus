@@ -617,10 +617,10 @@ function AthleteTodayPage({ profile, weightUnit, toggleWeightUnit }) {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-zinc-100">
-            Good morning, {profile?.display_name || profile?.full_name?.split(' ')[0]}
+            Good {new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 17 ? 'afternoon' : 'evening'}, {profile?.display_name || profile?.full_name?.split(' ')[0]}
           </h1>
           <p className="text-sm text-zinc-400 mt-0.5">
-            Sunday, March 1, 2026 · Week 8 of 12
+            {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
           </p>
         </div>
         <div className="flex items-center gap-2">
