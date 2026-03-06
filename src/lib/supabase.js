@@ -191,6 +191,127 @@ export async function deleteShoppingList(listId) {
   return !error
 }
 
+/**
+ * Delete a single shopping list item by id.
+ */
+export async function deleteShoppingItem(itemId) {
+  if (!isSupabaseConfigured()) return false
+  const { error } = await supabase.from('shopping_list_items').delete().eq('id', itemId)
+  if (error) console.error('[supabase] deleteShoppingItem:', error.message)
+  return !error
+}
+
+// ── Meal Prep Recipes ────────────────────────────────────────────────────────
+
+/**
+ * Fetch all meal prep recipes visible to an org (org templates + personal recipes).
+ * Returns data shaped for use in RecipesTab.
+ */
+export async function fetchOrgRecipes(orgId, userId) {
+  if (!isSupabaseConfigured()) return []
+  let q = supabase
+    .from('meal_prep_recipes')
+    .select('id, created_by, org_id, is_org_template, name, meal_type, prep_time, cook_time, servings, macros_per_serving, ingredients, instructions, tags, created_at')
+    .order('created_at', { ascending: false })
+  if (orgId && userId) {
+    q = q.or(`org_id.eq.${orgId},created_by.eq.${userId}`)
+  } else if (orgId) {
+    q = q.eq('org_id', orgId)
+  } else if (userId) {
+    q = q.eq('created_by', userId)
+  }
+  const { data, error } = await q
+  if (error) { console.error('[supabase] fetchOrgRecipes:', error.message); return [] }
+  return data ?? []
+}
+
+/**
+ * Delete a meal prep recipe by id.
+ */
+export async function deleteRecipe(recipeId) {
+  if (!isSupabaseConfigured()) return false
+  const { error } = await supabase.from('meal_prep_recipes').delete().eq('id', recipeId)
+  if (error) console.error('[supabase] deleteRecipe:', error.message)
+  return !error
+}
+
+// ── Nutrition logs ────────────────────────────────────────────────────────────
+
+/**
+ * Fetch recent nutrition logs for an athlete (last N days).
+ * Returns logs ordered newest-first.
+ */
+export async function fetchNutritionLogs(athleteId, days = 30) {
+  if (!isSupabaseConfigured() || !athleteId) return []
+  const since = new Date()
+  since.setDate(since.getDate() - days)
+  const sinceStr = since.toISOString().slice(0, 10)
+  const { data, error } = await supabase
+    .from('nutrition_logs')
+    .select('id, log_date, meal_type, meal_name, calories_actual, protein_actual, carbs_actual, fat_actual, compliance_score, energy_level, hunger_level, notes')
+    .eq('athlete_id', athleteId)
+    .gte('log_date', sinceStr)
+    .order('log_date', { ascending: false })
+  if (error) { console.error('[supabase] fetchNutritionLogs:', error.message); return [] }
+  return data ?? []
+}
+
+// ── Calendar events ───────────────────────────────────────────────────────────
+
+/**
+ * Fetch all events for an org visible to the current user.
+ */
+export async function fetchOrgEvents(orgId) {
+  if (!isSupabaseConfigured() || !orgId) return []
+  const { data, error } = await supabase
+    .from('events')
+    .select('id, org_id, created_by, title, description, event_type, start_time, end_time, location, meeting_url, attendee_ids, created_at')
+    .eq('org_id', orgId)
+    .order('start_time', { ascending: true })
+  if (error) { console.error('[supabase] fetchOrgEvents:', error.message); return [] }
+  return data ?? []
+}
+
+/**
+ * Fetch personal events created by a user (where org_id may be null).
+ */
+export async function fetchUserEvents(userId) {
+  if (!isSupabaseConfigured() || !userId) return []
+  const { data, error } = await supabase
+    .from('events')
+    .select('id, org_id, created_by, title, description, event_type, start_time, end_time, location, meeting_url, attendee_ids, created_at')
+    .eq('created_by', userId)
+    .is('org_id', null)
+    .order('start_time', { ascending: true })
+  if (error) { console.error('[supabase] fetchUserEvents:', error.message); return [] }
+  return data ?? []
+}
+
+/**
+ * Update an event by id (used for drag-and-drop date changes, edits).
+ */
+export async function updateEventById(id, fields) {
+  if (!isSupabaseConfigured() || !id) return null
+  const { data, error } = await supabase
+    .from('events')
+    .update(fields)
+    .eq('id', id)
+    .select()
+    .single()
+  if (error) { console.error('[supabase] updateEventById:', error.message); return null }
+  return data
+}
+
+/**
+ * Delete an event by id.
+ */
+export async function deleteEvent(id) {
+  if (!isSupabaseConfigured() || !id) return false
+  const { error } = await supabase.from('events').delete().eq('id', id)
+  if (error) console.error('[supabase] deleteEvent:', error.message)
+  return !error
+}
+
 // ── Auth helpers ─────────────────────────────────────────────────────────────
 
 /**

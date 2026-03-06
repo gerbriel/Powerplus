@@ -1,83 +1,200 @@
-import { useState } from 'react'
-import { Plus, Calendar, ChevronLeft, ChevronRight, Clock, MapPin, Video, Dumbbell, Trophy, Users } from 'lucide-react'
+import { useState, useEffect, useCallback } from 'react'
+import { Plus, ChevronLeft, ChevronRight, Dumbbell, Trophy, Users, Trash2, Edit2, X, Save, Check, Video, MapPin } from 'lucide-react'
 import { Card, CardHeader, CardTitle } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
-import { Badge } from '../components/ui/Badge'
 import { Modal } from '../components/ui/Modal'
 import { cn } from '../lib/utils'
-import { useAuthStore } from '../lib/store'
-import { saveEvent } from '../lib/db'
+import { useAuthStore, useCalendarStore } from '../lib/store'
+import { saveEvent, updateEvent, deleteCalendarEvent } from '../lib/db'
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December']
 
 const SAMPLE_EVENTS = {
   '2026-02-28': [
-    { type: 'workout', label: 'Heavy Squat', time: '16:00', color: 'bg-purple-500' },
-    { type: 'reminder', label: 'Nutrition log', time: '20:00', color: 'bg-orange-500' },
+    { id: 's1', event_type: 'session', title: 'Heavy Squat', start_time: '2026-02-28T16:00:00', location: '' },
+    { id: 's2', event_type: 'other', title: 'Nutrition log', start_time: '2026-02-28T20:00:00', location: '' },
   ],
   '2026-03-03': [
-    { type: 'workout', label: 'Bench Focus', time: '17:00', color: 'bg-purple-500' },
-  ],
-  '2026-03-05': [
-    { type: 'workout', label: 'Heavy Deadlift', time: '16:00', color: 'bg-purple-500' },
-  ],
-  '2026-03-07': [
-    { type: 'workout', label: 'Volume Bench', time: '10:00', color: 'bg-purple-500' },
+    { id: 's3', event_type: 'session', title: 'Bench Focus', start_time: '2026-03-03T17:00:00', location: '' },
   ],
   '2026-03-10': [
-    { type: 'meeting', label: '1:1 w/ Coach', time: '09:00', color: 'bg-blue-500' },
+    { id: 's4', event_type: 'meeting', title: '1:1 w/ Coach', start_time: '2026-03-10T09:00:00', meeting_url: '' },
   ],
   '2026-03-15': [
-    { type: 'deadline', label: 'Meet Registration Due', time: '', color: 'bg-red-500' },
+    { id: 's5', event_type: 'deadline', title: 'Meet Registration Due', start_time: '2026-03-15T00:00:00', location: '' },
   ],
   '2026-04-12': [
-    { type: 'meet', label: 'Spring Classic 2026', time: '08:00', color: 'bg-yellow-500' },
+    { id: 's6', event_type: 'meet', title: 'Spring Classic 2026', start_time: '2026-04-12T08:00:00', location: '' },
   ],
+}
+
+const EVENT_COLORS = {
+  session:  'bg-purple-500',
+  meeting:  'bg-blue-500',
+  meet:     'bg-yellow-500',
+  deadline: 'bg-red-500',
+  other:    'bg-orange-500',
+}
+
+const EVENT_ICONS = {
+  session:  Dumbbell,
+  meeting:  Users,
+  meet:     Trophy,
+  deadline: Trophy,
+  other:    Trophy,
+}
+
+const BLANK_FORM = { title: '', event_type: 'meeting', date: '', time: '', end_date: '', end_time: '', location: '', meeting_url: '', description: '' }
+
+function fmtTime(isoStr) {
+  if (!isoStr) return ''
+  try {
+    const d = new Date(isoStr)
+    return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+  } catch { return '' }
 }
 
 export function CalendarPage() {
   const { profile, isDemo, activeOrgId } = useAuthStore()
-  const [year, setYear] = useState(new Date().getFullYear())
-  const [month, setMonth] = useState(new Date().getMonth()) // 0-indexed
-  const [selectedDay, setSelectedDay] = useState(null)
-  const [addEventOpen, setAddEventOpen] = useState(false)
-  const [eventForm, setEventForm] = useState({ type: 'meeting', title: '', date: '', time: '', meeting_url: '' })
-  const updEvent = (k, v) => setEventForm(f => ({ ...f, [k]: v }))
+  const calStore = useCalendarStore()
+  const { events: storeEvents, loadEvents, addEvent: storeAdd, updateEvent: storeUpdate, removeEvent: storeRemove } = calStore
 
-  const handleAddEvent = async () => {
-    if (!eventForm.title.trim() || !eventForm.date) return
-    if (!isDemo && profile?.id) {
-      const startTime = eventForm.time
-        ? `${eventForm.date}T${eventForm.time}:00`
-        : `${eventForm.date}T00:00:00`
-      await saveEvent(profile.id, activeOrgId, {
-        title: eventForm.title,
-        event_type: eventForm.type.toLowerCase().replace(/\s+/g, '_'),
-        start_time: startTime,
-        meeting_url: eventForm.meeting_url,
-      })
+  const [year, setYear]           = useState(new Date().getFullYear())
+  const [month, setMonth]         = useState(new Date().getMonth())
+  const [addOpen, setAddOpen]     = useState(false)
+  const [editEvent, setEditEvent] = useState(null) // event object being edited
+  const [form, setForm]           = useState(BLANK_FORM)
+  const [saving, setSaving]       = useState(false)
+  const [draggedId, setDraggedId] = useState(null)
+
+  // Load events on mount for real users
+  useEffect(() => {
+    if (!isDemo && activeOrgId && profile?.id && !calStore.loaded && !calStore.loading) {
+      loadEvents(activeOrgId, profile.id)
     }
-    setEventForm({ type: 'meeting', title: '', date: '', time: '', meeting_url: '' })
-    setAddEventOpen(false)
-  }
+  }, [isDemo, activeOrgId, profile?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const firstDay = new Date(year, month, 1)
-  const lastDay = new Date(year, month + 1, 0)
-  const startDow = (firstDay.getDay() + 6) % 7 // Monday-first
+  // Build events map: dateKey → events[]
+  const allEvents = isDemo
+    ? Object.values(SAMPLE_EVENTS).flat()
+    : storeEvents
+
+  const eventsByDate = allEvents.reduce((map, ev) => {
+    const key = (ev.start_time ?? '').slice(0, 10)
+    if (!key) return map
+    if (!map[key]) map[key] = []
+    map[key].push(ev)
+    return map
+  }, {})
+
+  // Calendar grid helpers
+  const firstDay  = new Date(year, month, 1)
+  const lastDay   = new Date(year, month + 1, 0)
+  const startDow  = (firstDay.getDay() + 6) % 7 // Mon-first
   const totalDays = lastDay.getDate()
 
   const cells = []
   for (let i = 0; i < startDow; i++) cells.push(null)
   for (let d = 1; d <= totalDays; d++) cells.push(d)
 
-  const prevMonth = () => {
-    if (month === 0) { setMonth(11); setYear(y => y - 1) }
-    else setMonth(m => m - 1)
+  const prevMonth = () => { if (month === 0) { setMonth(11); setYear(y => y - 1) } else setMonth(m => m - 1) }
+  const nextMonth = () => { if (month === 11) { setMonth(0); setYear(y => y + 1) } else setMonth(m => m + 1) }
+
+  const todayDate = new Date()
+  const todayKey  = `${todayDate.getFullYear()}-${String(todayDate.getMonth()+1).padStart(2,'0')}-${String(todayDate.getDate()).padStart(2,'0')}`
+
+  // Upcoming = future events sorted ascending, first 6
+  const upcoming = allEvents
+    .filter(ev => ev.start_time && ev.start_time.slice(0,10) >= todayKey)
+    .sort((a, b) => a.start_time.localeCompare(b.start_time))
+    .slice(0, 6)
+
+  // ── Drag-and-drop handlers ──
+  const handleDragStart = useCallback((e, eventId) => {
+    e.dataTransfer.setData('eventId', eventId)
+    setDraggedId(eventId)
+  }, [])
+
+  const handleDrop = useCallback(async (e, dateKey) => {
+    e.preventDefault()
+    const eventId = e.dataTransfer.getData('eventId')
+    setDraggedId(null)
+    if (!eventId) return
+    const existing = allEvents.find(ev => ev.id === eventId)
+    if (!existing) return
+    const existingTime = existing.start_time?.slice(11) ?? '00:00:00'
+    const newStart = `${dateKey}T${existingTime}`
+    // Optimistic update
+    storeUpdate(eventId, { start_time: newStart })
+    if (!isDemo) {
+      await updateEvent(eventId, { start_time: newStart })
+    }
+  }, [allEvents, isDemo, storeUpdate])
+
+  // ── Add event ──
+  const openAdd = (dateKey) => {
+    setForm({ ...BLANK_FORM, date: dateKey ?? todayKey })
+    setEditEvent(null)
+    setAddOpen(true)
   }
-  const nextMonth = () => {
-    if (month === 11) { setMonth(0); setYear(y => y + 1) }
-    else setMonth(m => m + 1)
+
+  const openEdit = (ev) => {
+    const dateStr = (ev.start_time ?? '').slice(0, 10)
+    const timeStr = (ev.start_time ?? '').slice(11, 16)
+    setForm({
+      title:       ev.title ?? '',
+      event_type:  ev.event_type ?? 'meeting',
+      date:        dateStr,
+      time:        timeStr,
+      end_date:    (ev.end_time ?? '').slice(0, 10),
+      end_time:    (ev.end_time ?? '').slice(11, 16),
+      location:    ev.location ?? '',
+      meeting_url: ev.meeting_url ?? '',
+      description: ev.description ?? '',
+    })
+    setEditEvent(ev)
+    setAddOpen(true)
+  }
+
+  const handleSave = async () => {
+    if (!form.title.trim() || !form.date) return
+    setSaving(true)
+    const startTime = form.time ? `${form.date}T${form.time}:00` : `${form.date}T00:00:00`
+    const endTime   = form.end_date ? (form.end_time ? `${form.end_date}T${form.end_time}:00` : `${form.end_date}T00:00:00`) : null
+
+    if (editEvent) {
+      // Edit
+      const patch = { title: form.title, event_type: form.event_type, start_time: startTime, end_time: endTime, location: form.location, meeting_url: form.meeting_url, description: form.description }
+      storeUpdate(editEvent.id, patch)
+      if (!isDemo) await updateEvent(editEvent.id, patch)
+    } else {
+      // Create
+      const tempId = `tmp-${Date.now()}`
+      const newEv = { id: tempId, title: form.title, event_type: form.event_type, start_time: startTime, end_time: endTime, location: form.location, meeting_url: form.meeting_url, description: form.description }
+      storeAdd(newEv)
+      if (!isDemo && profile?.id) {
+        const saved = await saveEvent(profile.id, activeOrgId, { title: form.title, event_type: form.event_type, start_time: startTime, end_time: endTime, location: form.location, meeting_url: form.meeting_url, description: form.description })
+        if (saved?.id) {
+          storeRemove(tempId)
+          storeAdd({ ...newEv, id: saved.id })
+        }
+      }
+    }
+    setSaving(false)
+    setAddOpen(false)
+    setForm(BLANK_FORM)
+    setEditEvent(null)
+  }
+
+  const handleDelete = async (ev) => {
+    storeRemove(ev.id)
+    if (!isDemo && !ev.id.startsWith('s') && !ev.id.startsWith('tmp')) {
+      await deleteCalendarEvent(ev.id)
+    }
+    setAddOpen(false)
+    setEditEvent(null)
+    setForm(BLANK_FORM)
   }
 
   return (
@@ -87,13 +204,13 @@ export function CalendarPage() {
           <h1 className="text-xl font-bold text-zinc-100">Calendar</h1>
           <p className="text-sm text-zinc-400 mt-0.5">Your schedule and upcoming events</p>
         </div>
-        <Button size="sm" onClick={() => setAddEventOpen(true)}>
+        <Button size="sm" onClick={() => openAdd(null)}>
           <Plus className="w-3.5 h-3.5" /> Add Event
         </Button>
       </div>
 
       <div className="grid md:grid-cols-3 gap-4">
-        {/* Calendar */}
+        {/* ── Calendar grid ── */}
         <div className="md:col-span-2">
           <Card className="p-0 overflow-hidden">
             {/* Month nav */}
@@ -109,7 +226,7 @@ export function CalendarPage() {
 
             {/* Weekday headers */}
             <div className="grid grid-cols-7 border-b border-zinc-800">
-              {WEEKDAYS.map((d) => (
+              {WEEKDAYS.map(d => (
                 <div key={d} className="py-2 text-center text-xs font-semibold text-zinc-500">{d}</div>
               ))}
             </div>
@@ -117,36 +234,45 @@ export function CalendarPage() {
             {/* Days grid */}
             <div className="grid grid-cols-7">
               {cells.map((day, i) => {
-                if (!day) return <div key={`empty-${i}`} className="h-20 border-b border-r border-zinc-800/50" />
-                const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-                const events = (isDemo ? SAMPLE_EVENTS[dateKey] : null) || []
-                const todayDate = new Date()
-                const todayKey = `${todayDate.getFullYear()}-${String(todayDate.getMonth() + 1).padStart(2, '0')}-${String(todayDate.getDate()).padStart(2, '0')}`
+                if (!day) return <div key={`e-${i}`} className="h-24 border-b border-r border-zinc-800/50" />
+                const dateKey = `${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`
+                const dayEvents = eventsByDate[dateKey] ?? []
                 const isToday = dateKey === todayKey
-                const isSelected = selectedDay === dateKey
                 return (
                   <div
                     key={day}
-                    onClick={() => setSelectedDay(dateKey)}
-                    className={cn(
-                      'h-20 border-b border-r border-zinc-800/50 p-1.5 cursor-pointer hover:bg-zinc-800/40 transition-colors',
-                      isSelected && 'bg-purple-500/10',
-                    )}
+                    onDragOver={e => e.preventDefault()}
+                    onDrop={e => handleDrop(e, dateKey)}
+                    onClick={() => openAdd(dateKey)}
+                    className="h-24 border-b border-r border-zinc-800/50 p-1.5 cursor-pointer hover:bg-zinc-800/30 transition-colors group relative"
                   >
                     <div className={cn(
-                      'w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold mb-1',
-                      isToday ? 'bg-purple-600 text-white' : 'text-zinc-400 hover:text-zinc-200'
+                      'w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold mb-1 mx-auto',
+                      isToday ? 'bg-purple-600 text-white' : 'text-zinc-400 group-hover:text-zinc-200'
                     )}>
                       {day}
                     </div>
                     <div className="space-y-0.5 overflow-hidden">
-                      {events.slice(0, 2).map((ev, ei) => (
-                        <div key={ei} className={cn('text-xs px-1.5 py-0.5 rounded font-medium truncate text-white', ev.color)}>
-                          {ev.label}
+                      {dayEvents.slice(0, 2).map(ev => (
+                        <div
+                          key={ev.id}
+                          draggable={!isDemo}
+                          onDragStart={isDemo ? undefined : e => { e.stopPropagation(); handleDragStart(e, ev.id) }}
+                          onDragEnd={() => setDraggedId(null)}
+                          onClick={e => { e.stopPropagation(); openEdit(ev) }}
+                          className={cn(
+                            'text-[10px] px-1.5 py-0.5 rounded font-medium truncate text-white cursor-pointer hover:opacity-80 transition-opacity',
+                            EVENT_COLORS[ev.event_type] ?? 'bg-orange-500',
+                            draggedId === ev.id && 'opacity-40'
+                          )}
+                          title={ev.title}
+                        >
+                          {fmtTime(ev.start_time) && <span className="opacity-70 mr-1">{fmtTime(ev.start_time)}</span>}
+                          {ev.title}
                         </div>
                       ))}
-                      {events.length > 2 && (
-                        <div className="text-xs text-zinc-500 px-1">+{events.length - 2} more</div>
+                      {dayEvents.length > 2 && (
+                        <div className="text-[10px] text-zinc-500 px-1">+{dayEvents.length - 2} more</div>
                       )}
                     </div>
                   </div>
@@ -154,21 +280,24 @@ export function CalendarPage() {
               })}
             </div>
           </Card>
+          {!isDemo && (
+            <p className="text-xs text-zinc-600 mt-2 text-center">Drag events to reschedule · Click event to edit · Click day to add</p>
+          )}
         </div>
 
-        {/* Sidebar */}
+        {/* ── Sidebar ── */}
         <div className="space-y-4">
           {/* Legend */}
           <Card>
             <CardHeader><CardTitle className="text-xs">Event Types</CardTitle></CardHeader>
             <div className="space-y-1.5">
               {[
-                { label: 'Workout', color: 'bg-purple-500' },
-                { label: 'Meeting', color: 'bg-blue-500' },
-                { label: 'Reminder', color: 'bg-orange-500' },
-                { label: 'Deadline', color: 'bg-red-500' },
+                { label: 'Session',            color: 'bg-purple-500' },
+                { label: 'Meeting',            color: 'bg-blue-500' },
                 { label: 'Meet / Competition', color: 'bg-yellow-500' },
-              ].map((e) => (
+                { label: 'Deadline',           color: 'bg-red-500' },
+                { label: 'Other',              color: 'bg-orange-500' },
+              ].map(e => (
                 <div key={e.label} className="flex items-center gap-2 text-xs text-zinc-400">
                   <span className={cn('w-3 h-3 rounded-full flex-shrink-0', e.color)} />
                   {e.label}
@@ -181,71 +310,110 @@ export function CalendarPage() {
           <Card>
             <CardHeader><CardTitle>Upcoming</CardTitle></CardHeader>
             <div className="space-y-2.5">
-              {isDemo ? [
-                { date: 'Today', label: 'Heavy Squat', time: '4:00 PM', icon: Dumbbell, color: 'text-purple-400' },
-                { date: 'Mar 10', label: '1:1 with Coach', time: '9:00 AM', icon: Users, color: 'text-blue-400' },
-                { date: 'Mar 15', label: 'Meet Registration Due', time: 'Deadline', icon: Trophy, color: 'text-red-400' },
-                { date: 'Apr 12', label: 'Spring Classic 2026', time: '8:00 AM', icon: Trophy, color: 'text-yellow-400' },
-              ].map((e, i) => (
-                <div key={i} className="flex items-start gap-3">
-                  <div className={cn('mt-0.5', e.color)}>
-                    <e.icon className="w-3.5 h-3.5" />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-xs font-semibold text-zinc-200">{e.label}</p>
-                    <p className="text-xs text-zinc-500">{e.date} · {e.time}</p>
-                  </div>
-                </div>
-              )) : (
+              {upcoming.length === 0 ? (
                 <p className="text-xs text-zinc-600 text-center py-4">No upcoming events</p>
-              )}
+              ) : upcoming.map(ev => {
+                const Icon = EVENT_ICONS[ev.event_type] ?? Trophy
+                const colorClass = (EVENT_COLORS[ev.event_type] ?? 'bg-orange-500').replace('bg-', 'text-')
+                const dateLabel = ev.start_time?.slice(0,10) === todayKey ? 'Today' : new Date(ev.start_time + (ev.start_time.length === 10 ? 'T00:00:00' : '')).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                return (
+                  <button key={ev.id} onClick={() => openEdit(ev)} className="w-full flex items-start gap-3 text-left hover:bg-zinc-800/40 rounded-xl p-1.5 -mx-1.5 transition-colors">
+                    <div className={cn('mt-0.5', colorClass)}>
+                      <Icon className="w-3.5 h-3.5" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-zinc-200 truncate">{ev.title}</p>
+                      <p className="text-xs text-zinc-500">{dateLabel}{fmtTime(ev.start_time) ? ` · ${fmtTime(ev.start_time)}` : ''}</p>
+                      {ev.location && <p className="text-xs text-zinc-600 flex items-center gap-1 mt-0.5"><MapPin className="w-2.5 h-2.5" />{ev.location}</p>}
+                      {ev.meeting_url && <p className="text-xs text-blue-400/70 flex items-center gap-1 mt-0.5"><Video className="w-2.5 h-2.5" />Online</p>}
+                    </div>
+                  </button>
+                )
+              })}
             </div>
           </Card>
         </div>
       </div>
 
-      {/* Add Event Modal */}
-      <Modal open={addEventOpen} onClose={() => setAddEventOpen(false)} title="Add Event" size="sm">
+      {/* ── Add / Edit Event Modal ── */}
+      <Modal open={addOpen} onClose={() => { setAddOpen(false); setEditEvent(null); setForm(BLANK_FORM) }} title={editEvent ? 'Edit Event' : 'Add Event'} size="sm">
         <div className="p-6 space-y-4">
           <div>
             <label className="block text-xs font-medium text-zinc-400 mb-1.5">Event Type</label>
-            <select value={eventForm.type} onChange={e => updEvent('type', e.target.value)}
+            <select value={form.event_type} onChange={e => setForm(f => ({ ...f, event_type: e.target.value }))}
               className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500">
-              <option>Meeting</option>
-              <option>Session (Online)</option>
-              <option>In-Person Session</option>
-              <option>Deadline</option>
-              <option>Competition</option>
-              <option>Other</option>
+              <option value="meeting">Meeting</option>
+              <option value="session">Session / Workout</option>
+              <option value="meet">Meet / Competition</option>
+              <option value="deadline">Deadline</option>
+              <option value="other">Other</option>
             </select>
           </div>
           <div>
-            <label className="block text-xs font-medium text-zinc-400 mb-1.5">Title</label>
-            <input type="text" value={eventForm.title} onChange={e => updEvent('title', e.target.value)}
-              placeholder="Event title…" className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500" />
+            <label className="block text-xs font-medium text-zinc-400 mb-1.5">Title *</label>
+            <input type="text" value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
+              placeholder="Event title…" maxLength={200}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500" />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-zinc-400 mb-1.5">Date</label>
-              <input type="date" value={eventForm.date} onChange={e => updEvent('date', e.target.value)}
+              <label className="block text-xs font-medium text-zinc-400 mb-1.5">Start Date *</label>
+              <input type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
                 className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500" />
             </div>
             <div>
-              <label className="block text-xs font-medium text-zinc-400 mb-1.5">Time</label>
-              <input type="time" value={eventForm.time} onChange={e => updEvent('time', e.target.value)}
+              <label className="block text-xs font-medium text-zinc-400 mb-1.5">Start Time</label>
+              <input type="time" value={form.time} onChange={e => setForm(f => ({ ...f, time: e.target.value }))}
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-zinc-400 mb-1.5">End Date</label>
+              <input type="date" value={form.end_date} onChange={e => setForm(f => ({ ...f, end_date: e.target.value }))}
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-zinc-400 mb-1.5">End Time</label>
+              <input type="time" value={form.end_time} onChange={e => setForm(f => ({ ...f, end_time: e.target.value }))}
                 className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500" />
             </div>
           </div>
           <div>
-            <label className="block text-xs font-medium text-zinc-400 mb-1.5">Meeting Link (optional)</label>
-            <input type="url" value={eventForm.meeting_url} onChange={e => updEvent('meeting_url', e.target.value)}
-              placeholder="https://zoom.us/j/…" className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500" />
+            <label className="block text-xs font-medium text-zinc-400 mb-1.5">Location</label>
+            <input type="text" value={form.location} onChange={e => setForm(f => ({ ...f, location: e.target.value }))}
+              placeholder="e.g. Main gym, Room 3…" maxLength={300}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500" />
           </div>
-          <Button className="w-full" onClick={handleAddEvent} disabled={!eventForm.title.trim() || !eventForm.date}>
-            <Plus className="w-4 h-4" /> Add Event
-          </Button>
+          <div>
+            <label className="block text-xs font-medium text-zinc-400 mb-1.5">Meeting Link (optional)</label>
+            <input type="url" value={form.meeting_url} onChange={e => setForm(f => ({ ...f, meeting_url: e.target.value }))}
+              placeholder="https://zoom.us/j/…" maxLength={500}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-zinc-400 mb-1.5">Description</label>
+            <textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+              rows={2} placeholder="Optional notes…" maxLength={1000}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500 resize-none" />
+          </div>
+          <div className="flex gap-3 pt-1">
+            {editEvent && !isDemo && (
+              <Button variant="destructive" onClick={() => handleDelete(editEvent)} className="flex-shrink-0">
+                <Trash2 className="w-4 h-4" />
+              </Button>
+            )}
+            <Button variant="ghost" className="flex-1" onClick={() => { setAddOpen(false); setEditEvent(null); setForm(BLANK_FORM) }}>
+              <X className="w-4 h-4" /> Cancel
+            </Button>
+            <Button className="flex-1" onClick={handleSave} disabled={!form.title.trim() || !form.date || saving}>
+              {saving ? 'Saving…' : editEvent ? <><Save className="w-4 h-4" /> Save</> : <><Plus className="w-4 h-4" /> Add</>}
+            </Button>
+          </div>
         </div>
       </Modal>
     </div>
   )
 }
+
+

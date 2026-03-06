@@ -24,9 +24,9 @@ import {
   MOCK_INJURY_LOGS, MOCK_STAFF_ASSIGNMENTS, MOCK_ORG_MEMBERS, MOCK_ATHLETE_MEAL_PLANS,
   MOCK_MEAL_HISTORY, MOCK_ATHLETE_RECIPES, MOCK_ATHLETE_PREP_LOG, MOCK_ATHLETE_SHOPPING_LISTS,
 } from '../lib/mockData'
-import { useAuthStore, useUIStore, useNutritionStore, useGoalsStore, useTrainingStore, resolveRole, isStaffRole } from '../lib/store'
+import { useAuthStore, useUIStore, useNutritionStore, useGoalsStore, useTrainingStore, useRosterStore, resolveRole, isStaffRole } from '../lib/store'
 import { cn, macroPercent } from '../lib/utils'
-import { saveNutritionLog, saveMealPrepRecipe, saveShoppingList, toggleShoppingItem } from '../lib/db'
+import { saveNutritionLog, saveMealPrepRecipe, saveShoppingList, toggleShoppingItem, deleteMealPrepRecipe, deleteShoppingListItem, savePrepSessionFull } from '../lib/db'
 
 const TABS = [
   { id: 'dashboard', label: 'Dashboard' },
@@ -614,7 +614,24 @@ export function NutritionPage() {
     athletePrepLog, setAthletePrepLog,
     athleteShoppingLists, setAthleteShoppingLists,
     boardPlans, setBoardPlans,
+    loadAthleteNutrition, loadOrgRecipes, loadNutritionLogs,
+    orgRecipes, orgRecipesLoaded,
   } = useNutritionStore()
+
+  // Athlete's own ID (for real users, profile.id; fallback for demo)
+  const MY_ATHLETE_ID = isDemo ? 'u-ath-001' : (profile?.id ?? null)
+
+  // On mount for real users: load athlete nutrition data (prep log + shopping lists)
+  useEffect(() => {
+    if (isDemo) return
+    if (!isStaff && MY_ATHLETE_ID) {
+      loadAthleteNutrition(MY_ATHLETE_ID)
+      loadNutritionLogs(MY_ATHLETE_ID, 30)
+    }
+    if (isStaff && activeOrgId) {
+      loadOrgRecipes(activeOrgId, profile?.id)
+    }
+  }, [isDemo, isStaff, MY_ATHLETE_ID, activeOrgId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Deep-link: navigate to a specific tab (+ optionally pre-select athlete) on mount
   const plannerAthleteRef = useRef(null)
@@ -2248,8 +2265,21 @@ function RecipeFormModal({ open, onClose, initial, onSave }) {
 // ─── Recipes Tab ──────────────────────────────────────────────────────────────
 function RecipesTab({ isStaff, athleteRecipes, setAthleteRecipes }) {
   const { isDemo, profile, activeOrgId } = useAuthStore()
-  const mockAthletes = isDemo ? MOCK_ATHLETES : []
-  const [recipes, setRecipes]             = useState(isDemo ? MOCK_MEAL_PLAN_RECIPES : [])
+  const { athletes: rosterAthletes } = useRosterStore()
+  const { orgRecipes, orgRecipesLoaded, setOrgRecipes, loadOrgRecipes } = useNutritionStore()
+
+  // For demo: use mock data. For real users: use store (loaded by NutritionPage on mount)
+  const mockAthletes = isDemo ? MOCK_ATHLETES : rosterAthletes
+  const [recipes, setRecipes] = useState(isDemo ? MOCK_MEAL_PLAN_RECIPES : [])
+  // Sync with store for real users after first load
+  useEffect(() => {
+    if (!isDemo && orgRecipesLoaded) {
+      setRecipes(orgRecipes)
+    } else if (!isDemo && !orgRecipesLoaded && activeOrgId) {
+      loadOrgRecipes(activeOrgId, profile?.id)
+    }
+  }, [isDemo, orgRecipesLoaded, orgRecipes]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const [expanded, setExpanded]           = useState(null)
   const [filter, setFilter]               = useState('all')
   const [addOpen, setAddOpen]             = useState(false)
@@ -2268,16 +2298,27 @@ function RecipesTab({ isStaff, athleteRecipes, setAthleteRecipes }) {
   const mealTypes = ['all', ...new Set(recipes.map(r => r.meal_type))]
   const filtered  = filter === 'all' ? recipes : recipes.filter(r => r.meal_type === filter)
 
-  const handleAdd    = async (recipe) => {
+  const handleAdd = async (recipe) => {
     const newId = genRecipeId()
-    setRecipes(prev => [...prev, { ...recipe, id: newId, day_types: ['training', 'rest'] }])
-    if (!isDemo && profile?.id) await saveMealPrepRecipe(profile.id, activeOrgId, recipe)
+    const newRecipe = { ...recipe, id: newId, day_types: ['training', 'rest'] }
+    setRecipes(prev => [...prev, newRecipe])
+    if (!isDemo && profile?.id) {
+      const saved = await saveMealPrepRecipe(profile.id, activeOrgId, recipe)
+      if (saved) {
+        setRecipes(prev => prev.map(r => r.id === newId ? { ...r, id: saved.id } : r))
+        setOrgRecipes([...recipes.map(r => r.id === newId ? { ...r, id: saved.id } : r), newRecipe].filter((v,i,a)=>a.findIndex(x=>x.id===v.id)===i))
+      }
+    }
   }
-  const handleEdit   = async (recipe) => {
+  const handleEdit = async (recipe) => {
     setRecipes(prev => prev.map(r => r.id === recipe.id ? recipe : r))
     if (!isDemo && profile?.id) await saveMealPrepRecipe(profile.id, activeOrgId, recipe)
   }
-  const handleDelete = (id)     => { setRecipes(prev => prev.filter(r => r.id !== id)); setDeleteConfirm(null) }
+  const handleDelete = async (id) => {
+    setRecipes(prev => prev.filter(r => r.id !== id))
+    setDeleteConfirm(null)
+    if (!isDemo) await deleteMealPrepRecipe(id)
+  }
 
   function doAssign(recipe, athleteId) {
     const already = (athleteRecipes[athleteId] || []).some(r => r.source_recipe_id === recipe.id)
@@ -3017,7 +3058,8 @@ const genSliId  = () => `sli-n${_nextSliId++}`
 
 function AthleteShoppingView({ athleteRecipes, athleteShoppingLists, setAthleteShoppingLists, selectedAthleteId, setSelectedAthleteId, athletePrepLog, boardPlans }) {
   const { isDemo, profile, activeOrgId } = useAuthStore()
-  const mockAthletes = isDemo ? MOCK_ATHLETES : []
+  const { athletes: liveAthletes } = useRosterStore()
+  const mockAthletes = isDemo ? MOCK_ATHLETES : liveAthletes
   const athlete    = mockAthletes.find(a => a.id === selectedAthleteId)
   const myLists    = athleteShoppingLists?.[selectedAthleteId] ?? []
   const [activeAslId, setActiveAslId] = useState(myLists[0]?.id ?? null)
@@ -4014,7 +4056,8 @@ const STORAGE_BADGE = {
 
 function PantryTab({ isAdmin, athletePrepLog, setAthletePrepLog, athleteRecipes }) {
   const { profile, isDemo } = useAuthStore()
-  const mockAthletes = isDemo ? MOCK_ATHLETES : []
+  const { athletes: liveAthletes } = useRosterStore()
+  const mockAthletes = isDemo ? MOCK_ATHLETES : liveAthletes
   const mockStaffAssignments = isDemo ? MOCK_STAFF_ASSIGNMENTS : []
   const myAssignments = mockStaffAssignments.filter(a => a.staff_id === profile?.id)
   const assignedIds   = myAssignments.map(a => a.athlete_id)
@@ -4311,11 +4354,32 @@ let _nextListId = 10
 const genListId = () => `sl-new${_nextListId++}`
 
 function ShoppingListTab({ isStaff, athleteRecipes, athleteShoppingLists, setAthleteShoppingLists, athletePrepLog, boardPlans }) {
-  const { isDemo } = useAuthStore()
-  const mockAthletes = isDemo ? MOCK_ATHLETES : []
-  const mockShoppingLists = isDemo ? MOCK_SHOPPING_LISTS : []
-  const [lists, setLists]             = useState(() => mockShoppingLists.map(l => ({ ...l, categories: l.categories.map(c => ({ ...c, items: c.items.map(i => ({ ...i })) })) })))
+  const { isDemo, profile, activeOrgId } = useAuthStore()
+  const { athletes: rosterAthletes, loadRoster } = useRosterStore()
+  const { loadAthleteNutrition } = useNutritionStore()
+  const MY_ATHLETE_ID = isDemo ? 'u-ath-001' : profile?.id
+  const mockAthletes = isDemo ? MOCK_ATHLETES : rosterAthletes
+  const mockShoppingLists = isDemo ? MOCK_SHOPPING_LISTS : (athleteShoppingLists?.[MY_ATHLETE_ID] ?? [])
+  const [lists, setLists] = useState(() => mockShoppingLists.map(l => ({ ...l, categories: (l.categories ?? []).map(c => ({ ...c, items: c.items.map(i => ({ ...i })) })) })))
   const [activeListId, setActiveListId] = useState(mockShoppingLists[0]?.id ?? null)
+
+  // For real users: sync from store when store changes (loaded on mount by NutritionPage)
+  useEffect(() => {
+    if (!isDemo && MY_ATHLETE_ID) {
+      const storeLists = athleteShoppingLists?.[MY_ATHLETE_ID] ?? []
+      if (storeLists.length > 0) {
+        setLists(storeLists.map(l => ({ ...l, categories: (l.categories ?? []).map(c => ({ ...c, items: (c.items ?? []).map(i => ({ ...i })) })) })))
+        setActiveListId(prev => prev ?? storeLists[0]?.id ?? null)
+      }
+    }
+  }, [athleteShoppingLists, MY_ATHLETE_ID, isDemo]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Persist lists back to store so other tabs stay in sync
+  useEffect(() => {
+    if (!isDemo && MY_ATHLETE_ID) {
+      setAthleteShoppingLists(prev => ({ ...prev, [MY_ATHLETE_ID]: lists }))
+    }
+  }, [lists]) // eslint-disable-line react-hooks/exhaustive-deps
   const [view, setView]               = useState('list') // 'list' | 'history'
   const [shopMode, setShopMode]       = useState(isStaff ? 'athletes' : 'personal') // 'personal' | 'athletes' | 'templates'
   const [selectedShopAthleteId, setSelectedShopAthleteId] = useState(mockAthletes[0]?.id ?? null)
@@ -4399,8 +4463,16 @@ function ShoppingListTab({ isStaff, athleteRecipes, athleteShoppingLists, setAth
   const updateActiveList = (fn) =>
     setLists(prev => prev.map(l => l.id === activeListId ? fn(l) : l))
 
-  const toggle = (catName, itemId) =>
-    updateActiveList(l => ({ ...l, categories: l.categories.map(c => c.name !== catName ? c : { ...c, items: c.items.map(i => i.id === itemId ? { ...i, checked: !i.checked } : i) }) }))
+  const toggle = (catName, itemId) => {
+    // Find current checked state to compute new value
+    const item = (activeList?.categories ?? []).find(c => c.name === catName)?.items.find(i => i.id === itemId)
+    const newChecked = item ? !item.checked : true
+    updateActiveList(l => ({ ...l, categories: l.categories.map(c => c.name !== catName ? c : { ...c, items: c.items.map(i => i.id === itemId ? { ...i, checked: newChecked } : i) }) }))
+    // Persist to Supabase for real users (fire-and-forget)
+    if (!isDemo && !itemId.startsWith('asli-') && !itemId.startsWith('ti-')) {
+      toggleShoppingItem(itemId, newChecked)
+    }
+  }
   const toggleCollapse  = (name) => setCollapsed(prev => ({ ...prev, [name]: !prev[name] }))
   const toggleNutrition = (id)   => setShowNutrition(prev => ({ ...prev, [id]: !prev[id] }))
   const clearChecked = () =>
@@ -4423,6 +4495,10 @@ function ShoppingListTab({ isStaff, athleteRecipes, athleteShoppingLists, setAth
   const handleDeleteItem = ({ categoryName, itemId }) => {
     updateActiveList(l => ({ ...l, categories: l.categories.map(c => c.name !== categoryName ? c : { ...c, items: c.items.filter(i => i.id !== itemId) }) }))
     setDeleteConfirm(null)
+    // Persist deletion for real users (skip local/template ids)
+    if (!isDemo && !itemId.startsWith('asli-') && !itemId.startsWith('ti-') && !itemId.startsWith('sli-')) {
+      deleteShoppingListItem(itemId)
+    }
   }
 
   // Copy/Move item to another list
@@ -4468,7 +4544,7 @@ function ShoppingListTab({ isStaff, athleteRecipes, athleteShoppingLists, setAth
   }
 
   // Create new empty list
-  const handleNewList = () => {
+  const handleNewList = async () => {
     if (!newForm.label.trim()) return
     const newList = {
       id: genListId(),
@@ -4488,6 +4564,14 @@ function ShoppingListTab({ isStaff, athleteRecipes, athleteShoppingLists, setAth
     setActiveListId(newList.id)
     setNewListModal(false)
     setView('list')
+    // Persist to Supabase for real users
+    if (!isDemo && MY_ATHLETE_ID) {
+      const saved = await saveShoppingList(MY_ATHLETE_ID, MY_ATHLETE_ID, activeOrgId, newList)
+      if (saved) {
+        setLists(prev => prev.map(l => l.id === newList.id ? { ...l, id: saved.id } : l))
+        setActiveListId(prev => prev === newList.id ? saved.id : prev)
+      }
+    }
   }
 
   const handleOptimize = () => {
@@ -5258,12 +5342,34 @@ let _nextMpiId  = 100
 const genMpiId  = () => `mpi-n${_nextMpiId++}`
 
 function MealPrepLogTab() {
-  const { isDemo } = useAuthStore()
-  const [sessions, setSessions]     = useState(isDemo ? MOCK_MEAL_PREP_LOG : [])
+  const { profile, isDemo, activeOrgId } = useAuthStore()
+  const { athletePrepLog, setAthletePrepLog, loadAthleteNutrition } = useNutritionStore()
+  const MY_ATHLETE_ID = isDemo ? 'u-ath-001' : profile?.id
+
+  // Derive sessions: for real users read from store (loaded on mount by NutritionPage)
+  // For demo users seed from MOCK, but only once
+  const liveSessions = isDemo ? MOCK_MEAL_PREP_LOG : (athletePrepLog?.[MY_ATHLETE_ID] ?? [])
+  const [localSessions, setLocalSessions] = useState(null)
+  // localSessions shadows store for optimistic updates; null means "use store"
+  const sessions = localSessions !== null ? localSessions : liveSessions
+  const setSessions = (updater) => {
+    setLocalSessions(prev => {
+      const cur = prev !== null ? prev : liveSessions
+      return typeof updater === 'function' ? updater(cur) : updater
+    })
+  }
+
   const [expanded, setExpanded]     = useState(null)
   const [newSessionOpen, setNewSessionOpen] = useState(false)
   const [linkModal, setLinkModal]   = useState(null) // sessionId
   const [consumeModal, setConsumeModal] = useState(null) // { sessionId, item }
+
+  // Sync local sessions back into store when they change (so Pantry/Planner stay in sync)
+  useEffect(() => {
+    if (localSessions !== null && MY_ATHLETE_ID) {
+      setAthletePrepLog(prev => ({ ...prev, [MY_ATHLETE_ID]: localSessions }))
+    }
+  }, [localSessions]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // new session form
   const [nsForm, setNsForm] = useState({
@@ -5284,7 +5390,7 @@ function MealPrepLogTab() {
     const items = [...prev.items]; items[idx] = { ...items[idx], macros_per_serving: { ...items[idx].macros_per_serving, [key]: Number(val) } }; return { ...prev, items }
   })
 
-  const handleCreateSession = () => {
+  const handleCreateSession = async () => {
     if (!nsForm.label.trim()) return
     const items = nsForm.items.map(i => ({ ...i, id: genMpiId(), servings_consumed: 0 }))
     const totalCal  = items.reduce((s, i) => s + i.macros_per_serving.calories * i.servings_made, 0)
@@ -5294,11 +5400,21 @@ function MealPrepLogTab() {
       total_calories_prepped: totalCal,
       total_protein_prepped: totalProt,
     }
+    // Optimistic update
     setSessions(prev => [session, ...prev])
     setNewSessionOpen(false)
     setNsForm({ label: '', date: '', cadence: 'weekly', week_start: '', week_end: '', notes: '', linked_goal_ids: [], linked_block_id: null, linked_meet_id: null,
       items: [{ recipe_name: '', servings_made: 1, storage: 'fridge', notes: '', macros_per_serving: { calories: 0, protein: 0, carbs: 0, fat: 0 } }]
     })
+    // Persist to Supabase for real users
+    if (!isDemo && MY_ATHLETE_ID) {
+      savePrepSessionFull(MY_ATHLETE_ID, activeOrgId, MY_ATHLETE_ID, session, items).then(saved => {
+        if (saved) {
+          // Replace local temp id with real DB id
+          setSessions(prev => prev.map(s => s.id === session.id ? { ...s, id: saved.id } : s))
+        }
+      })
+    }
   }
 
   const logServings = (sessionId, itemId, delta) => {
@@ -5575,7 +5691,9 @@ function MealPrepLogTab() {
 
 // ─── Athlete History ──────────────────────────────────────────────────────────
 function AthleteHistory() {
-  const { isDemo } = useAuthStore()
+  const { isDemo, profile } = useAuthStore()
+  const { nutritionLogs } = useNutritionStore()
+  const MY_ATHLETE_ID = isDemo ? 'u-ath-001' : profile?.id
   const [cadence, setCadence] = useState('weekly') // 'weekly' | 'biweekly' | 'monthly'
 
   const dailyData = isDemo ? [
@@ -5593,7 +5711,13 @@ function AthleteHistory() {
     { date: 'Feb 18', compliance: 85, protein: 182, calories: 3080, bw: 92.7 },
     { date: 'Feb 17', compliance: 89, protein: 190, calories: 3130, bw: 92.6 },
     { date: 'Feb 16', compliance: 94, protein: 202, calories: 3280, bw: 92.4 },
-  ] : []
+  ] : (nutritionLogs?.[MY_ATHLETE_ID] ?? []).map(log => ({
+    date:       log.log_date ?? log.date ?? '',
+    compliance: log.compliance_score ?? 0,
+    protein:    log.protein_actual   ?? 0,
+    calories:   log.calories_actual  ?? 0,
+    bw:         log.body_weight      ?? null,
+  }))
 
   const grouped = useMemo(() => {
     if (dailyData.length === 0) return []
@@ -5634,7 +5758,8 @@ function AthleteHistory() {
     }]
   }, [cadence, dailyData])
 
-  const linkedPrepSessions = isDemo ? MOCK_MEAL_PREP_LOG : []
+  const { athletePrepLog } = useNutritionStore()
+  const linkedPrepSessions = isDemo ? MOCK_MEAL_PREP_LOG : (athletePrepLog?.[MY_ATHLETE_ID] ?? [])
 
   return (
     <div className="space-y-4">
@@ -6635,10 +6760,19 @@ function emptyWeekBoard() {
 }
 
 function MealPlannerBoard({ isAdmin, athleteRecipes, setAthleteRecipes, athletePrepLog, setAthletePrepLog, athleteShoppingLists, setAthleteShoppingLists, onBoardPlansChange, initialAthleteId }) {
-  const { profile, isDemo } = useAuthStore()
+  const { profile, isDemo, activeOrgId } = useAuthStore()
   const { goals: storeGoals } = useGoalsStore()
   const { blocks: storeBlocks } = useTrainingStore()
-  const mockAthletes = isDemo ? MOCK_ATHLETES : []
+  const { athletes: liveAthletes, loadRoster } = useRosterStore()
+
+  // Load roster for real users on mount
+  useEffect(() => {
+    if (!isDemo && activeOrgId && liveAthletes.length === 0) {
+      loadRoster(activeOrgId)
+    }
+  }, [isDemo, activeOrgId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const mockAthletes = isDemo ? MOCK_ATHLETES : liveAthletes
   const mockStaffAssignments = isDemo ? MOCK_STAFF_ASSIGNMENTS : []
   const mockMealPlans = isDemo ? MOCK_ATHLETE_MEAL_PLANS : {}
   const mockTrainingBlocks = storeBlocks.length ? storeBlocks : (isDemo ? MOCK_TRAINING_BLOCKS : [])
@@ -7636,8 +7770,8 @@ function MealPlannerBoard({ isAdmin, athleteRecipes, setAthleteRecipes, athleteP
 }
 
 function StaffRoster({ isAdmin }) {
-  const { profile, isDemo } = useAuthStore()
-  const mockAthletes = isDemo ? MOCK_ATHLETES : []
+  const { profile, isDemo, activeOrgId } = useAuthStore()
+  const { athletes: liveAthletes, loading: rosterLoading, loadRoster } = useRosterStore()
   const mockStaffAssignments = isDemo ? MOCK_STAFF_ASSIGNMENTS : []
   const mockMealPlans = isDemo ? MOCK_ATHLETE_MEAL_PLANS : {}
   const macroDefaults = { calories: 0, protein: 0, carbs: 0, fat: 0 }
@@ -7645,12 +7779,22 @@ function StaffRoster({ isAdmin }) {
   const [filter, setFilter] = useState('all') // 'all' | 'flags' | 'low_compliance'
   const [profileAthleteId, setProfileAthleteId] = useState(null)
 
+  // For real users: load roster on mount if not already loaded
+  useEffect(() => {
+    if (!isDemo && activeOrgId && liveAthletes.length === 0 && !rosterLoading) {
+      loadRoster(activeOrgId)
+    }
+  }, [isDemo, activeOrgId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Use live athletes for real users, mock for demo
+  const allAthletes = isDemo ? MOCK_ATHLETES : liveAthletes
+
   // Admin sees ALL athletes; other staff see only their assignments
   const myAssignments = mockStaffAssignments.filter(a => a.staff_id === profile?.id)
   const assignedIds = myAssignments.map(a => a.athlete_id)
   const rosterAthletes = isAdmin
-    ? mockAthletes
-    : assignedIds.length > 0 ? mockAthletes.filter(a => assignedIds.includes(a.id)) : mockAthletes
+    ? allAthletes
+    : assignedIds.length > 0 ? allAthletes.filter(a => assignedIds.includes(a.id)) : allAthletes
 
   const FLAG_META = {
     pain_flag:       { label: 'Pain Flag',        color: 'text-red-400 bg-red-500/15 border-red-500/30' },
@@ -7660,17 +7804,17 @@ function StaffRoster({ isAdmin }) {
   }
 
   const filtered = rosterAthletes.filter(a => {
-    const matchSearch = a.full_name.toLowerCase().includes(search.toLowerCase()) ||
-      a.weight_class.toLowerCase().includes(search.toLowerCase())
+    const matchSearch = (a.full_name ?? '').toLowerCase().includes(search.toLowerCase()) ||
+      (a.weight_class ?? '').toLowerCase().includes(search.toLowerCase())
     const matchFilter =
       filter === 'all' ? true :
-      filter === 'flags' ? a.flags.length > 0 :
-      filter === 'low_compliance' ? a.nutrition_compliance < 80 :
+      filter === 'flags' ? (a.flags ?? []).length > 0 :
+      filter === 'low_compliance' ? (a.nutrition_compliance ?? 100) < 80 :
       true
     return matchSearch && matchFilter
   })
 
-  const profileAthlete = mockAthletes.find(a => a.id === profileAthleteId)
+  const profileAthlete = allAthletes.find(a => a.id === profileAthleteId)
   const profileAssignment = mockStaffAssignments.find(a => a.staff_id === profile?.id && a.athlete_id === profileAthleteId)
 
   return (
@@ -7824,7 +7968,8 @@ function StaffRoster({ isAdmin }) {
 // ─── Staff Plans ──────────────────────────────────────────────────────────────
 function StaffPlans({ isAdmin }) {
   const { profile, isDemo } = useAuthStore()
-  const mockAthletes = isDemo ? MOCK_ATHLETES : []
+  const { athletes: liveAthletes } = useRosterStore()
+  const mockAthletes = isDemo ? MOCK_ATHLETES : liveAthletes
   const mockStaffAssignments = isDemo ? MOCK_STAFF_ASSIGNMENTS : []
   const mockRecipes = isDemo ? MOCK_MEAL_PLAN_RECIPES : []
   const [editingAthleteId, setEditingAthleteId] = useState(null)
@@ -8072,8 +8217,17 @@ function StaffPlans({ isAdmin }) {
 
 // ─── Staff Team Overview (admin only) ────────────────────────────────────────
 function StaffTeamOverview() {
-  const { isDemo } = useAuthStore()
-  const mockAthletes = isDemo ? MOCK_ATHLETES : []
+  const { isDemo, activeOrgId } = useAuthStore()
+  const { athletes: liveAthletes, loading: rosterLoading, loadRoster } = useRosterStore()
+
+  // Load roster if not yet loaded for real users
+  useEffect(() => {
+    if (!isDemo && activeOrgId && liveAthletes.length === 0 && !rosterLoading) {
+      loadRoster(activeOrgId)
+    }
+  }, [isDemo, activeOrgId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const allAthletes = isDemo ? MOCK_ATHLETES : liveAthletes
   const mockStaffAssignments = isDemo ? MOCK_STAFF_ASSIGNMENTS : []
   const mockOrgMembers = isDemo ? MOCK_ORG_MEMBERS : []
   const mockMealPlans = isDemo ? MOCK_ATHLETE_MEAL_PLANS : {}
@@ -8083,21 +8237,21 @@ function StaffTeamOverview() {
 
   const staffCards = orgStaff.map(member => {
     const assignments = mockStaffAssignments.filter(a => a.staff_id === member.user_id)
-    const assignedAthleteIds = assignments.map(a => a.athlete_id).filter(id => mockAthletes.find(a => a.id === id))
-    const assignedAthletes = mockAthletes.filter(a => assignedAthleteIds.includes(a.id))
+    const assignedAthleteIds = assignments.map(a => a.athlete_id).filter(id => allAthletes.find(a => a.id === id))
+    const assignedAthletes = allAthletes.filter(a => assignedAthleteIds.includes(a.id))
     const avgCompliance = assignedAthletes.length > 0
-      ? Math.round(assignedAthletes.reduce((s, a) => s + a.nutrition_compliance, 0) / assignedAthletes.length)
+      ? Math.round(assignedAthletes.reduce((s, a) => s + (a.nutrition_compliance ?? 0), 0) / assignedAthletes.length)
       : null
-    const flaggedAthletes = assignedAthletes.filter(a => a.flags.length > 0)
+    const flaggedAthletes = assignedAthletes.filter(a => (a.flags ?? []).length > 0)
     return { member, assignedAthletes, avgCompliance, flaggedAthletes }
   })
 
   // Org-wide nutrition stats
-  const orgAvgCompliance = mockAthletes.length > 0
-    ? Math.round(mockAthletes.reduce((s, a) => s + a.nutrition_compliance, 0) / mockAthletes.length)
+  const orgAvgCompliance = allAthletes.length > 0
+    ? Math.round(allAthletes.reduce((s, a) => s + (a.nutrition_compliance ?? 0), 0) / allAthletes.length)
     : 0
-  const athletesWithFlags = mockAthletes.filter(a => a.flags.length > 0)
-  const athletesLowCompliance = mockAthletes.filter(a => a.nutrition_compliance < 80)
+  const athletesWithFlags = allAthletes.filter(a => (a.flags ?? []).length > 0)
+  const athletesLowCompliance = allAthletes.filter(a => (a.nutrition_compliance ?? 100) < 80)
   const athletesWithPlan = Object.keys(mockMealPlans).length
 
   const ROLE_META = {
@@ -8111,8 +8265,8 @@ function StaffTeamOverview() {
       {/* Org-wide summary */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <StatCard label="Avg Compliance" value={`${orgAvgCompliance}%`} sub="org-wide" icon={Target} color={orgAvgCompliance >= 85 ? 'green' : orgAvgCompliance >= 70 ? 'yellow' : 'red'} />
-        <StatCard label="Total Athletes" value={`${mockAthletes.length}`} sub="on roster" icon={Users} color="blue" />
-        <StatCard label="With Meal Plan" value={`${athletesWithPlan}`} sub={`of ${mockAthletes.length}`} icon={ClipboardList} color="purple" />
+        <StatCard label="Total Athletes" value={`${allAthletes.length}`} sub="on roster" icon={Users} color="blue" />
+        <StatCard label="With Meal Plan" value={`${athletesWithPlan}`} sub={`of ${allAthletes.length}`} icon={ClipboardList} color="purple" />
         <StatCard label="Needs Attention" value={`${Math.max(athletesWithFlags.length, athletesLowCompliance.length)}`} sub="flagged or low" icon={AlertTriangle} color="orange" />
       </div>
 
@@ -8120,12 +8274,12 @@ function StaffTeamOverview() {
       <Card>
         <CardHeader>
           <CardTitle>Athlete Nutrition Compliance</CardTitle>
-          <CardSubtitle>All {mockAthletes.length} athletes</CardSubtitle>
+          <CardSubtitle>All {allAthletes.length} athletes</CardSubtitle>
         </CardHeader>
         <CardBody>
           <div className="space-y-2">
-            {mockAthletes.map(a => {
-              const nc = a.nutrition_compliance
+            {allAthletes.map(a => {
+              const nc = a.nutrition_compliance ?? 0
               const compColor = nc >= 85 ? 'text-green-400' : nc >= 70 ? 'text-yellow-400' : 'text-red-400'
               const compBar = nc >= 85 ? 'green' : nc >= 70 ? 'yellow' : 'red'
               const hasPlan = !!mockMealPlans[a.id]
@@ -8136,7 +8290,7 @@ function StaffTeamOverview() {
                     <div className="flex items-center gap-2 mb-1">
                       <p className="text-xs font-medium text-zinc-200 truncate">{a.full_name}</p>
                       <span className="text-xs text-zinc-600">{a.weight_class}</span>
-                      {a.flags.map(f => (
+                      {(a.flags ?? []).map(f => (
                         <span key={f} className="text-xs text-red-400">⚠</span>
                       ))}
                     </div>
@@ -8207,12 +8361,12 @@ function StaffTeamOverview() {
                             {assignedAthletes.map(a => (
                               <span key={a.id} className={cn(
                                 'text-xs px-2 py-0.5 rounded-full border font-medium',
-                                a.flags.length > 0
+                                (a.flags ?? []).length > 0
                                   ? 'text-orange-400 bg-orange-500/10 border-orange-500/20'
                                   : 'text-zinc-400 bg-zinc-700/20 border-zinc-600/20'
                               )}>
                                 {a.full_name.split(' ')[0]}
-                                {a.flags.length > 0 && ' ⚠'}
+                                {(a.flags ?? []).length > 0 && ' ⚠'}
                               </span>
                             ))}
                           </div>

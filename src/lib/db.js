@@ -937,3 +937,130 @@ export async function saveWorkoutBuilder(meta, blocks) {
   const success = await sbSaveWorkoutTemplateExercises(workoutTemplate.id, exerciseRows)
   return { workoutTemplate, success }
 }
+
+// ─── Calendar events (update / delete) ───────────────────────────────────────
+
+/**
+ * Update a calendar event (sanitized). Used for drag-and-drop date changes and edits.
+ */
+export async function updateEvent(eventId, fields) {
+  if (!isSupabaseConfigured() || !eventId) return null
+  const validTypes = ['session','meeting','meet','deadline','other']
+  const row = {}
+  if (fields.title      !== undefined) row.title       = sanitizeText(fields.title, 200)
+  if (fields.description!== undefined) row.description = sanitizeText(fields.description, 1000)
+  if (fields.event_type !== undefined) row.event_type  = validTypes.includes(fields.event_type) ? fields.event_type : 'other'
+  if (fields.start_time !== undefined) row.start_time  = fields.start_time ? new Date(fields.start_time).toISOString() : null
+  if (fields.end_time   !== undefined) row.end_time    = fields.end_time   ? new Date(fields.end_time).toISOString()   : null
+  if (fields.location   !== undefined) row.location    = sanitizeText(fields.location, 300)
+  if (fields.meeting_url!== undefined) row.meeting_url = sanitizeText(fields.meeting_url, 500)
+  if (!Object.keys(row).length) return null
+  const { data, error } = await supabase.from('events').update(row).eq('id', eventId).select().single()
+  if (error) { console.error('[db] updateEvent:', error.message); return null }
+  return data
+}
+
+/**
+ * Delete a calendar event by id.
+ */
+export async function deleteCalendarEvent(eventId) {
+  if (!isSupabaseConfigured() || !eventId) return false
+  const { error } = await supabase.from('events').delete().eq('id', eventId)
+  if (error) { console.error('[db] deleteCalendarEvent:', error.message); return false }
+  return true
+}
+
+// ─── Meal prep recipes (delete) ───────────────────────────────────────────────
+
+/**
+ * Delete a meal prep recipe by id.
+ */
+export async function deleteMealPrepRecipe(recipeId) {
+  if (!isSupabaseConfigured() || !recipeId) return false
+  const { error } = await supabase.from('meal_prep_recipes').delete().eq('id', recipeId)
+  if (error) { console.error('[db] deleteMealPrepRecipe:', error.message); return false }
+  return true
+}
+
+// ─── Shopping list items (delete) ─────────────────────────────────────────────
+
+/**
+ * Delete a single shopping list item by id.
+ */
+export async function deleteShoppingListItem(itemId) {
+  if (!isSupabaseConfigured() || !itemId) return false
+  const { error } = await supabase.from('shopping_list_items').delete().eq('id', itemId)
+  if (error) { console.error('[db] deleteShoppingListItem:', error.message); return false }
+  return true
+}
+
+// ─── Body weight log ──────────────────────────────────────────────────────────
+
+/**
+ * Persist a body-weight entry for an athlete via the nutrition_logs upsert.
+ * Reuses the same daily log row (upsert on athlete_id + log_date).
+ */
+export async function saveBodyWeight(athleteId, weightKg, logDate) {
+  if (!isSupabaseConfigured() || !athleteId) return null
+  const row = {
+    athlete_id:   athleteId,
+    log_date:     sanitizeDate(logDate) ?? new Date().toISOString().slice(0, 10),
+    body_weight:  sanitizeNumber(weightKg, 20, 500),
+  }
+  const { data, error } = await supabase
+    .from('nutrition_logs')
+    .upsert(row, { onConflict: 'athlete_id,log_date' })
+    .select().single()
+  if (error) { console.error('[db] saveBodyWeight:', error.message); return null }
+  return data
+}
+
+// ─── Meal prep session (full persist) ────────────────────────────────────────
+
+/**
+ * Create a full meal prep session + items for an athlete (sanitized).
+ */
+export async function savePrepSessionFull(athleteId, orgId, createdBy, session, items) {
+  if (!isSupabaseConfigured() || !athleteId) return null
+  const sessionRow = {
+    athlete_id:              athleteId,
+    created_by:              createdBy ?? athleteId,
+    org_id:                  orgId ?? null,
+    label:                   sanitizeText(session.label, 200),
+    prep_date:               sanitizeDate(session.date) ?? new Date().toISOString().slice(0, 10),
+    cadence:                 ['weekly','biweekly','monthly','daily'].includes(session.cadence) ? session.cadence : 'weekly',
+    period_start:            sanitizeDate(session.week_start),
+    period_end:              sanitizeDate(session.week_end),
+    total_calories_prepped:  sanitizeNumber(session.total_calories_prepped, 0, 9999999) ?? 0,
+    total_protein_prepped:   sanitizeNumber(session.total_protein_prepped, 0, 999999) ?? 0,
+    notes:                   sanitizeText(session.notes, 500),
+  }
+  if (!sessionRow.label) { console.warn('[db] savePrepSessionFull: label required'); return null }
+  const { data: newSession, error: sErr } = await supabase
+    .from('meal_prep_sessions')
+    .insert(sessionRow)
+    .select()
+    .single()
+  if (sErr) { console.error('[db] savePrepSessionFull session:', sErr.message); return null }
+
+  if (items && items.length > 0) {
+    const itemRows = items.map(item => ({
+      session_id:          newSession.id,
+      recipe_id:           item.recipe_id ?? null,
+      recipe_name:         sanitizeText(item.recipe_name, 200) ?? '',
+      servings_made:       sanitizeNumber(item.servings_made, 0, 9999) ?? 1,
+      servings_consumed:   sanitizeNumber(item.servings_consumed, 0, 9999) ?? 0,
+      storage:             ['fridge','freezer','counter'].includes(item.storage) ? item.storage : 'fridge',
+      macros_per_serving: {
+        calories: sanitizeNumber(item.macros_per_serving?.calories, 0, 10000) ?? 0,
+        protein:  sanitizeNumber(item.macros_per_serving?.protein,  0, 500)  ?? 0,
+        carbs:    sanitizeNumber(item.macros_per_serving?.carbs,    0, 1000) ?? 0,
+        fat:      sanitizeNumber(item.macros_per_serving?.fat,      0, 500)  ?? 0,
+      },
+      notes: sanitizeText(item.notes, 300),
+    }))
+    const { error: iErr } = await supabase.from('meal_prep_session_items').insert(itemRows)
+    if (iErr) console.error('[db] savePrepSessionFull items:', iErr.message)
+  }
+  return newSession
+}

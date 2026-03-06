@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { MOCK_USERS, MOCK_GOALS, MOCK_TRAINING_BLOCKS, MOCK_MEETS, MOCK_ORGS, MOCK_ORG_MEMBERS, MOCK_STAFF_ASSIGNMENTS, MOCK_ATHLETE_RECIPES, MOCK_ATHLETE_PREP_LOG, MOCK_ATHLETE_SHOPPING_LISTS, MOCK_ATHLETE_MEAL_PLANS, MOCK_CHANNELS, MOCK_MESSAGES, MOCK_DIRECT_MESSAGES, MOCK_EXERCISES } from './mockData'
-import { upsertProfile, isSupabaseConfigured, onAuthStateChange, fetchProfile, fetchOrgMemberships, signOut as supabaseSignOut, getSession, fetchChannels as sbFetchChannels, createChannel as sbCreateChannel, updateChannel as sbUpdateChannel, archiveChannel as sbArchiveChannel, fetchMessages as sbFetchMessages, sendMessage as sbSendMessage, editMessage as sbEditMessage, deleteMessage as sbDeleteMessage, toggleReaction as sbToggleReaction, findOrCreateDM as sbFindOrCreateDM, findOrCreateGroup as sbFindOrCreateGroup, markChannelRead as sbMarkChannelRead, fetchOrgAthletes, fetchOrgReviewQueue, fetchExercises, fetchProgramTemplates, fetchOrgTrainingBlocks } from './supabase'
+import { upsertProfile, isSupabaseConfigured, onAuthStateChange, fetchProfile, fetchOrgMemberships, signOut as supabaseSignOut, getSession, fetchChannels as sbFetchChannels, createChannel as sbCreateChannel, updateChannel as sbUpdateChannel, archiveChannel as sbArchiveChannel, fetchMessages as sbFetchMessages, sendMessage as sbSendMessage, editMessage as sbEditMessage, deleteMessage as sbDeleteMessage, toggleReaction as sbToggleReaction, findOrCreateDM as sbFindOrCreateDM, findOrCreateGroup as sbFindOrCreateGroup, markChannelRead as sbMarkChannelRead, fetchOrgAthletes, fetchOrgReviewQueue, fetchExercises, fetchProgramTemplates, fetchOrgTrainingBlocks, fetchPrepLog, fetchShoppingLists, fetchOrgRecipes, fetchNutritionLogs, fetchOrgEvents, fetchUserEvents } from './supabase'
 
 export const useAuthStore = create((set, get) => ({
   user: null,
@@ -56,7 +56,7 @@ export const useAuthStore = create((set, get) => ({
     useOrgStore.setState({ orgs: [], staffAssignments: [] })
     useGoalsStore.setState({ goals: [] })
     useTrainingStore.setState({ blocks: [], meets: [] })
-    useNutritionStore.setState({ athleteRecipes: {}, athletePrepLog: {}, athleteShoppingLists: {}, boardPlans: {} })
+    useNutritionStore.setState({ athleteRecipes: {}, athletePrepLog: {}, athleteShoppingLists: {}, boardPlans: {}, orgRecipes: [], orgRecipesLoaded: false, nutritionLogs: {} })
     useRosterStore.setState({ athletes: [], reviewQueue: [], loading: false, error: null })
     useProgrammingStore.setState({ templates: [], exercises: [], loading: false })
   },
@@ -78,7 +78,7 @@ export const useAuthStore = create((set, get) => ({
     useOrgStore.setState({ orgs: [], staffAssignments: [] })
     useGoalsStore.setState({ goals: [] })
     useTrainingStore.setState({ blocks: [], meets: [] })
-    useNutritionStore.setState({ athleteRecipes: {}, athletePrepLog: {}, athleteShoppingLists: {}, boardPlans: {} })
+    useNutritionStore.setState({ athleteRecipes: {}, athletePrepLog: {}, athleteShoppingLists: {}, boardPlans: {}, orgRecipes: [], orgRecipesLoaded: false, nutritionLogs: {} })
     useRosterStore.setState({ athletes: [], reviewQueue: [], loading: false, error: null })
     useProgrammingStore.setState({ templates: [], exercises: [], loading: false })
     const [profile, memberships] = await Promise.all([
@@ -791,6 +791,155 @@ export const useNutritionStore = create((set) => ({
     set((s) => ({
       boardPlans: typeof updater === 'function' ? updater(s.boardPlans) : updater,
     })),
+
+  // Org-level recipes (staff/nutritionist side)
+  orgRecipes: [],
+  orgRecipesLoaded: false,
+  setOrgRecipes: (recipes) => set({ orgRecipes: recipes, orgRecipesLoaded: true }),
+
+  // Athlete nutrition logs (for dashboard compliance chart)
+  nutritionLogs: {},   // { [athleteId]: [ ...log rows ] }
+  setNutritionLogs: (athleteId, logs) =>
+    set((s) => ({ nutritionLogs: { ...s.nutritionLogs, [athleteId]: logs } })),
+
+  // ── Async load actions ────────────────────────────────────────────────────
+
+  /** Load prep log + shopping lists for a single athlete from Supabase. */
+  loadAthleteNutrition: async (athleteId) => {
+    if (!isSupabaseConfigured() || !athleteId) return
+    const [sessions, lists] = await Promise.all([
+      fetchPrepLog(athleteId),
+      fetchShoppingLists(athleteId),
+    ])
+    set((s) => {
+      const next = { ...s }
+      if (sessions) {
+        // Normalize DB shape → in-memory shape (date → date, period_start/end → week_start/end)
+        const mapped = sessions.map(sess => ({
+          id:                     sess.id,
+          label:                  sess.label,
+          date:                   sess.prep_date,
+          cadence:                sess.cadence ?? 'weekly',
+          week_start:             sess.period_start,
+          week_end:               sess.period_end,
+          notes:                  sess.notes ?? '',
+          linked_goal_ids:        sess.linked_goal_ids ?? [],
+          linked_block_id:        sess.linked_training_block_id ?? null,
+          linked_meet_id:         sess.linked_meet_id ?? null,
+          total_calories_prepped: sess.total_calories_prepped ?? 0,
+          total_protein_prepped:  sess.total_protein_prepped ?? 0,
+          items:                  (sess.meal_prep_session_items ?? []).map(item => ({
+            id:                 item.id,
+            recipe_id:          item.recipe_id ?? null,
+            recipe_name:        item.recipe_name,
+            servings_made:      item.servings_made,
+            servings_consumed:  item.servings_consumed,
+            storage:            item.storage ?? 'fridge',
+            notes:              item.notes ?? '',
+            macros_per_serving: item.macros_per_serving ?? { calories: 0, protein: 0, carbs: 0, fat: 0 },
+          })),
+        }))
+        next.athletePrepLog = { ...s.athletePrepLog, [athleteId]: mapped }
+      }
+      if (lists) {
+        // Normalize DB shape → in-memory shape
+        const mapped = lists.map(list => ({
+          id:         list.id,
+          label:      list.label,
+          cadence:    list.cadence ?? 'weekly',
+          week_start: list.week_start,
+          week_end:   list.week_end,
+          budget:     list.budget ?? 0,
+          status:     list.status ?? 'active',
+          notes:      list.notes ?? '',
+          categories: (list.shopping_list_categories ?? []).map(cat => ({
+            id:    cat.id,
+            name:  cat.name,
+            icon:  cat.icon ?? '',
+            items: (cat.shopping_list_items ?? []).map(item => ({
+              id:          item.id,
+              name:        item.name,
+              amount:      item.amount ?? '',
+              price:       item.price ?? 0,
+              checked:     item.checked ?? false,
+              notes:       item.notes ?? '',
+              recipe_ids:  item.recipe_ids ?? [],
+              category_id: item.category_id,
+            })),
+          })),
+        }))
+        next.athleteShoppingLists = { ...s.athleteShoppingLists, [athleteId]: mapped }
+      }
+      return next
+    })
+  },
+
+  /** Load org-level recipes from Supabase (nutritionist/staff side). */
+  loadOrgRecipes: async (orgId, userId) => {
+    if (!isSupabaseConfigured()) return
+    const data = await fetchOrgRecipes(orgId, userId)
+    if (!data) return
+    // Map DB shape → RecipesTab shape
+    const mapped = data.map(r => ({
+      id:         r.id,
+      name:       r.name,
+      meal_type:  r.meal_type ?? 'snack',
+      prep_time:  r.prep_time ?? 0,
+      cook_time:  r.cook_time ?? 0,
+      servings:   r.servings ?? 1,
+      macros:     r.macros_per_serving ?? { calories: 0, protein: 0, carbs: 0, fat: 0 },
+      ingredients:r.ingredients ?? [],
+      instructions:r.instructions ?? '',
+      tags:       r.tags ?? [],
+      created_by: r.created_by,
+      org_id:     r.org_id,
+    }))
+    set({ orgRecipes: mapped, orgRecipesLoaded: true })
+  },
+
+  /** Load recent nutrition logs for an athlete (compliance data). */
+  loadNutritionLogs: async (athleteId, days = 30) => {
+    if (!isSupabaseConfigured() || !athleteId) return
+    const logs = await fetchNutritionLogs(athleteId, days)
+    if (logs) set((s) => ({ nutritionLogs: { ...s.nutritionLogs, [athleteId]: logs } }))
+  },
+}))
+
+// ─── Calendar Store ───────────────────────────────────────────────────────────
+// Holds live calendar events for the active org + current user.
+// Demo mode relies on SAMPLE_EVENTS in CalendarPage — this store is for real users.
+export const useCalendarStore = create((set, get) => ({
+  events:  [],   // [{ id, org_id, created_by, title, description, event_type, start_time, end_time, location, meeting_url }]
+  loading: false,
+  loaded:  false,
+
+  loadEvents: async (orgId, userId) => {
+    if (!isSupabaseConfigured()) return
+    set({ loading: true })
+    const [orgEvts, userEvts] = await Promise.all([
+      fetchOrgEvents(orgId),
+      fetchUserEvents(userId),
+    ])
+    // Merge and deduplicate by id
+    const combined = [...(orgEvts ?? []), ...(userEvts ?? [])]
+    const seen = new Set()
+    const unique = combined.filter(e => { if (seen.has(e.id)) return false; seen.add(e.id); return true })
+    // Sort ascending by start_time
+    unique.sort((a, b) => new Date(a.start_time) - new Date(b.start_time))
+    set({ events: unique, loading: false, loaded: true })
+  },
+
+  addEvent: (event) => set((s) => ({ events: [...s.events, event].sort((a, b) => new Date(a.start_time) - new Date(b.start_time)) })),
+
+  updateEvent: (id, updates) =>
+    set((s) => ({
+      events: s.events.map((e) => e.id === id ? { ...e, ...updates } : e)
+        .sort((a, b) => new Date(a.start_time) - new Date(b.start_time)),
+    })),
+
+  removeEvent: (id) => set((s) => ({ events: s.events.filter((e) => e.id !== id) })),
+
+  reset: () => set({ events: [], loading: false, loaded: false }),
 }))
 
 // ─── Messaging Store ──────────────────────────────────────────────────────────
