@@ -16,6 +16,7 @@ import { ProgressBar } from '../components/ui/ProgressBar'
 import { MOCK_TODAY_WORKOUT, MOCK_PAST_WORKOUTS, MOCK_GOALS, MOCK_WEEK_SCHEDULE, MOCK_TRAINING_BLOCKS, MOCK_MEETS, MOCK_ATHLETES, MOCK_STAFF_ASSIGNMENTS } from '../lib/mockData'
 import { cn, calcE1RM, calcDotsScore, convertWeight, toKg, kgToLbs } from '../lib/utils'
 import { useSettingsStore, useGoalsStore, useAuthStore, useUIStore, resolveRole, isStaffRole } from '../lib/store'
+import { saveWorkoutSession, saveWorkoutSet } from '../lib/db'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 function convertIntensity(intensity, weightUnit) {
@@ -63,19 +64,28 @@ function AthleteWorkoutPage() {
   const [customModal, setCustomModal] = useState(false)
   const { weightUnit, toggleWeightUnit, gymLocations, preferredLocation, preferredWorkoutTime, preferredDuration } = useSettingsStore()
   const { goals, pushPRToGoals } = useGoalsStore()
-  const { isDemo } = useAuthStore()
+  const { isDemo, profile } = useAuthStore()
+  const currentSessionIdRef = useRef(null)
   const activeGym = gymLocations?.find(l => l.id === preferredLocation) || gymLocations?.[0]
 
   const pastWorkouts = isDemo ? MOCK_PAST_WORKOUTS : []
 
-  const handleStartWorkout = (workout) => {
+  const handleStartWorkout = async (workout) => {
     setActiveWorkout(workout)
     setCompletedSets({})
     setExpandedBlock('main')
     setView(VIEW.ACTIVE)
+    if (!isDemo && profile?.id) {
+      const session = await saveWorkoutSession(profile.id, {
+        name: workout.name,
+        scheduled_date: new Date().toISOString().slice(0, 10),
+        status: 'in_progress',
+      })
+      if (session?.id) currentSessionIdRef.current = session.id
+    }
   }
 
-  const handleSaveSet = () => {
+  const handleSaveSet = async () => {
     const key = `${logModal.exerciseId}-${logModal.setIndex}`
     const weightKg = toKg(logData.weight, weightUnit)
     const entry = { ...logData, weight_kg: weightKg, media: logData.media || [] }
@@ -84,25 +94,79 @@ function AthleteWorkoutPage() {
     if ((logData.pr || logData.is_top_set) && weightKg) {
       pushPRToGoals(logModal.exerciseName, calcE1RM(weightKg, Number(logData.reps) || 1))
     }
+    if (!isDemo && currentSessionIdRef.current) {
+      await saveWorkoutSet(currentSessionIdRef.current, {
+        exercise_name: logModal.exerciseName,
+        set_number: (logModal.setIndex ?? 0) + 1,
+        weight_kg: weightKg,
+        reps: logData.reps,
+        rpe: logData.rpe,
+        notes: logData.notes,
+        is_top_set: logData.is_top_set,
+        pr: logData.pr,
+      })
+    }
     setLogData({})
     setLogModal(null)
   }
 
-  const handleSaveCardio = () => {
+  const handleSaveCardio = async () => {
     const key = `${cardioModal.exercise.id}-0`
     setCompletedSets(prev => ({ ...prev, [key]: { ...cardioData, is_cardio: true } }))
+    if (!isDemo && currentSessionIdRef.current) {
+      await saveWorkoutSet(currentSessionIdRef.current, {
+        exercise_name: cardioModal.exercise.name,
+        set_number: 1,
+        is_cardio: true,
+        duration_seconds: cardioData.duration_seconds,
+        distance_meters: cardioData.distance_meters,
+        notes: cardioData.notes,
+      })
+    }
     setCardioData({})
     setCardioModal(null)
   }
 
-  const handleCompleteWorkout = () => {
+  const handleCompleteWorkout = async () => {
+    if (!isDemo && currentSessionIdRef.current) {
+      await saveWorkoutSession(profile?.id, {
+        id: currentSessionIdRef.current,
+        status: 'completed',
+        completed_at: new Date().toISOString(),
+      })
+    }
+    currentSessionIdRef.current = null
     setView(VIEW.LIST)
     setActiveWorkout(null)
     setCompletedSets({})
   }
 
-  const handleSaveCustomWorkout = (workout) => {
+  const handleSaveCustomWorkout = async (workout) => {
     setCustomWorkouts(prev => [workout, ...prev])
+    if (!isDemo && profile?.id) {
+      const session = await saveWorkoutSession(profile.id, {
+        name: workout.name,
+        scheduled_date: workout.date,
+        status: 'completed',
+        completed_at: new Date().toISOString(),
+        notes: workout.notes,
+      })
+      if (session?.id) {
+        const sets = (workout.blocks ?? []).flatMap(b =>
+          b.exercises.flatMap((e, _ei) =>
+            (e.sets_logged ?? []).map((sl, si) => ({
+              exercise_name: e.name,
+              set_number: si + 1,
+              weight_kg: toKg(sl.weight, weightUnit),
+              reps: sl.reps,
+              rpe: sl.rpe,
+              is_top_set: sl.is_top_set,
+            }))
+          )
+        )
+        for (const s of sets) await saveWorkoutSet(session.id, s)
+      }
+    }
     setCustomModal(false)
   }
 

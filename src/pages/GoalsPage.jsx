@@ -12,6 +12,7 @@ import { StatCard } from '../components/ui/StatCard'
 import { MOCK_PAST_WORKOUTS, MOCK_TRAINING_BLOCKS, MOCK_MEETS } from '../lib/mockData'
 import { cn, kgToLbs, calcE1RM } from '../lib/utils'
 import { useGoalsStore, useSettingsStore, useAuthStore } from '../lib/store'
+import { saveGoal, completeGoal, deleteGoal as dbDeleteGoal } from '../lib/db'
 
 const GOAL_TYPES = [
   { id: 'strength', label: 'Strength', icon: 'strength', color: 'purple' },
@@ -31,7 +32,8 @@ const FILTER_TABS = [
 
 // ── Add / Edit Goal Modal ────────────────────────────────────────────────────
 function GoalModal({ open, onClose, existing = null }) {
-  const { addGoal } = useGoalsStore()
+  const { addGoal, updateGoal } = useGoalsStore()
+  const { profile, isDemo } = useAuthStore()
   const isEdit = !!existing
   const [form, setForm] = useState(existing || {
     goal_type: 'strength', title: '', target_value: '', target_unit: 'kg',
@@ -39,14 +41,20 @@ function GoalModal({ open, onClose, existing = null }) {
   })
   const upd = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!form.title.trim()) return
     const goal = {
       ...form,
       target_value: form.target_value ? Number(form.target_value) : null,
       current_value: form.current_value ? Number(form.current_value) : null,
     }
-    if (!isEdit) addGoal(goal)
+    if (!isEdit) {
+      addGoal(goal)
+      if (!isDemo && profile?.id) await saveGoal(profile.id, goal)
+    } else {
+      if (typeof updateGoal === 'function') updateGoal(goal)
+      if (!isDemo && profile?.id) await saveGoal(profile.id, goal)
+    }
     onClose()
   }
 
@@ -359,7 +367,7 @@ function GoalDetailModal({ goal, open, onClose }) {
 function GoalCard({ goal }) {
   const { updateGoalProgress, markGoalComplete, removeGoal } = useGoalsStore()
   const { weightUnit } = useSettingsStore()
-  const { isDemo } = useAuthStore()
+  const { isDemo, profile } = useAuthStore()
   const [expanded, setExpanded] = useState(false)
   const [editing, setEditing] = useState(false)
   const [editVal, setEditVal] = useState(goal.current_value ?? '')
@@ -446,7 +454,7 @@ function GoalCard({ goal }) {
                   title="View detail">
                   <BarChart2 className="w-3 h-3" />
                 </button>
-                <button onClick={() => markGoalComplete(goal.id, !goal.completed)}
+                <button onClick={() => { markGoalComplete(goal.id, !goal.completed); if (!isDemo && goal.id) completeGoal(goal.id, !goal.completed) }}
                   className={cn('w-6 h-6 rounded-full border flex items-center justify-center transition-all',
                     goal.completed ? 'bg-green-500 border-green-400' : 'border-zinc-600 hover:border-green-400 hover:bg-green-500/10')}
                   title={goal.completed ? 'Mark incomplete' : 'Mark complete'}>
@@ -456,7 +464,7 @@ function GoalCard({ goal }) {
                   className="w-6 h-6 rounded-lg border border-zinc-700 flex items-center justify-center text-zinc-500 hover:text-zinc-200 hover:border-zinc-500 transition-colors">
                   <Edit2 className="w-3 h-3" />
                 </button>
-                <button onClick={() => removeGoal(goal.id)}
+                <button onClick={() => { removeGoal(goal.id); if (!isDemo && goal.id) dbDeleteGoal(goal.id) }}
                   className="w-6 h-6 rounded-lg border border-zinc-700 flex items-center justify-center text-zinc-500 hover:text-red-400 hover:border-red-500/30 transition-colors">
                   <Trash2 className="w-3 h-3" />
                 </button>

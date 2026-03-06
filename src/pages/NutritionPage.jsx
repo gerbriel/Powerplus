@@ -26,6 +26,7 @@ import {
 } from '../lib/mockData'
 import { useAuthStore, useUIStore, useNutritionStore, useGoalsStore, useTrainingStore, resolveRole, isStaffRole } from '../lib/store'
 import { cn, macroPercent } from '../lib/utils'
+import { saveNutritionLog } from '../lib/db'
 
 const TABS = [
   { id: 'dashboard', label: 'Dashboard' },
@@ -214,7 +215,7 @@ function LogMealModal({ open, onClose }) {
   }
 
   // ── Save ──
-  const handleSave = () => {
+  const handleSave = async () => {
     if (method === 'macros' && saveToPantry && mealTitle.trim()) {
       // Create a new prep log session with this meal as an item
       const newItem = {
@@ -279,6 +280,26 @@ function LogMealModal({ open, onClose }) {
             }),
           })),
         }
+      })
+    }
+
+    // Persist to Supabase
+    if (!isDemo) {
+      const totalMacros =
+        method === 'macros' ? { calories: Number(macros.calories) || 0, protein: Number(macros.protein) || 0, carbs: Number(macros.carbs) || 0, fat: Number(macros.fat) || 0 }
+        : method === 'pantry' ? totalFromPantry
+        : method === 'plan'   ? totalFromPlan
+        : {}
+      await saveNutritionLog(MY_ATHLETE_ID, {
+        log_date: new Date().toISOString().slice(0, 10),
+        meal_type: mealType,
+        meal_name: mealTitle || method,
+        calories: totalMacros.calories,
+        protein_g: totalMacros.protein,
+        carbs_g: totalMacros.carbs,
+        fat_g: totalMacros.fat,
+        energy_level: energy,
+        notes,
       })
     }
 

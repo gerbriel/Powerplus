@@ -4,6 +4,7 @@ import { Button } from '../components/ui/Button'
 import { Slider } from '../components/ui/Slider'
 import { useAuthStore } from '../lib/store'
 import { cn, getRPEColor } from '../lib/utils'
+import { saveCheckIn } from '../lib/db'
 
 const STEPS = ['readiness', 'sleep', 'nutrition', 'body', 'subjective', 'done']
 
@@ -19,6 +20,7 @@ function StepDots({ step }) {
 }
 
 export function CheckInPage() {
+  const { profile, isDemo } = useAuthStore()
   const [step, setStep] = useState('readiness')
   const [data, setData] = useState({
     readiness: 7,
@@ -36,8 +38,20 @@ export function CheckInPage() {
   })
 
   const update = (key, val) => setData(prev => ({ ...prev, [key]: val }))
-  const next = () => setStep(STEPS[STEPS.indexOf(step) + 1])
   const prev = () => setStep(STEPS[STEPS.indexOf(step) - 1])
+
+  const next = async () => {
+    if (step === 'subjective') {
+      // Final step — persist to Supabase for real users
+      if (!isDemo && profile?.id) {
+        await saveCheckIn(profile.id, {
+          ...data,
+          bodyweight_unit: 'lbs',
+        })
+      }
+    }
+    setStep(STEPS[STEPS.indexOf(step) + 1])
+  }
 
   if (step === 'done') return <DoneScreen data={data} />
 

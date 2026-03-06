@@ -1,0 +1,449 @@
+/**
+ * db.js — Supabase persistence helpers for all user-facing input surfaces.
+ *
+ * All public functions:
+ *  1. Guard on isSupabaseConfigured() — silently no-op for demo/offline mode
+ *  2. Sanitize every user-supplied string through sanitizeText() before writing
+ *  3. Log errors to the console but never throw, so the UI never crashes on a DB error
+ *
+ * Sanitization rules:
+ *  - Strip leading/trailing whitespace
+ *  - Collapse runs of whitespace to single spaces
+ *  - Remove control characters (ASCII < 0x20 except tab/newline)
+ *  - Truncate to per-field limits to prevent oversized payloads
+ *  - Numeric fields are coerced with Number() and clamped to valid ranges
+ *  - Boolean fields are coerced with Boolean()
+ *  - Date strings are validated as ISO dates; invalid dates become null
+ */
+
+import { supabase, isSupabaseConfigured } from './supabase'
+
+// ─── Sanitization utilities ───────────────────────────────────────────────────
+
+/** Strip control chars, collapse whitespace, trim, and truncate. */
+function sanitizeText(value, maxLen = 1000) {
+  if (value == null) return null
+  return String(value)
+    // remove control characters (keep \t and \n)
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+    .replace(/[ \t]+/g, ' ')   // collapse runs of spaces/tabs
+    .trim()
+    .slice(0, maxLen)
+    || null  // empty string → null
+}
+
+/** Coerce a number to float, clamp to [min, max], return null if NaN. */
+function sanitizeNumber(value, min = -Infinity, max = Infinity) {
+  const n = Number(value)
+  if (!isFinite(n)) return null
+  return Math.min(max, Math.max(min, n))
+}
+
+/** Parse and validate an ISO date string (YYYY-MM-DD). Returns null if invalid. */
+function sanitizeDate(value) {
+  if (!value) return null
+  const s = String(value).trim()
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null
+  const d = new Date(s)
+  return isNaN(d.getTime()) ? null : s
+}
+
+/** Coerce to boolean. */
+function sanitizeBool(value) {
+  return Boolean(value)
+}
+
+/** Sanitize an array of strings (e.g. movement_affected). */
+function sanitizeStringArray(arr, itemMaxLen = 100) {
+  if (!Array.isArray(arr)) return []
+  return arr
+    .map(s => sanitizeText(s, itemMaxLen))
+    .filter(Boolean)
+}
+
+// ─── Check-ins ────────────────────────────────────────────────────────────────
+
+/**
+ * Save a daily check-in.
+ * Called from CheckInPage when the athlete submits the final step.
+ */
+export async function saveCheckIn(athleteId, data) {
+  if (!isSupabaseConfigured() || !athleteId) return null
+
+  const row = {
+    athlete_id:       athleteId,
+    check_date:       sanitizeDate(data.check_date) ?? new Date().toISOString().slice(0, 10),
+    check_type:       ['morning','post_workout','evening'].includes(data.check_type) ? data.check_type : 'morning',
+    sleep_hours:      sanitizeNumber(data.sleep_hours, 0, 24),
+    sleep_quality:    sanitizeNumber(data.sleep_quality, 1, 10),
+    stress_level:     sanitizeNumber(data.stress, 1, 10),
+    soreness_level:   sanitizeNumber(data.soreness, 0, 10),
+    motivation_level: sanitizeNumber(data.motivation, 1, 10),
+    bodyweight:       sanitizeNumber(data.body_weight, 0, 500) || null,
+    bodyweight_unit:  ['kg','lbs'].includes(data.bodyweight_unit) ? data.bodyweight_unit : 'kg',
+    notes:            sanitizeText(data.notes, 500),
+  }
+
+  const { data: saved, error } = await supabase
+    .from('daily_checkins')
+    .upsert(row, { onConflict: 'athlete_id,check_date,check_type' })
+    .select()
+    .single()
+
+  if (error) { console.error('[db] saveCheckIn:', error.message); return null }
+  return saved
+}
+
+// ─── Workout sessions & sets ──────────────────────────────────────────────────
+
+/**
+ * Upsert a workout session (create on start, update status on complete).
+ */
+export async function saveWorkoutSession(athleteId, session) {
+  if (!isSupabaseConfigured() || !athleteId) return null
+
+  const row = {
+    athlete_id:           athleteId,
+    name:                 sanitizeText(session.name, 200) ?? 'Workout',
+    scheduled_date:       sanitizeDate(session.scheduled_date) ?? new Date().toISOString().slice(0, 10),
+    status:               ['planned','in_progress','completed','missed','skipped'].includes(session.status) ? session.status : 'planned',
+    overall_rpe:          sanitizeNumber(session.overall_rpe, 1, 10),
+    notes:                sanitizeText(session.notes, 1000),
+    started_at:           session.started_at ? new Date(session.started_at).toISOString() : null,
+    completed_at:         session.completed_at ? new Date(session.completed_at).toISOString() : null,
+  }
+
+  // If an id is provided, update; otherwise insert
+  if (session.id && !session.id.startsWith('local-')) {
+    const { data: updated, error } = await supabase
+      .from('workout_sessions')
+      .update(row)
+      .eq('id', session.id)
+      .select()
+      .single()
+    if (error) { console.error('[db] saveWorkoutSession update:', error.message); return null }
+    return updated
+  }
+
+  const { data: inserted, error } = await supabase
+    .from('workout_sessions')
+    .insert(row)
+    .select()
+    .single()
+  if (error) { console.error('[db] saveWorkoutSession insert:', error.message); return null }
+  return inserted
+}
+
+/**
+ * Save a single logged set.
+ */
+export async function saveWorkoutSet(sessionId, setData) {
+  if (!isSupabaseConfigured() || !sessionId) return null
+
+  const row = {
+    session_id:       sessionId,
+    set_number:       sanitizeNumber(setData.set_number, 1, 999) ?? 1,
+    planned_reps:     sanitizeNumber(setData.planned_reps, 0, 100),
+    planned_weight:   sanitizeNumber(setData.planned_weight, 0, 1500),
+    planned_rpe:      sanitizeNumber(setData.planned_rpe, 1, 10),
+    performed_reps:   sanitizeNumber(setData.reps, 0, 100),
+    performed_weight: sanitizeNumber(setData.weight_kg, 0, 1500),
+    performed_rpe:    sanitizeNumber(setData.rpe, 1, 10),
+    is_pr:            sanitizeBool(setData.pr),
+    is_top_set:       sanitizeBool(setData.is_top_set),
+    pain_area:        sanitizeText(setData.pain_area, 100),
+    pain_level:       setData.pain_level ? String(sanitizeNumber(setData.pain_level, 0, 10)) : null,
+    notes:            sanitizeText(setData.notes, 500),
+    logged_at:        new Date().toISOString(),
+  }
+
+  const { data: saved, error } = await supabase
+    .from('workout_sets')
+    .insert(row)
+    .select()
+    .single()
+
+  if (error) { console.error('[db] saveWorkoutSet:', error.message); return null }
+  return saved
+}
+
+// ─── Goals ────────────────────────────────────────────────────────────────────
+
+/**
+ * Upsert a goal. Pass id for updates; omit for inserts.
+ */
+export async function saveGoal(athleteId, goal, createdBy = null) {
+  if (!isSupabaseConfigured() || !athleteId) return null
+
+  const validTypes = ['strength','nutrition','meet','process']
+  const row = {
+    athlete_id:     athleteId,
+    created_by:     createdBy ?? athleteId,
+    goal_type:      validTypes.includes(goal.goal_type) ? goal.goal_type : 'process',
+    title:          sanitizeText(goal.title, 200),
+    description:    sanitizeText(goal.description, 1000),
+    target_value:   sanitizeNumber(goal.target_value, 0),
+    target_unit:    sanitizeText(goal.target_unit, 20),
+    current_value:  sanitizeNumber(goal.current_value, 0),
+    target_date:    sanitizeDate(goal.target_date),
+    completed:      sanitizeBool(goal.completed),
+    notes:          sanitizeText(goal.notes, 1000),
+  }
+
+  if (!row.title) { console.warn('[db] saveGoal: title required'); return null }
+
+  if (goal.id && !goal.id.startsWith('g')) {
+    const { data, error } = await supabase
+      .from('goals').update({ ...row, updated_at: new Date().toISOString() })
+      .eq('id', goal.id).select().single()
+    if (error) { console.error('[db] saveGoal update:', error.message); return null }
+    return data
+  }
+
+  const { data, error } = await supabase
+    .from('goals').insert(row).select().single()
+  if (error) { console.error('[db] saveGoal insert:', error.message); return null }
+  return data
+}
+
+/**
+ * Mark a goal as completed (or uncomplete it).
+ */
+export async function completeGoal(goalId, completed = true) {
+  if (!isSupabaseConfigured() || !goalId) return null
+  const { data, error } = await supabase
+    .from('goals')
+    .update({ completed, completed_at: completed ? new Date().toISOString() : null, updated_at: new Date().toISOString() })
+    .eq('id', goalId)
+    .select().single()
+  if (error) { console.error('[db] completeGoal:', error.message); return null }
+  return data
+}
+
+/**
+ * Delete a goal.
+ */
+export async function deleteGoal(goalId) {
+  if (!isSupabaseConfigured() || !goalId) return false
+  const { error } = await supabase.from('goals').delete().eq('id', goalId)
+  if (error) { console.error('[db] deleteGoal:', error.message); return false }
+  return true
+}
+
+// ─── Meets ────────────────────────────────────────────────────────────────────
+
+/**
+ * Upsert a meet.
+ */
+export async function saveMeet(createdBy, orgId, meet) {
+  if (!isSupabaseConfigured() || !createdBy) return null
+
+  const validFeds = ['USAPL','IPF','USPA','NASA','RPS','SPF','WPC','Other']
+  const validStatuses = ['upcoming','registered','completed','cancelled']
+
+  const row = {
+    created_by:            createdBy,
+    org_id:                orgId ?? null,
+    name:                  sanitizeText(meet.name, 200),
+    federation:            validFeds.includes(meet.federation) ? meet.federation : 'Other',
+    location:              sanitizeText(meet.location, 200),
+    meet_date:             sanitizeDate(meet.meet_date),
+    registration_deadline: sanitizeDate(meet.registration_deadline),
+    status:                validStatuses.includes(meet.status) ? meet.status : 'upcoming',
+    website_url:           sanitizeText(meet.website_url, 500),
+    notes:                 sanitizeText(meet.notes, 1000),
+  }
+
+  if (!row.name) { console.warn('[db] saveMeet: name required'); return null }
+
+  if (meet.id && !meet.id.startsWith('meet-')) {
+    const { data, error } = await supabase.from('meets').update(row).eq('id', meet.id).select().single()
+    if (error) { console.error('[db] saveMeet update:', error.message); return null }
+    return data
+  }
+
+  const { data, error } = await supabase.from('meets').insert(row).select().single()
+  if (error) { console.error('[db] saveMeet insert:', error.message); return null }
+  return data
+}
+
+/**
+ * Save athlete meet entry (attempts + results).
+ */
+export async function saveMeetEntry(meetId, athleteId, entry) {
+  if (!isSupabaseConfigured() || !meetId || !athleteId) return null
+
+  const row = {
+    meet_id:        meetId,
+    athlete_id:     athleteId,
+    weight_class:   sanitizeText(entry.weight_class, 20),
+    equipment_type: sanitizeText(entry.equipment_type, 30),
+    squat_opener:   sanitizeNumber(entry.squat_opener, 0, 1500),
+    bench_opener:   sanitizeNumber(entry.bench_opener, 0, 1500),
+    deadlift_opener:sanitizeNumber(entry.deadlift_opener, 0, 1500),
+    squat_result:   sanitizeNumber(entry.squat_result, 0, 1500),
+    bench_result:   sanitizeNumber(entry.bench_result, 0, 1500),
+    deadlift_result:sanitizeNumber(entry.deadlift_result, 0, 1500),
+    total_result:   sanitizeNumber(entry.total_result, 0, 4500),
+    dots_score:     sanitizeNumber(entry.dots_score, 0, 1000),
+    wilks_score:    sanitizeNumber(entry.wilks_score, 0, 1000),
+    placement:      sanitizeNumber(entry.placement, 1, 999),
+    notes:          sanitizeText(entry.notes, 500),
+  }
+
+  const { data, error } = await supabase
+    .from('athlete_meet_entries')
+    .upsert(row, { onConflict: 'meet_id,athlete_id' })
+    .select().single()
+  if (error) { console.error('[db] saveMeetEntry:', error.message); return null }
+  return data
+}
+
+// ─── Injury logs ──────────────────────────────────────────────────────────────
+
+/**
+ * Insert a new injury report.
+ */
+export async function reportInjury(athleteId, form) {
+  if (!isSupabaseConfigured() || !athleteId) return null
+
+  const row = {
+    athlete_id:         athleteId,
+    body_area:          sanitizeText(form.body_area, 100),
+    pain_level:         sanitizeNumber(form.pain_level, 0, 10),
+    injury_date:        sanitizeDate(form.injury_date) ?? new Date().toISOString().slice(0, 10),
+    description:        sanitizeText(form.description, 1000),
+    movement_affected:  sanitizeStringArray(
+      typeof form.movement_affected === 'string'
+        ? form.movement_affected.split(',')
+        : form.movement_affected,
+      100
+    ),
+    resolved:           false,
+    reported_to_coach:  sanitizeBool(form.reported_to_coach),
+  }
+
+  if (!row.body_area || !row.description) { console.warn('[db] reportInjury: body_area and description required'); return null }
+
+  const { data, error } = await supabase.from('injury_logs').insert(row).select().single()
+  if (error) { console.error('[db] reportInjury:', error.message); return null }
+  return data
+}
+
+/**
+ * Update injury pain level / add a progress note (stored as coach_notes update).
+ */
+export async function updateInjury(injuryId, updates) {
+  if (!isSupabaseConfigured() || !injuryId) return null
+
+  const allowed = {}
+  if (updates.pain_level != null)     allowed.pain_level    = sanitizeNumber(updates.pain_level, 0, 10)
+  if (updates.coach_notes != null)    allowed.coach_notes   = sanitizeText(updates.coach_notes, 1000)
+  if (updates.resolved != null)       allowed.resolved      = sanitizeBool(updates.resolved)
+  if (updates.resolved_date != null)  allowed.resolved_date = sanitizeDate(updates.resolved_date)
+  if (updates.reported_to_coach != null) allowed.reported_to_coach = sanitizeBool(updates.reported_to_coach)
+
+  const { data, error } = await supabase
+    .from('injury_logs').update(allowed).eq('id', injuryId).select().single()
+  if (error) { console.error('[db] updateInjury:', error.message); return null }
+  return data
+}
+
+// ─── Profile ──────────────────────────────────────────────────────────────────
+
+/**
+ * Save profile edits (personal info, athlete details, bio).
+ */
+export async function saveProfile(userId, updates) {
+  if (!isSupabaseConfigured() || !userId) return null
+
+  const allowedFederations = ['USAPL','IPF','USPA','NASA','RPS','SPF','WPC','Other','']
+  const allowedEquipment   = ['raw','raw w/ wraps','single-ply','multi-ply','']
+
+  const row = {}
+  if (updates.full_name   != null) row.full_name    = sanitizeText(updates.full_name, 100)
+  if (updates.display_name!= null) row.display_name = sanitizeText(updates.display_name, 60)
+  if (updates.bio         != null) row.bio          = sanitizeText(updates.bio, 500)
+  if (updates.weight_class!= null) row.weight_class = sanitizeText(updates.weight_class, 20)
+  if (updates.federation  != null) row.federation   = allowedFederations.includes(updates.federation?.toLowerCase?.() ?? updates.federation) ? updates.federation : null
+  if (updates.equipment_type != null) {
+    const eq = (updates.equipment_type ?? '').toLowerCase()
+    row.equipment_type = allowedEquipment.includes(eq) ? eq : null
+  }
+
+  if (Object.keys(row).length === 0) return null
+
+  const { data, error } = await supabase
+    .from('profiles').update(row).eq('id', userId).select().single()
+  if (error) { console.error('[db] saveProfile:', error.message); return null }
+  return data
+}
+
+// ─── Nutrition log ────────────────────────────────────────────────────────────
+
+/**
+ * Log daily nutrition actuals (macros + compliance).
+ */
+export async function saveNutritionLog(athleteId, log) {
+  if (!isSupabaseConfigured() || !athleteId) return null
+
+  const row = {
+    athlete_id:       athleteId,
+    log_date:         sanitizeDate(log.log_date) ?? new Date().toISOString().slice(0, 10),
+    is_training_day:  sanitizeBool(log.is_training_day ?? true),
+    calories_actual:  sanitizeNumber(log.calories_actual, 0, 20000),
+    protein_actual:   sanitizeNumber(log.protein_actual, 0, 1000),
+    carbs_actual:     sanitizeNumber(log.carbs_actual, 0, 2000),
+    fat_actual:       sanitizeNumber(log.fat_actual, 0, 1000),
+    water_actual:     sanitizeNumber(log.water_actual, 0, 20000),
+    compliance_score: sanitizeNumber(log.compliance_score, 0, 100),
+    hunger_level:     sanitizeNumber(log.hunger_level, 1, 10),
+    energy_level:     sanitizeNumber(log.energy_level, 1, 10),
+    notes:            sanitizeText(log.notes, 500),
+  }
+
+  const { data, error } = await supabase
+    .from('nutrition_logs')
+    .upsert(row, { onConflict: 'athlete_id,log_date' })
+    .select().single()
+  if (error) { console.error('[db] saveNutritionLog:', error.message); return null }
+  return data
+}
+
+// ─── Training blocks ──────────────────────────────────────────────────────────
+
+/**
+ * Upsert a training block.
+ */
+export async function saveTrainingBlock(athleteId, orgId, block) {
+  if (!isSupabaseConfigured() || !athleteId) return null
+
+  const validPhases = ['accumulation','intensification','peak','deload','transition']
+  const validStatuses = ['planned','active','completed']
+
+  const row = {
+    athlete_id:     athleteId,
+    org_id:         orgId ?? null,
+    name:           sanitizeText(block.name, 200),
+    phase:          validPhases.includes(block.phase) ? block.phase : 'accumulation',
+    start_date:     sanitizeDate(block.start_date),
+    end_date:       sanitizeDate(block.end_date),
+    weeks:          sanitizeNumber(block.weeks, 1, 52),
+    status:         validStatuses.includes(block.status) ? block.status : 'planned',
+    focus:          sanitizeText(block.focus, 300),
+    avg_rpe_target: sanitizeNumber(block.avg_rpe_target, 1, 10),
+    notes:          sanitizeText(block.notes, 1000),
+  }
+
+  if (!row.name) { console.warn('[db] saveTrainingBlock: name required'); return null }
+
+  if (block.id && !block.id.startsWith('tb-')) {
+    const { data, error } = await supabase.from('training_blocks').update(row).eq('id', block.id).select().single()
+    if (error) { console.error('[db] saveTrainingBlock update:', error.message); return null }
+    return data
+  }
+
+  const { data, error } = await supabase.from('training_blocks').insert(row).select().single()
+  if (error) { console.error('[db] saveTrainingBlock insert:', error.message); return null }
+  return data
+}
