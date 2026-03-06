@@ -1445,3 +1445,143 @@ export async function fetchOrgNutritionLogs(orgId, days = 30) {
   if (error) { console.error('[supabase] fetchOrgNutritionLogs:', error.message); return [] }
   return data ?? []
 }
+
+// ─── Org Website / Public Page ────────────────────────────────────────────────
+
+/**
+ * Fetch the org_public_pages row for an org (settings + sections + intake_fields).
+ * Returns null if the row doesn't exist yet.
+ */
+export async function fetchOrgPublicPage(orgId) {
+  if (!isSupabaseConfigured() || !orgId) return null
+  const { data, error } = await supabase
+    .from('org_public_pages')
+    .select('*')
+    .eq('org_id', orgId)
+    .maybeSingle()
+  if (error) { console.error('[supabase] fetchOrgPublicPage:', error.message); return null }
+  return data
+}
+
+/**
+ * Upsert the org_public_pages row.
+ * Merges top-level settings; sections and intake_fields are passed in full.
+ */
+export async function upsertOrgPublicPage(orgId, payload) {
+  if (!isSupabaseConfigured() || !orgId) return null
+  const { data, error } = await supabase
+    .from('org_public_pages')
+    .upsert({ org_id: orgId, ...payload }, { onConflict: 'org_id' })
+    .select()
+    .single()
+  if (error) { console.error('[supabase] upsertOrgPublicPage:', error.message); return null }
+  return data
+}
+
+// ─── Leads (intake submissions) ───────────────────────────────────────────────
+
+/**
+ * Fetch all leads for an org, newest first.
+ */
+export async function fetchOrgLeads(orgId) {
+  if (!isSupabaseConfigured() || !orgId) return []
+  const { data, error } = await supabase
+    .from('leads')
+    .select('*')
+    .eq('org_id', orgId)
+    .order('submitted_at', { ascending: false })
+  if (error) { console.error('[supabase] fetchOrgLeads:', error.message); return [] }
+  return data ?? []
+}
+
+/**
+ * Insert a new lead (public intake form submission — no auth required via RLS).
+ */
+export async function insertLead(orgId, lead) {
+  if (!isSupabaseConfigured() || !orgId) return null
+  const { data, error } = await supabase
+    .from('leads')
+    .insert({ org_id: orgId, ...lead })
+    .select()
+    .single()
+  if (error) { console.error('[supabase] insertLead:', error.message); return null }
+  return data
+}
+
+/**
+ * Update a lead's CRM fields (status, notes, assigned_to).
+ */
+export async function updateLeadRecord(leadId, updates) {
+  if (!isSupabaseConfigured() || !leadId) return null
+  const { data, error } = await supabase
+    .from('leads')
+    .update(updates)
+    .eq('id', leadId)
+    .select()
+    .single()
+  if (error) { console.error('[supabase] updateLeadRecord:', error.message); return null }
+  return data
+}
+
+/**
+ * Delete a lead by id.
+ */
+export async function deleteLeadRecord(leadId) {
+  if (!isSupabaseConfigured() || !leadId) return false
+  const { error } = await supabase.from('leads').delete().eq('id', leadId)
+  if (error) { console.error('[supabase] deleteLeadRecord:', error.message); return false }
+  return true
+}
+
+/**
+ * Subscribe to new intake submissions for an org (realtime INSERT).
+ * Returns the Supabase channel object — call .unsubscribe() to clean up.
+ */
+export function subscribeToOrgLeads(orgId, callback) {
+  if (!isSupabaseConfigured() || !orgId) return null
+  const channel = supabase
+    .channel(`leads:${orgId}`)
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'leads', filter: `org_id=eq.${orgId}` }, (payload) => {
+      callback(payload.new)
+    })
+    .subscribe()
+  return channel
+}
+
+/**
+ * Fetch the public page data for an org by its slug.
+ * Used by the public OrgPublicPage (/org/:slug) — no auth required.
+ * Returns { org, page } where org has basic fields and page is org_public_pages row.
+ */
+export async function fetchPublicOrgBySlug(slug) {
+  if (!isSupabaseConfigured() || !slug) return null
+  // First fetch the org
+  const { data: org, error: orgErr } = await supabase
+    .from('organizations')
+    .select('id, name, slug, federation, address, logo_url')
+    .eq('slug', slug)
+    .maybeSingle()
+  if (orgErr || !org) { console.error('[supabase] fetchPublicOrgBySlug org:', orgErr?.message); return null }
+  // Then fetch the published public page (RLS: only published rows accessible publicly)
+  const { data: page, error: pageErr } = await supabase
+    .from('org_public_pages')
+    .select('*')
+    .eq('org_id', org.id)
+    .maybeSingle()
+  if (pageErr) { console.error('[supabase] fetchPublicOrgBySlug page:', pageErr?.message) }
+  // Fetch org members (coaches/staff) for the coaches section
+  const { data: members } = await supabase
+    .from('org_members')
+    .select('user_id, org_role, profiles(full_name, bio, avatar_url)')
+    .eq('org_id', org.id)
+    .in('org_role', ['owner', 'head_coach', 'coach', 'nutritionist'])
+    .eq('status', 'active')
+  const staff = (members || []).map((m) => ({
+    user_id:  m.user_id,
+    org_role: m.org_role,
+    full_name: m.profiles?.full_name || '',
+    bio:       m.profiles?.bio || '',
+    avatar_url: m.profiles?.avatar_url || null,
+  }))
+  return { org, page, staff }
+}

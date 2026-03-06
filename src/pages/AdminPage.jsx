@@ -2317,7 +2317,7 @@ function RolesTab({ isSuperAdmin }) {
 // ─── Public Page Editor (Head Coach) ─────────────────────────────────────────
 export function PublicPageTab() {
   const { profile, activeOrgId } = useAuthStore()
-  const { orgs, updatePublicPage, addPageSection, updatePageSection, deletePageSection } = useOrgStore()
+  const { orgs, updatePublicPage, addPageSection, updatePageSection, deletePageSection, loadOrgWebsite, subscribeLeads } = useOrgStore()
   const org = orgs.find((o) => o.id === (activeOrgId || profile?.org_id))
   const page = org?.public_page || {}
   const slug = org?.slug || ''
@@ -2325,7 +2325,17 @@ export function PublicPageTab() {
   const [activeView, setActiveView] = useState('settings') // 'settings' | 'sections' | 'intake' | 'preview_link'
   const [saved, setSaved] = useState(false)
 
-  // Hero / settings form
+  // Load website data from Supabase on mount / org change
+  useEffect(() => {
+    if (org?.id) {
+      loadOrgWebsite(org.id)
+      // Subscribe to realtime new leads
+      const unsub = subscribeLeads(org.id)
+      return unsub
+    }
+  }, [org?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Hero / settings form — re-sync when page data loads
   const [heroForm, setHeroForm] = useState({
     hero_headline:    page.hero_headline    || '',
     hero_subheadline: page.hero_subheadline || '',
@@ -2333,6 +2343,17 @@ export function PublicPageTab() {
     accent_color:     page.accent_color     || '#a855f7',
     custom_url:       page.custom_url       || '',
   })
+
+  // Keep heroForm in sync when org/page data loads from Supabase
+  useEffect(() => {
+    setHeroForm({
+      hero_headline:    page.hero_headline    || '',
+      hero_subheadline: page.hero_subheadline || '',
+      hero_cta:         page.hero_cta         || 'Apply to Join',
+      accent_color:     page.accent_color     || '#a855f7',
+      custom_url:       page.custom_url       || '',
+    })
+  }, [page.hero_headline, page.hero_subheadline, page.hero_cta, page.accent_color, page.custom_url]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function saveHero() {
     if (!org) return
@@ -3012,14 +3033,23 @@ const LEAD_STATUS_META = {
 
 export function LeadsTab() {
   const { profile, activeOrgId } = useAuthStore()
-  const { orgs, updateLead, deleteLead } = useOrgStore()
+  const { orgs, updateLead, deleteLead, loadOrgWebsite, subscribeLeads } = useOrgStore()
   const org = orgs.find((o) => o.id === (activeOrgId || profile?.org_id))
   const leads = org?.leads || []
-  const staff = org?.members.filter((m) => m.org_role !== 'athlete') || []
+  const staff = org?.members?.filter((m) => m.org_role !== 'athlete') || []
 
   const [search, setSearch]         = useState('')
   const [statusFilter, setStatus]   = useState('all')
   const [selectedLead, setSelected] = useState(null)
+
+  // Load leads from Supabase on mount / org change
+  useEffect(() => {
+    if (org?.id) {
+      loadOrgWebsite(org.id)
+      const unsub = subscribeLeads(org.id)
+      return unsub
+    }
+  }, [org?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const filtered = useMemo(() => {
     return leads
