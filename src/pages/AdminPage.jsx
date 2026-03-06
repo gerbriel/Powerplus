@@ -3031,6 +3031,13 @@ const LEAD_STATUS_META = {
   declined:   { label: 'Declined',  color: 'red'    },
 }
 
+function fmtLeadDate(iso) {
+  if (!iso) return '—'
+  try {
+    return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  } catch { return iso }
+}
+
 export function LeadsTab() {
   const { profile, activeOrgId } = useAuthStore()
   const { orgs, updateLead, deleteLead, loadOrgWebsite, subscribeLeads } = useOrgStore()
@@ -3052,9 +3059,14 @@ export function LeadsTab() {
   }, [org?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const filtered = useMemo(() => {
+    const q = search.toLowerCase()
     return leads
       .filter((l) => statusFilter === 'all' || l.status === statusFilter)
-      .filter((l) => !search || l.full_name.toLowerCase().includes(search.toLowerCase()) || l.email.toLowerCase().includes(search.toLowerCase()))
+      .filter((l) => !q
+        || (l.full_name || '').toLowerCase().includes(q)
+        || (l.email || '').toLowerCase().includes(q)
+        || (l.phone || '').toLowerCase().includes(q)
+      )
       .sort((a, b) => new Date(b.submitted_at) - new Date(a.submitted_at))
   }, [leads, search, statusFilter])
 
@@ -3082,8 +3094,16 @@ export function LeadsTab() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search leads…"
-            className="w-full bg-zinc-800 border border-zinc-700 rounded-xl pl-9 pr-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-purple-500/40"
+            className="w-full bg-zinc-800 border border-zinc-700 rounded-xl pl-9 pr-8 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-purple-500/40"
           />
+          {search && (
+            <button
+              onClick={() => setSearch('')}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 transition-colors"
+            >
+              ✕
+            </button>
+          )}
         </div>
         <div className="flex gap-1 bg-zinc-900 border border-zinc-800 rounded-xl p-1">
           {['all', 'new', 'contacted', 'onboarded', 'declined'].map((s) => (
@@ -3139,7 +3159,7 @@ export function LeadsTab() {
                       <td className="px-4 py-3 text-xs text-zinc-400">{lead.experience || '—'}</td>
                       <td className="px-4 py-3 text-xs text-zinc-400">{lead.source || '—'}</td>
                       <td className="px-4 py-3"><Badge color={sm.color}>{sm.label}</Badge></td>
-                      <td className="px-4 py-3 text-xs text-zinc-500">{lead.submitted_at}</td>
+                      <td className="px-4 py-3 text-xs text-zinc-500">{fmtLeadDate(lead.submitted_at)}</td>
                       <td className="px-4 py-3 text-xs text-zinc-400">{assignee?.full_name || '—'}</td>
                       <td className="px-4 py-3">
                         <button
@@ -3191,8 +3211,11 @@ function LeadDetailModal({ lead, staff, orgId, onClose, onUpdate, deleteLead }) 
   const [notes, setNotes] = useState(lead.notes || '')
   const [notesSaved, setNotesSaved] = useState(false)
 
+  // re-sync notes textarea when a different lead is opened
+  useEffect(() => { setNotes(lead.notes || '') }, [lead.id])
+
   function saveNotes() {
-    onUpdate({ notes })
+    onUpdate({ notes: notes.slice(0, 5000) })
     setNotesSaved(true)
     setTimeout(() => setNotesSaved(false), 2000)
   }
@@ -3232,17 +3255,17 @@ function LeadDetailModal({ lead, staff, orgId, onClose, onUpdate, deleteLead }) 
           {[
             { label: 'Email',        value: lead.email },
             { label: 'Phone',        value: lead.phone || '—' },
-            { label: 'Instagram',    value: lead.extra_answers?.['f-instagram'] || '—' },
-            { label: 'Service',      value: lead.extra_answers?.['f-service'] || '—' },
-            { label: 'Age',          value: lead.extra_answers?.['f-age'] || '—' },
-            { label: 'Height',       value: lead.extra_answers?.['f-height'] || '—' },
-            { label: 'Weight',       value: lead.extra_answers?.['f-weight'] || '—' },
-            { label: 'Weight Class', value: lead.extra_answers?.['f-weight-class'] || '—' },
+            { label: 'Instagram',    value: lead.instagram || '—' },
+            { label: 'Service',      value: lead.service || '—' },
+            { label: 'Age',          value: lead.age || '—' },
+            { label: 'Height',       value: lead.height || '—' },
+            { label: 'Weight',       value: lead.bodyweight || '—' },
+            { label: 'Weight Class', value: lead.weight_class || '—' },
             { label: 'Experience',   value: lead.experience || '—' },
             { label: 'Federation',   value: lead.federation || '—' },
-            { label: 'Membership #', value: lead.extra_answers?.['f-membership'] || '—' },
+            { label: 'Membership #', value: lead.membership_num || '—' },
             { label: 'Source',       value: lead.source || '—' },
-            { label: 'Applied',      value: lead.submitted_at },
+            { label: 'Applied',      value: fmtLeadDate(lead.submitted_at) },
           ].map((r) => (
             <div key={r.label}>
               <p className="text-xs text-zinc-500 mb-0.5">{r.label}</p>
@@ -3252,14 +3275,14 @@ function LeadDetailModal({ lead, staff, orgId, onClose, onUpdate, deleteLead }) 
         </div>
 
         {/* Lift stats */}
-        {(lead.extra_answers?.['f-squat-max'] || lead.extra_answers?.['f-bench-max'] || lead.extra_answers?.['f-deadlift-max']) && (
+        {(lead.squat_max || lead.bench_max || lead.deadlift_max) && (
           <div className="p-4 bg-zinc-800/40 rounded-xl border border-zinc-700">
             <p className="text-xs font-semibold text-zinc-400 mb-3 uppercase tracking-wide">Lift Maxes</p>
             <div className="grid grid-cols-3 gap-3">
               {[
-                { label: 'Squat',     value: lead.extra_answers?.['f-squat-max'] },
-                { label: 'Bench',     value: lead.extra_answers?.['f-bench-max'] },
-                { label: 'Deadlift',  value: lead.extra_answers?.['f-deadlift-max'] },
+                { label: 'Squat',     value: lead.squat_max },
+                { label: 'Bench',     value: lead.bench_max },
+                { label: 'Deadlift',  value: lead.deadlift_max },
               ].map((r) => r.value ? (
                 <div key={r.label} className="text-center">
                   <p className="text-xs text-zinc-500">{r.label}</p>
@@ -3271,31 +3294,31 @@ function LeadDetailModal({ lead, staff, orgId, onClose, onUpdate, deleteLead }) 
         )}
 
         {/* Technique */}
-        {(lead.extra_answers?.['f-squat-style'] || lead.extra_answers?.['f-bench-style'] || lead.extra_answers?.['f-deadlift-style']) && (
+        {(lead.squat_style || lead.bench_style || lead.deadlift_style) && (
           <div className="grid sm:grid-cols-3 gap-3 p-4 bg-zinc-800/40 rounded-xl border border-zinc-700">
             <div>
               <p className="text-xs text-zinc-500 mb-0.5">Squat Style</p>
-              <p className="text-sm text-zinc-200">{lead.extra_answers?.['f-squat-style'] || '—'}</p>
+              <p className="text-sm text-zinc-200">{lead.squat_style || '—'}</p>
             </div>
             <div>
               <p className="text-xs text-zinc-500 mb-0.5">Bench Style</p>
-              <p className="text-sm text-zinc-200">{lead.extra_answers?.['f-bench-style'] || '—'}</p>
+              <p className="text-sm text-zinc-200">{lead.bench_style || '—'}</p>
             </div>
             <div>
               <p className="text-xs text-zinc-500 mb-0.5">Deadlift Style</p>
-              <p className="text-sm text-zinc-200">{lead.extra_answers?.['f-deadlift-style'] || '—'}</p>
+              <p className="text-sm text-zinc-200">{lead.deadlift_style || '—'}</p>
             </div>
           </div>
         )}
 
         {/* Schedule & lifestyle */}
-        {(lead.extra_answers?.['f-days-per-week'] || lead.extra_answers?.['f-training-time'] || lead.extra_answers?.['f-occupation']) && (
+        {(lead.days_per_week || lead.training_time || lead.occupation) && (
           <div className="grid sm:grid-cols-2 gap-3 p-4 bg-zinc-800/40 rounded-xl border border-zinc-700">
             {[
-              { label: 'Days/Week',      value: lead.extra_answers?.['f-days-per-week'] },
-              { label: 'Training Time',  value: lead.extra_answers?.['f-training-time'] },
-              { label: 'Occupation',     value: lead.extra_answers?.['f-occupation'] },
-              { label: 'Sleep',          value: lead.extra_answers?.['f-sleep-schedule'] ? `${lead.extra_answers?.['f-sleep-schedule']} (${lead.extra_answers?.['f-sleep-hours'] || '?'}h)` : lead.extra_answers?.['f-sleep-hours'] ? `${lead.extra_answers?.['f-sleep-hours']}h/night` : null },
+              { label: 'Days/Week',      value: lead.days_per_week },
+              { label: 'Training Time',  value: lead.training_time },
+              { label: 'Occupation',     value: lead.occupation },
+              { label: 'Sleep',          value: lead.sleep_schedule ? `${lead.sleep_schedule} (${lead.sleep_hours || '?'}h)` : lead.sleep_hours ? `${lead.sleep_hours}h/night` : null },
             ].filter(r => r.value).map((r) => (
               <div key={r.label}>
                 <p className="text-xs text-zinc-500 mb-0.5">{r.label}</p>
@@ -3306,13 +3329,13 @@ function LeadDetailModal({ lead, staff, orgId, onClose, onUpdate, deleteLead }) 
         )}
 
         {/* Health scores */}
-        {(lead.extra_answers?.['f-nutrition-score'] || lead.extra_answers?.['f-stress-score']) && (
+        {(lead.nutrition_score || lead.stress_score) && (
           <div className="grid grid-cols-4 gap-3 p-4 bg-zinc-800/40 rounded-xl border border-zinc-700">
             {[
-              { label: 'Nutrition', value: lead.extra_answers?.['f-nutrition-score'] },
-              { label: 'Hydration', value: lead.extra_answers?.['f-hydration-score'] },
-              { label: 'Stress',    value: lead.extra_answers?.['f-stress-score'] },
-              { label: 'Recovery',  value: lead.extra_answers?.['f-recovery'] },
+              { label: 'Nutrition', value: lead.nutrition_score },
+              { label: 'Hydration', value: lead.hydration_score },
+              { label: 'Stress',    value: lead.stress_score },
+              { label: 'Recovery',  value: lead.recovery_score },
             ].map((r) => (
               <div key={r.label} className="text-center">
                 <p className="text-xs text-zinc-500">{r.label}</p>
@@ -3324,14 +3347,14 @@ function LeadDetailModal({ lead, staff, orgId, onClose, onUpdate, deleteLead }) 
 
         {/* Textarea fields */}
         {[
-          { key: 'f-goals',             label: 'Goals',                       value: lead.goals },
-          { key: 'f-injuries',          label: 'Injuries / Health Notes',     value: lead.injuries },
-          { key: 'f-weakpoints',        label: 'Weak Points / Needs Work',    value: lead.extra_answers?.['f-weakpoints'] },
-          { key: 'f-obligations',       label: 'Other Obligations',           value: lead.extra_answers?.['f-obligations'] },
-          { key: 'f-external-stressors',label: 'External Stressors',          value: lead.extra_answers?.['f-external-stressors'] },
-          { key: 'f-expectations',      label: 'Expectations for a Coach',    value: lead.extra_answers?.['f-expectations'] },
-          { key: 'f-concerns',          label: 'Concerns / Hesitations',      value: lead.extra_answers?.['f-concerns'] },
-          { key: 'f-learner-type',      label: 'Learning Style',              value: lead.extra_answers?.['f-learner-type'] },
+          { key: 'goals',              label: 'Goals',                    value: lead.goals },
+          { key: 'injuries',           label: 'Injuries / Health Notes',  value: lead.injuries },
+          { key: 'weakpoints',         label: 'Weak Points / Needs Work', value: lead.weakpoints },
+          { key: 'obligations',        label: 'Other Obligations',        value: lead.obligations },
+          { key: 'external_stressors', label: 'External Stressors',       value: lead.external_stressors },
+          { key: 'expectations',       label: 'Expectations for a Coach', value: lead.expectations },
+          { key: 'concerns',           label: 'Concerns / Hesitations',   value: lead.concerns },
+          { key: 'learner_type',       label: 'Learning Style',           value: lead.learner_type },
         ].filter(r => r.value).map((r) => (
           <div key={r.key}>
             <p className="text-xs font-medium text-zinc-500 mb-1.5">{r.label}</p>
