@@ -13,6 +13,7 @@ import { Tabs } from '../components/ui/Tabs'
 import { MOCK_MEETS, MOCK_TRAINING_BLOCKS, MOCK_GOALS } from '../lib/mockData'
 import { cn, formatDate, kgToLbs } from '../lib/utils'
 import { useSettingsStore, useAuthStore } from '../lib/store'
+import { saveMeet, saveMeetEntry, saveTrainingBlock } from '../lib/db'
 
 const FEDERATIONS = ['USAPL', 'IPF', 'USPA', 'NASA', 'RPS', 'SPF', 'WPC', 'Other']
 const EQUIPMENT_OPTS = ['raw', 'single-ply', 'multi-ply', 'wraps']
@@ -48,7 +49,7 @@ function useWeightDisplay() {
 // ── Add/Edit Meet Modal ────────────────────────────────────────────────────
 function MeetFormModal({ open, onClose, existingMeet = null }) {
   const isEdit = !!existingMeet
-  const { isDemo } = useAuthStore()
+  const { isDemo, profile, activeOrgId } = useAuthStore()
   const mockGoals  = isDemo ? MOCK_GOALS : []
   const mockBlocks = isDemo ? MOCK_TRAINING_BLOCKS : []
   const [form, setForm] = useState(existingMeet || {
@@ -59,6 +60,14 @@ function MeetFormModal({ open, onClose, existingMeet = null }) {
   const upd = (k, v) => setForm(f => ({ ...f, [k]: v }))
   const toggleGoal = (id) => upd('linked_goal_ids', form.linked_goal_ids?.includes(id) ? form.linked_goal_ids.filter(x => x !== id) : [...(form.linked_goal_ids || []), id])
   const toggleBlock = (id) => upd('linked_block_ids', form.linked_block_ids?.includes(id) ? form.linked_block_ids.filter(x => x !== id) : [...(form.linked_block_ids || []), id])
+
+  const handleSave = async () => {
+    if (!form.name?.trim() || !form.meet_date) return
+    if (!isDemo && profile?.id) {
+      await saveMeet(profile.id, activeOrgId, form)
+    }
+    onClose()
+  }
 
   return (
     <Modal open={open} onClose={onClose} title={isEdit ? 'Edit Meet' : 'Add Meet'} size="md">
@@ -139,7 +148,7 @@ function MeetFormModal({ open, onClose, existingMeet = null }) {
         </div>
         <div className="flex gap-2 pt-2">
           <Button variant="ghost" className="flex-1" onClick={onClose}>Cancel</Button>
-          <Button className="flex-1" onClick={onClose}><CheckCircle2 className="w-4 h-4" /> {isEdit ? 'Save Changes' : 'Add Meet'}</Button>
+          <Button className="flex-1" onClick={handleSave}><CheckCircle2 className="w-4 h-4" /> {isEdit ? 'Save Changes' : 'Add Meet'}</Button>
         </div>
       </div>
     </Modal>
@@ -148,7 +157,7 @@ function MeetFormModal({ open, onClose, existingMeet = null }) {
 
 // ── Add Training Block Modal ──────────────────────────────────────────────
 function AddBlockModal({ open, onClose, meetFilter }) {
-  const { isDemo } = useAuthStore()
+  const { isDemo, profile, activeOrgId } = useAuthStore()
   const mockMeets = isDemo ? MOCK_MEETS : []
   const mockGoals = isDemo ? MOCK_GOALS : []
   const [form, setForm] = useState({
@@ -158,6 +167,14 @@ function AddBlockModal({ open, onClose, meetFilter }) {
   })
   const upd = (k, v) => setForm(f => ({ ...f, [k]: v }))
   const toggleGoal = (id) => upd('linked_goal_ids', form.linked_goal_ids.includes(id) ? form.linked_goal_ids.filter(x => x !== id) : [...form.linked_goal_ids, id])
+
+  const handleSave = async () => {
+    if (!form.name?.trim()) return
+    if (!isDemo && profile?.id) {
+      await saveTrainingBlock(profile.id, activeOrgId, form)
+    }
+    onClose()
+  }
 
   return (
     <Modal open={open} onClose={onClose} title="New Training Block" size="md">
@@ -244,7 +261,7 @@ function AddBlockModal({ open, onClose, meetFilter }) {
         </div>
         <div className="flex gap-2 pt-2">
           <Button variant="ghost" className="flex-1" onClick={onClose}>Cancel</Button>
-          <Button className="flex-1" onClick={onClose}><CheckCircle2 className="w-4 h-4" /> Create Block</Button>
+          <Button className="flex-1" onClick={handleSave}><CheckCircle2 className="w-4 h-4" /> Create Block</Button>
         </div>
       </div>
     </Modal>

@@ -10,6 +10,7 @@ import { Badge } from '../components/ui/Badge'
 import { Tabs } from '../components/ui/Tabs'
 import { useAuthStore, useSettingsStore } from '../lib/store'
 import { roleColor, cn } from '../lib/utils'
+import { saveProfile } from '../lib/db'
 
 const TABS = [
   { id: 'profile',       label: 'Profile' },
@@ -19,7 +20,7 @@ const TABS = [
 ]
 
 export function ProfilePage() {
-  const { user, profile } = useAuthStore()
+  const { user, profile, isDemo } = useAuthStore()
   const [tab, setTab] = useState('profile')
   const displayName = profile?.full_name || profile?.display_name || user?.name || 'Athlete'
   const displayEmail = profile?.email || user?.email || 'athlete@powerplus.app'
@@ -58,7 +59,7 @@ export function ProfilePage() {
 
       <Tabs tabs={TABS} activeTab={tab} onChange={setTab} />
 
-      {tab === 'profile'       && <ProfileTab user={user} profile={profile} />}
+      {tab === 'profile'       && <ProfileTab user={user} profile={profile} isDemo={isDemo} />}
       {tab === 'account'       && <AccountTab />}
       {tab === 'notifications' && <NotificationsTab />}
       {tab === 'preferences'   && <PreferencesTab />}
@@ -67,8 +68,38 @@ export function ProfilePage() {
 }
 
 // ── Profile Tab ──────────────────────────────────────────────────────────────
-function ProfileTab({ user, profile }) {
+function ProfileTab({ user, profile, isDemo }) {
   const isAthlete = !profile?.role || profile?.role === 'athlete'
+  const nameParts = (profile?.full_name || '').split(' ')
+  const [firstName, setFirstName] = useState(nameParts[0] || '')
+  const [lastName, setLastName] = useState(nameParts.slice(1).join(' ') || '')
+  const [bio, setBio] = useState(profile?.bio || '')
+  const [weightClass, setWeightClass] = useState(profile?.weight_class || '')
+  const [federation, setFederation] = useState(profile?.federation || '')
+  const [equipment, setEquipment] = useState(profile?.equipment_type || '')
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+
+  const handleSavePersonal = async () => {
+    setSaving(true)
+    const full_name = [firstName, lastName].filter(Boolean).join(' ')
+    if (!isDemo && (user?.id || profile?.id)) {
+      await saveProfile(user?.id || profile?.id, { full_name, bio })
+    }
+    setSaving(false)
+    setSaved(true)
+    setTimeout(() => setSaved(false), 2000)
+  }
+
+  const handleSaveAthleteDetails = async () => {
+    setSaving(true)
+    if (!isDemo && (user?.id || profile?.id)) {
+      await saveProfile(user?.id || profile?.id, { weight_class: weightClass, federation, equipment_type: equipment })
+    }
+    setSaving(false)
+    setSaved(true)
+    setTimeout(() => setSaved(false), 2000)
+  }
 
   return (
     <div className="space-y-4">
@@ -78,21 +109,23 @@ function ProfileTab({ user, profile }) {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>First Name</label>
-              <input defaultValue={profile?.full_name?.split(' ')[0] || ''}
+              <input value={firstName} onChange={e => setFirstName(e.target.value)}
                 className="pp-input w-full" />
             </div>
             <div>
               <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>Last Name</label>
-              <input defaultValue={profile?.full_name?.split(' ').slice(1).join(' ') || ''}
+              <input value={lastName} onChange={e => setLastName(e.target.value)}
                 className="pp-input w-full" />
             </div>
           </div>
           <div>
             <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>Bio</label>
-            <textarea rows={3} defaultValue={profile?.bio || ''} placeholder="Tell your team about yourself…"
+            <textarea rows={3} value={bio} onChange={e => setBio(e.target.value)} placeholder="Tell your team about yourself…"
               className="pp-input w-full resize-none" />
           </div>
-          <Button size="sm"><Save className="w-3.5 h-3.5" /> Save</Button>
+          <Button size="sm" onClick={handleSavePersonal} disabled={saving}>
+            {saved ? <><Check className="w-3.5 h-3.5" /> Saved</> : <><Save className="w-3.5 h-3.5" /> Save</>}
+          </Button>
         </CardBody>
       </Card>
 
@@ -101,30 +134,28 @@ function ProfileTab({ user, profile }) {
           <CardHeader><CardTitle>Athlete Details</CardTitle></CardHeader>
           <CardBody className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
-              {[
-                { label: 'Date of Birth', type: 'date' },
-                { label: 'Weight Class', type: 'select', options: ['59kg','66kg','74kg','83kg','93kg','105kg','120kg','120kg+'] },
-                { label: 'Federation', type: 'select', options: ['USAPL','IPF','USPA','RPS','SPF'] },
-                { label: 'Equipment', type: 'select', options: ['Raw','Raw w/ Wraps','Single-ply','Multi-ply'] },
-              ].map((f) => (
-                <div key={f.label}>
-                  <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>{f.label}</label>
-                  {f.type === 'select'
-                    ? <select className="pp-input w-full">{f.options.map(o => <option key={o}>{o}</option>)}</select>
-                    : <input type={f.type} className="pp-input w-full" />
-                  }
-                </div>
-              ))}
+              <div>
+                <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>Weight Class</label>
+                <select value={weightClass} onChange={e => setWeightClass(e.target.value)} className="pp-input w-full">
+                  {['','59kg','66kg','74kg','83kg','93kg','105kg','120kg','120kg+'].map(o => <option key={o} value={o}>{o || '— Select —'}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>Federation</label>
+                <select value={federation} onChange={e => setFederation(e.target.value)} className="pp-input w-full">
+                  {['','USAPL','IPF','USPA','RPS','SPF'].map(o => <option key={o} value={o}>{o || '— Select —'}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>Equipment</label>
+                <select value={equipment} onChange={e => setEquipment(e.target.value)} className="pp-input w-full">
+                  {['','raw','wraps','single_ply','multi_ply'].map(o => <option key={o} value={o}>{o ? o.replace('_',' ') : '— Select —'}</option>)}
+                </select>
+              </div>
             </div>
-            <div className="grid grid-cols-3 gap-3">
-              {['Best Squat','Best Bench','Best Deadlift'].map((lbl) => (
-                <div key={lbl}>
-                  <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>{lbl}</label>
-                  <input placeholder="0 kg" className="pp-input w-full" />
-                </div>
-              ))}
-            </div>
-            <Button size="sm"><Save className="w-3.5 h-3.5" /> Save</Button>
+            <Button size="sm" onClick={handleSaveAthleteDetails} disabled={saving}>
+              {saved ? <><Check className="w-3.5 h-3.5" /> Saved</> : <><Save className="w-3.5 h-3.5" /> Save</>}
+            </Button>
           </CardBody>
         </Card>
       )}

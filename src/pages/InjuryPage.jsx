@@ -12,6 +12,7 @@ import { Badge } from '../components/ui/Badge'
 import { MOCK_INJURY_LOGS, MOCK_ATHLETES } from '../lib/mockData'
 import { useAuthStore, isStaffRole } from '../lib/store'
 import { cn } from '../lib/utils'
+import { reportInjury, updateInjury } from '../lib/db'
 
 // Pain level helpers
 function painColor(level) {
@@ -165,6 +166,8 @@ function StaffInjuryView() {
 
 // ─── Athlete Injury Detail (shared by both athlete self-view and staff drill-down) ─
 function AthleteInjuryDetail({ athlete, injuries: initialInjuries, staffView = false }) {
+  const { isDemo, profile } = useAuthStore()
+  const athleteId = athlete?.id ?? profile?.id
   const [injuries, setInjuries] = useState(initialInjuries ?? [])
   const [logModal, setLogModal] = useState(null)
   const [addModal, setAddModal] = useState(false)
@@ -200,11 +203,11 @@ function AthleteInjuryDetail({ athlete, injuries: initialInjuries, staffView = f
     setLogForm({ date: '', pain_level: 5, note: '' })
   }
 
-  const submitAdd = () => {
+  const submitAdd = async () => {
     if (!addForm.body_area.trim() || !addForm.description.trim()) return
     const newInj = {
       id: `inj-${Date.now()}`,
-      athlete_id: athlete?.id ?? 'u-ath-001',
+      athlete_id: athleteId ?? 'u-ath-001',
       body_area: addForm.body_area,
       pain_level: addForm.pain_level,
       injury_date: addForm.injury_date,
@@ -219,23 +222,33 @@ function AthleteInjuryDetail({ athlete, injuries: initialInjuries, staffView = f
       }],
     }
     setInjuries((prev) => [...prev, newInj])
+    if (!isDemo && athleteId) {
+      await reportInjury(athleteId, { ...addForm, reported_to_coach: staffView })
+    }
     setAddModal(false)
     setAddForm({ body_area: '', pain_level: 5, description: '', movement_affected: '', injury_date: new Date().toISOString().slice(0, 10) })
   }
 
-  const markResolved = (id) => {
+  const markResolved = async (id) => {
+    const resolvedDate = new Date().toISOString().slice(0, 10)
     setInjuries((prev) => prev.map((inj) => inj.id !== id ? inj : {
-      ...inj, resolved: true, resolved_date: new Date().toISOString().slice(0, 10),
+      ...inj, resolved: true, resolved_date: resolvedDate,
       log_history: [...inj.log_history, {
-        date: new Date().toISOString().slice(0, 10), pain_level: 0,
+        date: resolvedDate, pain_level: 0,
         note: 'Marked as resolved.', reporter: staffView ? 'coach' : 'athlete',
       }],
     }))
+    if (!isDemo && !id.startsWith('inj-')) {
+      await updateInjury(id, { resolved: true, resolved_date: resolvedDate })
+    }
     setResolveConfirm(null)
   }
 
-  const saveCoachNote = (id) => {
+  const saveCoachNote = async (id) => {
     setInjuries((prev) => prev.map((inj) => inj.id !== id ? inj : { ...inj, coach_notes: coachNoteForm }))
+    if (!isDemo && !id.startsWith('inj-')) {
+      await updateInjury(id, { coach_notes: coachNoteForm })
+    }
     setCoachNoteModal(null)
   }
 
