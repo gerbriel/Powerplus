@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { MOCK_USERS, MOCK_GOALS, MOCK_TRAINING_BLOCKS, MOCK_MEETS, MOCK_ORGS, MOCK_ORG_MEMBERS, MOCK_STAFF_ASSIGNMENTS, MOCK_ATHLETE_RECIPES, MOCK_ATHLETE_PREP_LOG, MOCK_ATHLETE_SHOPPING_LISTS, MOCK_ATHLETE_MEAL_PLANS, MOCK_CHANNELS, MOCK_MESSAGES, MOCK_DIRECT_MESSAGES, MOCK_EXERCISES } from './mockData'
-import { upsertProfile, isSupabaseConfigured, onAuthStateChange, fetchProfile, fetchOrgMemberships, signOut as supabaseSignOut, getSession, fetchChannels as sbFetchChannels, createChannel as sbCreateChannel, updateChannel as sbUpdateChannel, archiveChannel as sbArchiveChannel, fetchMessages as sbFetchMessages, sendMessage as sbSendMessage, editMessage as sbEditMessage, deleteMessage as sbDeleteMessage, toggleReaction as sbToggleReaction, findOrCreateDM as sbFindOrCreateDM, findOrCreateGroup as sbFindOrCreateGroup, markChannelRead as sbMarkChannelRead, fetchOrgAthletes, fetchOrgReviewQueue, fetchExercises, fetchProgramTemplates } from './supabase'
+import { upsertProfile, isSupabaseConfigured, onAuthStateChange, fetchProfile, fetchOrgMemberships, signOut as supabaseSignOut, getSession, fetchChannels as sbFetchChannels, createChannel as sbCreateChannel, updateChannel as sbUpdateChannel, archiveChannel as sbArchiveChannel, fetchMessages as sbFetchMessages, sendMessage as sbSendMessage, editMessage as sbEditMessage, deleteMessage as sbDeleteMessage, toggleReaction as sbToggleReaction, findOrCreateDM as sbFindOrCreateDM, findOrCreateGroup as sbFindOrCreateGroup, markChannelRead as sbMarkChannelRead, fetchOrgAthletes, fetchOrgReviewQueue, fetchExercises, fetchProgramTemplates, fetchOrgTrainingBlocks } from './supabase'
 
 export const useAuthStore = create((set, get) => ({
   user: null,
@@ -373,12 +373,32 @@ export const useGoalsStore = create((set, get) => ({
 export const useTrainingStore = create((set) => ({
   blocks: [],
   meets: [],
+  loading: false,
+  error: null,
+
+  // ── Live load (staff Training Management page) ───────────────────────────
+  loadOrgTrainingBlocks: async (orgId) => {
+    set({ loading: true, error: null })
+    const blocks = await fetchOrgTrainingBlocks(orgId)
+    set({ blocks, loading: false })
+  },
+
+  // ── CRUD actions ─────────────────────────────────────────────────────────
+  addBlock: (b) => set((s) => ({ blocks: [b, ...s.blocks] })),
+
+  updateBlock: (id, updates) =>
+    set((s) => ({
+      blocks: s.blocks.map((b) => b.id === id ? { ...b, ...updates } : b),
+    })),
+
+  removeBlock: (id) =>
+    set((s) => ({ blocks: s.blocks.filter((b) => b.id !== id) })),
 
   linkBlockToGoal: (blockId, goalId) =>
     set((s) => ({
       blocks: s.blocks.map((b) =>
-        b.id === blockId && !b.linked_goal_ids.includes(goalId)
-          ? { ...b, linked_goal_ids: [...b.linked_goal_ids, goalId] }
+        b.id === blockId && !b.linked_goal_ids?.includes(goalId)
+          ? { ...b, linked_goal_ids: [...(b.linked_goal_ids ?? []), goalId] }
           : b
       ),
     })),
@@ -387,7 +407,7 @@ export const useTrainingStore = create((set) => ({
     set((s) => ({
       blocks: s.blocks.map((b) =>
         b.id === blockId
-          ? { ...b, linked_goal_ids: b.linked_goal_ids.filter((id) => id !== goalId) }
+          ? { ...b, linked_goal_ids: (b.linked_goal_ids ?? []).filter((id) => id !== goalId) }
           : b
       ),
     })),

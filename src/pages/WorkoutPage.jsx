@@ -1,11 +1,11 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import {
   Dumbbell, ChevronDown, ChevronUp, CheckCircle2, Circle,
   Video, AlertTriangle, Plus, ArrowLeft, Camera, ImageIcon,
   Trash2, Star, BarChart2, FileText, Scale, Edit2, Eye,
   Timer, Heart, Zap, MapPin, Clock, Target, Search, X,
   Filter, TrendingUp, Trophy, Calendar, Link2, Layers, Save, PenLine,
-  Users, Activity, ChevronRight
+  Users, Activity, ChevronRight, Loader2, Check
 } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardBody } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
@@ -15,8 +15,8 @@ import { Avatar } from '../components/ui/Avatar'
 import { ProgressBar } from '../components/ui/ProgressBar'
 import { MOCK_TODAY_WORKOUT, MOCK_PAST_WORKOUTS, MOCK_GOALS, MOCK_WEEK_SCHEDULE, MOCK_TRAINING_BLOCKS, MOCK_MEETS, MOCK_ATHLETES, MOCK_STAFF_ASSIGNMENTS } from '../lib/mockData'
 import { cn, calcE1RM, calcDotsScore, convertWeight, toKg, kgToLbs } from '../lib/utils'
-import { useSettingsStore, useGoalsStore, useAuthStore, useUIStore, resolveRole, isStaffRole } from '../lib/store'
-import { saveWorkoutSession, saveWorkoutSet } from '../lib/db'
+import { useSettingsStore, useGoalsStore, useAuthStore, useUIStore, resolveRole, isStaffRole, useTrainingStore, useRosterStore } from '../lib/store'
+import { saveWorkoutSession, saveWorkoutSet, saveOrgTrainingBlock, deleteTrainingBlock } from '../lib/db'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 function convertIntensity(intensity, weightUnit) {
@@ -2014,27 +2014,220 @@ function LinkedGoalsPanel({ workout, completedSets, weightUnit }) {
 }
 
 // ─── Staff Training Management Page ──────────────────────────────────────────
+
+const VALID_PHASES = ['accumulation','intensification','peak','peaking','deload','transition','offseason','hypertrophy']
+const VALID_STATUSES = ['planned','active','completed']
+
+const EMPTY_BLOCK = {
+  name: '', phase: 'accumulation', status: 'planned',
+  start_date: '', end_date: '', weeks: '', focus: '',
+  avg_rpe_target: '', sessions_planned: '', sessions_completed: '0',
+  notes: '', color: 'purple',
+}
+
+function sanitizeBlockForm(f) {
+  return {
+    name:               f.name?.trim().slice(0, 200) ?? '',
+    phase:              VALID_PHASES.includes(f.phase) ? f.phase : 'accumulation',
+    status:             VALID_STATUSES.includes(f.status) ? f.status : 'planned',
+    start_date:         f.start_date || null,
+    end_date:           f.end_date || null,
+    weeks:              f.weeks !== '' ? Math.max(1, Math.min(52, Number(f.weeks) || 1)) : null,
+    focus:              f.focus?.trim().slice(0, 300) ?? null,
+    avg_rpe_target:     f.avg_rpe_target !== '' ? Math.max(1, Math.min(10, Number(f.avg_rpe_target) || 7)) : null,
+    sessions_planned:   f.sessions_planned !== '' ? Math.max(0, Math.min(9999, Number(f.sessions_planned) || 0)) : 0,
+    sessions_completed: f.sessions_completed !== '' ? Math.max(0, Math.min(9999, Number(f.sessions_completed) || 0)) : 0,
+    notes:              f.notes?.trim().slice(0, 1000) ?? null,
+    color:              f.color?.trim().slice(0, 30) ?? 'purple',
+  }
+}
+
+function BlockFormModal({ open, onClose, initial, onSave, saving }) {
+  const [form, setForm] = useState(initial ?? EMPTY_BLOCK)
+  useEffect(() => { setForm(initial ?? EMPTY_BLOCK) }, [initial, open])
+
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+  const valid = form.name.trim().length > 0
+
+  return (
+    <Modal open={open} onClose={onClose} title={initial?.id ? 'Edit Training Block' : 'Create Training Block'}>
+      <div className="space-y-4 py-1">
+        {/* Name */}
+        <div>
+          <label className="block text-xs text-zinc-400 mb-1">Block Name *</label>
+          <input
+            className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-purple-500"
+            value={form.name} maxLength={200}
+            onChange={e => set('name', e.target.value)}
+            placeholder="e.g. Spring Classic Prep – Block 1"
+          />
+        </div>
+        {/* Phase + Status */}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs text-zinc-400 mb-1">Phase</label>
+            <select className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-purple-500"
+              value={form.phase} onChange={e => set('phase', e.target.value)}>
+              {VALID_PHASES.map(p => <option key={p} value={p} className="capitalize">{p.charAt(0).toUpperCase()+p.slice(1)}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs text-zinc-400 mb-1">Status</label>
+            <select className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-purple-500"
+              value={form.status} onChange={e => set('status', e.target.value)}>
+              {VALID_STATUSES.map(s => <option key={s} value={s} className="capitalize">{s.charAt(0).toUpperCase()+s.slice(1)}</option>)}
+            </select>
+          </div>
+        </div>
+        {/* Dates + Weeks */}
+        <div className="grid grid-cols-3 gap-3">
+          <div>
+            <label className="block text-xs text-zinc-400 mb-1">Start Date</label>
+            <input type="date" className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-purple-500"
+              value={form.start_date ?? ''} onChange={e => set('start_date', e.target.value)} />
+          </div>
+          <div>
+            <label className="block text-xs text-zinc-400 mb-1">End Date</label>
+            <input type="date" className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-purple-500"
+              value={form.end_date ?? ''} onChange={e => set('end_date', e.target.value)} />
+          </div>
+          <div>
+            <label className="block text-xs text-zinc-400 mb-1">Weeks</label>
+            <input type="number" min="1" max="52" className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-purple-500"
+              value={form.weeks} onChange={e => set('weeks', e.target.value)} placeholder="4" />
+          </div>
+        </div>
+        {/* Sessions + RPE */}
+        <div className="grid grid-cols-3 gap-3">
+          <div>
+            <label className="block text-xs text-zinc-400 mb-1">Sessions Planned</label>
+            <input type="number" min="0" max="9999" className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-purple-500"
+              value={form.sessions_planned} onChange={e => set('sessions_planned', e.target.value)} placeholder="16" />
+          </div>
+          <div>
+            <label className="block text-xs text-zinc-400 mb-1">Sessions Done</label>
+            <input type="number" min="0" max="9999" className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-purple-500"
+              value={form.sessions_completed} onChange={e => set('sessions_completed', e.target.value)} placeholder="0" />
+          </div>
+          <div>
+            <label className="block text-xs text-zinc-400 mb-1">RPE Target</label>
+            <input type="number" min="1" max="10" step="0.5" className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-purple-500"
+              value={form.avg_rpe_target} onChange={e => set('avg_rpe_target', e.target.value)} placeholder="7.5" />
+          </div>
+        </div>
+        {/* Focus */}
+        <div>
+          <label className="block text-xs text-zinc-400 mb-1">Training Focus</label>
+          <input className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-purple-500"
+            value={form.focus ?? ''} maxLength={300}
+            onChange={e => set('focus', e.target.value)} placeholder="e.g. Volume & Technique" />
+        </div>
+        {/* Notes */}
+        <div>
+          <label className="block text-xs text-zinc-400 mb-1">Notes</label>
+          <textarea className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-purple-500 resize-none"
+            rows={3} value={form.notes ?? ''} maxLength={1000}
+            onChange={e => set('notes', e.target.value)} placeholder="Block notes…" />
+        </div>
+        {/* Actions */}
+        <div className="flex justify-end gap-2 pt-1">
+          <Button variant="outline" size="sm" onClick={onClose} disabled={saving}>Cancel</Button>
+          <Button size="sm" onClick={() => onSave(sanitizeBlockForm(form))} disabled={!valid || saving}>
+            {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+            {initial?.id ? 'Save Changes' : 'Create Block'}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
 function StaffTrainingPage({ profile, membership }) {
   const { setActivePage } = useUIStore()
-  const { isDemo } = useAuthStore()
+  const { isDemo, activeOrgId, user } = useAuthStore()
   const role = resolveRole(profile, membership)
   const isNutritionist = role === 'nutritionist'
   const [tab, setTab] = useState('overview') // overview | athletes | blocks
 
-  const trainingBlocks  = isDemo ? MOCK_TRAINING_BLOCKS : []
-  const athletes        = isDemo ? MOCK_ATHLETES : []
+  // ── Live store data ───────────────────────────────────────────────────────
+  const {
+    blocks: liveBlocks,
+    loading: blocksLoading,
+    loadOrgTrainingBlocks,
+    addBlock,
+    updateBlock,
+    removeBlock,
+  } = useTrainingStore()
+
+  const {
+    athletes: liveAthletes,
+    loading: rosterLoading,
+    loadRoster,
+  } = useRosterStore()
+
+  useEffect(() => {
+    if (!isDemo && activeOrgId) {
+      loadOrgTrainingBlocks(activeOrgId)
+      if (!liveAthletes.length) loadRoster(activeOrgId)
+    }
+  }, [isDemo, activeOrgId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const trainingBlocks = isDemo ? MOCK_TRAINING_BLOCKS : liveBlocks
+  const athletes       = isDemo ? MOCK_ATHLETES : liveAthletes
 
   const activeBlock     = trainingBlocks.find(b => b.status === 'active')
   const upcomingBlock   = trainingBlocks.find(b => b.status === 'planned')
-  const completedBlocks = trainingBlocks.filter(b => b.status === 'completed')
+
+  // ── Block modal state ─────────────────────────────────────────────────────
+  const [blockModal, setBlockModal]     = useState(false)
+  const [editingBlock, setEditingBlock] = useState(null)   // null = create, object = edit
+  const [blockSaving, setBlockSaving]   = useState(false)
+  const [blockError, setBlockError]     = useState(null)
+  const [deletingId, setDeletingId]     = useState(null)   // confirm-delete id
+  const [blockSaved, setBlockSaved]     = useState(false)  // success flash
+
+  const openCreate = () => { setEditingBlock(null); setBlockModal(true) }
+  const openEdit   = (b) => { setEditingBlock(b);   setBlockModal(true) }
+  const closeModal = () => { setBlockModal(false); setEditingBlock(null); setBlockError(null) }
+
+  const handleSaveBlock = async (sanitized) => {
+    setBlockSaving(true)
+    setBlockError(null)
+    const saved = await saveOrgTrainingBlock(user?.id ?? null, activeOrgId, { id: editingBlock?.id, ...sanitized })
+    if (!saved) {
+      setBlockError('Failed to save. Please try again.')
+      setBlockSaving(false)
+      return
+    }
+    if (editingBlock?.id) {
+      updateBlock(editingBlock.id, saved)
+    } else {
+      addBlock(saved)
+    }
+    setBlockSaving(false)
+    setBlockSaved(true)
+    setTimeout(() => setBlockSaved(false), 2000)
+    closeModal()
+  }
+
+  const handleDeleteBlock = async (id) => {
+    const ok = await deleteTrainingBlock(id)
+    if (ok) removeBlock(id)
+    setDeletingId(null)
+  }
 
   const PHASE_COLORS = {
     hypertrophy:     'bg-blue-500/15 text-blue-300 border-blue-500/30',
+    accumulation:    'bg-blue-500/15 text-blue-300 border-blue-500/30',
     intensification: 'bg-purple-500/15 text-purple-300 border-purple-500/30',
     peaking:         'bg-orange-500/15 text-orange-300 border-orange-500/30',
+    peak:            'bg-orange-500/15 text-orange-300 border-orange-500/30',
+    deload:          'bg-teal-500/15 text-teal-300 border-teal-500/30',
+    transition:      'bg-zinc-600/50 text-zinc-400 border-zinc-600/30',
     offseason:       'bg-zinc-700/50 text-zinc-400 border-zinc-600/30',
   }
 
+  // ── Nutritionist view ─────────────────────────────────────────────────────
   if (isNutritionist) {
     return (
       <div className="p-4 md:p-6 max-w-4xl mx-auto space-y-6">
@@ -2044,47 +2237,78 @@ function StaffTrainingPage({ profile, membership }) {
           </h1>
           <p className="text-sm text-zinc-400 mt-0.5">Athlete training context for nutrition planning</p>
         </div>
-        <div className="grid gap-4">
-          {athletes.map(a => (
-            <Card key={a.id}>
-              <CardHeader>
-                <div className="flex items-center gap-3">
-                  <Avatar name={a.full_name} role="athlete" size="sm" />
-                  <div>
-                    <CardTitle>{a.full_name}</CardTitle>
-                    <p className="text-xs text-zinc-500">{a.sessions_this_week}/{a.sessions_planned_this_week} sessions this week · RPE avg {a.rpe_avg_this_week}</p>
+        {rosterLoading ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="w-5 h-5 animate-spin text-purple-400" />
+          </div>
+        ) : (
+          <div className="grid gap-4">
+            {athletes.map(a => (
+              <Card key={a.id}>
+                <CardHeader>
+                  <div className="flex items-center gap-3">
+                    <Avatar name={a.full_name} role="athlete" size="sm" />
+                    <div>
+                      <CardTitle>{a.full_name}</CardTitle>
+                      <p className="text-xs text-zinc-500">{a.sessions_this_week}/{a.sessions_planned_this_week} sessions this week · RPE avg {a.rpe_avg_this_week}</p>
+                    </div>
                   </div>
-                </div>
-              </CardHeader>
-              <CardBody>
-                <div className="grid grid-cols-3 gap-3 text-center">
-                  <div className="bg-zinc-800/40 rounded-xl p-2">
-                    <p className="text-xs text-zinc-500">Training Load</p>
-                    <p className={cn('text-sm font-bold', a.rpe_avg_this_week >= 8.5 ? 'text-red-400' : a.rpe_avg_this_week >= 7.5 ? 'text-orange-400' : 'text-green-400')}>
-                      {a.rpe_avg_this_week >= 8.5 ? 'High' : a.rpe_avg_this_week >= 7.5 ? 'Moderate' : 'Low'}
-                    </p>
+                </CardHeader>
+                <CardBody>
+                  <div className="grid grid-cols-3 gap-3 text-center">
+                    <div className="bg-zinc-800/40 rounded-xl p-2">
+                      <p className="text-xs text-zinc-500">Training Load</p>
+                      <p className={cn('text-sm font-bold', a.rpe_avg_this_week >= 8.5 ? 'text-red-400' : a.rpe_avg_this_week >= 7.5 ? 'text-orange-400' : 'text-green-400')}>
+                        {a.rpe_avg_this_week >= 8.5 ? 'High' : a.rpe_avg_this_week >= 7.5 ? 'Moderate' : 'Low'}
+                      </p>
+                    </div>
+                    <div className="bg-zinc-800/40 rounded-xl p-2">
+                      <p className="text-xs text-zinc-500">Sessions</p>
+                      <p className="text-sm font-bold text-zinc-200">{a.sessions_this_week}/{a.sessions_planned_this_week}</p>
+                    </div>
+                    <div className="bg-zinc-800/40 rounded-xl p-2">
+                      <p className="text-xs text-zinc-500">Calories needed</p>
+                      <p className="text-sm font-bold text-zinc-200">
+                        {a.rpe_avg_this_week >= 8 ? '+200–400' : a.sessions_this_week < a.sessions_planned_this_week ? '−100–200' : 'On target'}
+                      </p>
+                    </div>
                   </div>
-                  <div className="bg-zinc-800/40 rounded-xl p-2">
-                    <p className="text-xs text-zinc-500">Sessions</p>
-                    <p className="text-sm font-bold text-zinc-200">{a.sessions_this_week}/{a.sessions_planned_this_week}</p>
-                  </div>
-                  <div className="bg-zinc-800/40 rounded-xl p-2">
-                    <p className="text-xs text-zinc-500">Calories needed</p>
-                    <p className="text-sm font-bold text-zinc-200">
-                      {a.rpe_avg_this_week >= 8 ? '+200–400' : a.sessions_this_week < a.sessions_planned_this_week ? '−100–200' : 'On target'}
-                    </p>
-                  </div>
-                </div>
-              </CardBody>
-            </Card>
-          ))}
-        </div>
+                </CardBody>
+              </Card>
+            ))}
+            {athletes.length === 0 && (
+              <div className="text-center py-10 text-zinc-500 text-sm">No athletes on your roster yet.</div>
+            )}
+          </div>
+        )}
       </div>
     )
   }
 
   return (
     <div className="p-4 md:p-6 max-w-5xl mx-auto space-y-6">
+      {/* Block form modal */}
+      <BlockFormModal
+        open={blockModal}
+        onClose={closeModal}
+        initial={editingBlock ? { ...editingBlock, sessions_completed: editingBlock.sessions_completed ?? 0 } : null}
+        onSave={handleSaveBlock}
+        saving={blockSaving}
+      />
+
+      {/* Confirm delete modal */}
+      <Modal open={!!deletingId} onClose={() => setDeletingId(null)} title="Delete Training Block">
+        <div className="space-y-4 py-1">
+          <p className="text-sm text-zinc-300">Are you sure you want to delete this training block? This cannot be undone.</p>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={() => setDeletingId(null)}>Cancel</Button>
+            <Button size="sm" variant="destructive" onClick={() => handleDeleteBlock(deletingId)}>
+              <Trash2 className="w-3.5 h-3.5" /> Delete
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
@@ -2119,197 +2343,306 @@ function StaffTrainingPage({ profile, membership }) {
         ))}
       </div>
 
-      {/* Overview tab */}
+      {/* ── Overview tab ── */}
       {tab === 'overview' && (
         <div className="space-y-4">
-          {/* Active Block */}
-          {activeBlock && (
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle className="flex items-center gap-2">
-                    <Activity className="w-4 h-4 text-purple-400" /> Active Block: {activeBlock.name}
-                  </CardTitle>
-                  <span className={cn('text-xs px-2 py-0.5 rounded-full border font-semibold', PHASE_COLORS[activeBlock.phase] ?? 'bg-zinc-700 text-zinc-300 border-zinc-600')}>
-                    {activeBlock.phase}
-                  </span>
-                </div>
-              </CardHeader>
-              <CardBody className="space-y-3">
-                <div className="grid grid-cols-4 gap-3 text-center">
-                  {[
-                    { label: 'Start', value: activeBlock.start_date },
-                    { label: 'End', value: activeBlock.end_date },
-                    { label: 'Sessions', value: `${activeBlock.sessions_completed}/${activeBlock.sessions_planned}` },
-                    { label: 'RPE Target', value: activeBlock.avg_rpe_target },
-                  ].map(s => (
-                    <div key={s.label} className="bg-zinc-800/40 rounded-xl p-2">
-                      <p className="text-xs text-zinc-500">{s.label}</p>
-                      <p className="text-sm font-bold text-zinc-200">{s.value}</p>
-                    </div>
-                  ))}
-                </div>
-                <ProgressBar value={activeBlock.sessions_completed} max={activeBlock.sessions_planned} color="purple" size="sm" />
-                <p className="text-xs text-zinc-500 italic">"{activeBlock.notes}"</p>
-              </CardBody>
-            </Card>
+          {blocksLoading && (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="w-5 h-5 animate-spin text-purple-400" />
+            </div>
           )}
-
-          {/* Quick session status grid */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Users className="w-4 h-4 text-blue-400" /> This Week's Sessions
-              </CardTitle>
-            </CardHeader>
-            <CardBody className="space-y-2">
-              {athletes.map(a => {
-                const pct = Math.round((a.sessions_this_week / a.sessions_planned_this_week) * 100)
-                const behind = a.sessions_this_week < a.sessions_planned_this_week
-                return (
-                  <div key={a.id} className="flex items-center gap-3">
-                    <Avatar name={a.full_name} role="athlete" size="sm" />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between mb-1">
-                        <p className="text-xs font-medium text-zinc-200">{a.full_name}</p>
-                        <span className={cn('text-xs font-bold ml-2 flex-shrink-0', pct >= 100 ? 'text-green-400' : behind ? 'text-orange-400' : 'text-zinc-300')}>
-                          {a.sessions_this_week}/{a.sessions_planned_this_week}
+          {!blocksLoading && (
+            <>
+              {/* Active Block */}
+              {activeBlock ? (
+                <Card>
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="flex items-center gap-2">
+                        <Activity className="w-4 h-4 text-purple-400" /> Active Block: {activeBlock.name}
+                      </CardTitle>
+                      <div className="flex items-center gap-2">
+                        <span className={cn('text-xs px-2 py-0.5 rounded-full border font-semibold capitalize', PHASE_COLORS[activeBlock.phase] ?? 'bg-zinc-700 text-zinc-300 border-zinc-600')}>
+                          {activeBlock.phase}
                         </span>
+                        {!isDemo && (
+                          <button onClick={() => openEdit(activeBlock)} className="p-1 rounded text-zinc-500 hover:text-zinc-200 transition-colors">
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                       </div>
-                      <ProgressBar value={a.sessions_this_week} max={a.sessions_planned_this_week} color={pct >= 100 ? 'green' : behind ? 'orange' : 'yellow'} size="sm" />
                     </div>
-                    {behind && <AlertTriangle className="w-3.5 h-3.5 text-orange-400 flex-shrink-0" />}
-                  </div>
-                )
-              })}
-            </CardBody>
-          </Card>
+                  </CardHeader>
+                  <CardBody className="space-y-3">
+                    <div className="grid grid-cols-4 gap-3 text-center">
+                      {[
+                        { label: 'Start', value: activeBlock.start_date ?? '–' },
+                        { label: 'End', value: activeBlock.end_date ?? '–' },
+                        { label: 'Sessions', value: `${activeBlock.sessions_completed ?? 0}/${activeBlock.sessions_planned ?? 0}` },
+                        { label: 'RPE Target', value: activeBlock.avg_rpe_target ?? '–' },
+                      ].map(s => (
+                        <div key={s.label} className="bg-zinc-800/40 rounded-xl p-2">
+                          <p className="text-xs text-zinc-500">{s.label}</p>
+                          <p className="text-sm font-bold text-zinc-200">{s.value}</p>
+                        </div>
+                      ))}
+                    </div>
+                    {(activeBlock.sessions_planned ?? 0) > 0 && (
+                      <ProgressBar value={activeBlock.sessions_completed ?? 0} max={activeBlock.sessions_planned} color="purple" size="sm" />
+                    )}
+                    {activeBlock.notes && <p className="text-xs text-zinc-500 italic">"{activeBlock.notes}"</p>}
+                  </CardBody>
+                </Card>
+              ) : (
+                <Card>
+                  <CardBody className="py-8 text-center">
+                    <p className="text-zinc-500 text-sm">No active training block.</p>
+                    {!isDemo && (
+                      <Button size="sm" className="mt-3" onClick={() => { setTab('blocks') }}>
+                        <Plus className="w-3.5 h-3.5" /> Create a Block
+                      </Button>
+                    )}
+                  </CardBody>
+                </Card>
+              )}
 
-          {/* Upcoming block */}
-          {upcomingBlock && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Calendar className="w-4 h-4 text-yellow-400" /> Next Block: {upcomingBlock.name}
-                </CardTitle>
-              </CardHeader>
-              <CardBody className="grid grid-cols-3 gap-3 text-center">
-                {[
-                  { label: 'Phase', value: upcomingBlock.phase },
-                  { label: 'Starts', value: upcomingBlock.start_date },
-                  { label: 'Weeks', value: `${upcomingBlock.weeks}wk` },
-                ].map(s => (
-                  <div key={s.label} className="bg-zinc-800/40 rounded-xl p-2">
-                    <p className="text-xs text-zinc-500">{s.label}</p>
-                    <p className="text-sm font-bold text-zinc-200 capitalize">{s.value}</p>
-                  </div>
-                ))}
-              </CardBody>
-            </Card>
+              {/* Quick session status grid */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Users className="w-4 h-4 text-blue-400" /> This Week's Sessions
+                  </CardTitle>
+                </CardHeader>
+                <CardBody className="space-y-2">
+                  {rosterLoading ? (
+                    <div className="flex items-center justify-center py-6">
+                      <Loader2 className="w-4 h-4 animate-spin text-zinc-400" />
+                    </div>
+                  ) : athletes.length === 0 ? (
+                    <p className="text-xs text-zinc-500 text-center py-4">No athletes on roster.</p>
+                  ) : (
+                    athletes.map(a => {
+                      const planned = a.sessions_planned_this_week ?? 1
+                      const done    = a.sessions_this_week ?? 0
+                      const pct     = Math.round((done / planned) * 100)
+                      const behind  = done < planned
+                      return (
+                        <div key={a.id} className="flex items-center gap-3">
+                          <Avatar name={a.full_name} role="athlete" size="sm" />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between mb-1">
+                              <p className="text-xs font-medium text-zinc-200">{a.full_name}</p>
+                              <span className={cn('text-xs font-bold ml-2 flex-shrink-0', pct >= 100 ? 'text-green-400' : behind ? 'text-orange-400' : 'text-zinc-300')}>
+                                {done}/{planned}
+                              </span>
+                            </div>
+                            <ProgressBar value={done} max={planned} color={pct >= 100 ? 'green' : behind ? 'orange' : 'yellow'} size="sm" />
+                          </div>
+                          {behind && <AlertTriangle className="w-3.5 h-3.5 text-orange-400 flex-shrink-0" />}
+                        </div>
+                      )
+                    })
+                  )}
+                </CardBody>
+              </Card>
+
+              {/* Upcoming block */}
+              {upcomingBlock && (
+                <Card>
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="flex items-center gap-2">
+                        <Calendar className="w-4 h-4 text-yellow-400" /> Next Block: {upcomingBlock.name}
+                      </CardTitle>
+                      {!isDemo && (
+                        <button onClick={() => openEdit(upcomingBlock)} className="p-1 rounded text-zinc-500 hover:text-zinc-200 transition-colors">
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </CardHeader>
+                  <CardBody className="grid grid-cols-3 gap-3 text-center">
+                    {[
+                      { label: 'Phase',  value: upcomingBlock.phase },
+                      { label: 'Starts', value: upcomingBlock.start_date ?? '–' },
+                      { label: 'Weeks',  value: upcomingBlock.weeks ? `${upcomingBlock.weeks}wk` : '–' },
+                    ].map(s => (
+                      <div key={s.label} className="bg-zinc-800/40 rounded-xl p-2">
+                        <p className="text-xs text-zinc-500">{s.label}</p>
+                        <p className="text-sm font-bold text-zinc-200 capitalize">{s.value}</p>
+                      </div>
+                    ))}
+                  </CardBody>
+                </Card>
+              )}
+            </>
           )}
         </div>
       )}
 
-      {/* Athlete Sessions tab */}
+      {/* ── Athlete Sessions tab ── */}
       {tab === 'athletes' && (
         <div className="space-y-3">
-          {athletes.map(a => {
-            const recentSession = a.recent_sessions?.[0]
-            return (
-              <Card key={a.id}>
-                <CardHeader>
-                  <div className="flex items-center gap-3">
-                    <Avatar name={a.full_name} role="athlete" size="sm" />
-                    <div className="flex-1 min-w-0">
-                      <CardTitle>{a.full_name}</CardTitle>
-                      <p className="text-xs text-zinc-500">{a.sessions_this_week}/{a.sessions_planned_this_week} sessions this week</p>
+          {rosterLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-5 h-5 animate-spin text-purple-400" />
+            </div>
+          ) : athletes.length === 0 ? (
+            <div className="text-center py-10 text-zinc-500 text-sm">No athletes on your roster yet.</div>
+          ) : (
+            athletes.map(a => {
+              const recentSession = Array.isArray(a.recent_sessions) ? a.recent_sessions[0] : null
+              return (
+                <Card key={a.id}>
+                  <CardHeader>
+                    <div className="flex items-center gap-3">
+                      <Avatar name={a.full_name} role="athlete" size="sm" />
+                      <div className="flex-1 min-w-0">
+                        <CardTitle>{a.full_name}</CardTitle>
+                        <p className="text-xs text-zinc-500">
+                          {a.sessions_this_week ?? 0}/{a.sessions_planned_this_week ?? 0} sessions this week
+                        </p>
+                      </div>
+                      <div className="flex gap-1.5 flex-shrink-0">
+                        {(a.flags ?? []).map(f => (
+                          <span key={f} className={cn('text-xs px-1.5 py-0.5 rounded-full border font-medium',
+                            f === 'pain_flag'       ? 'text-red-400 bg-red-500/10 border-red-500/20' :
+                            f === 'missed_sessions' ? 'text-orange-400 bg-orange-500/10 border-orange-500/20' :
+                            'text-yellow-400 bg-yellow-500/10 border-yellow-500/20'
+                          )}>{f.replace(/_/g, ' ')}</span>
+                        ))}
+                      </div>
                     </div>
-                    <div className="flex gap-1.5 flex-shrink-0">
-                      {a.flags?.map(f => (
-                        <span key={f} className={cn('text-xs px-1.5 py-0.5 rounded-full border font-medium',
-                          f === 'pain_flag' ? 'text-red-400 bg-red-500/10 border-red-500/20' :
-                          f === 'missed_sessions' ? 'text-orange-400 bg-orange-500/10 border-orange-500/20' :
-                          'text-yellow-400 bg-yellow-500/10 border-yellow-500/20'
-                        )}>{f.replace('_', ' ')}</span>
-                      ))}
+                  </CardHeader>
+                  {recentSession && (
+                    <CardBody>
+                      <div className="grid grid-cols-3 gap-3">
+                        <div className="bg-zinc-800/40 rounded-xl p-2 text-center">
+                          <p className="text-xs text-zinc-500">Last Session</p>
+                          <p className="text-xs font-semibold text-zinc-200 mt-0.5">{recentSession.name ?? '–'}</p>
+                        </div>
+                        <div className="bg-zinc-800/40 rounded-xl p-2 text-center">
+                          <p className="text-xs text-zinc-500">Date</p>
+                          <p className="text-xs font-semibold text-zinc-200 mt-0.5">{recentSession.date ?? '–'}</p>
+                        </div>
+                        <div className="bg-zinc-800/40 rounded-xl p-2 text-center">
+                          <p className="text-xs text-zinc-500">RPE</p>
+                          <p className={cn('text-sm font-bold mt-0.5', (recentSession.rpe ?? 0) >= 8.5 ? 'text-red-400' : (recentSession.rpe ?? 0) >= 7.5 ? 'text-orange-400' : 'text-green-400')}>
+                            {recentSession.rpe ?? '–'}
+                          </p>
+                        </div>
+                      </div>
+                      {a.coach_notes && (
+                        <p className="text-xs text-zinc-500 mt-2 italic">Coach note: {a.coach_notes}</p>
+                      )}
+                    </CardBody>
+                  )}
+                </Card>
+              )
+            })
+          )}
+        </div>
+      )}
+
+      {/* ── Training Blocks tab ── */}
+      {tab === 'blocks' && (
+        <div className="space-y-3">
+          {/* Header row */}
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-zinc-400">{trainingBlocks.length} block{trainingBlocks.length !== 1 ? 's' : ''}</p>
+            <div className="flex items-center gap-2">
+              {blockSaved && (
+                <span className="text-xs text-green-400 flex items-center gap-1">
+                  <Check className="w-3.5 h-3.5" /> Saved
+                </span>
+              )}
+              {blockError && <span className="text-xs text-red-400">{blockError}</span>}
+              {!isDemo && (
+                <Button size="sm" onClick={openCreate}>
+                  <Plus className="w-3.5 h-3.5" /> New Block
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {blocksLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-5 h-5 animate-spin text-purple-400" />
+            </div>
+          ) : trainingBlocks.length === 0 ? (
+            <Card>
+              <CardBody className="py-10 text-center">
+                <p className="text-zinc-500 text-sm">No training blocks yet.</p>
+                {!isDemo && (
+                  <Button size="sm" className="mt-3" onClick={openCreate}>
+                    <Plus className="w-3.5 h-3.5" /> Create First Block
+                  </Button>
+                )}
+              </CardBody>
+            </Card>
+          ) : (
+            trainingBlocks.map(b => (
+              <Card key={b.id}>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle>{b.name}</CardTitle>
+                      <p className="text-xs text-zinc-500 mt-0.5">
+                        {b.start_date ?? '–'} → {b.end_date ?? '–'}
+                        {b.weeks ? ` · ${b.weeks} weeks` : ''}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <span className={cn('text-xs px-2 py-0.5 rounded-full border font-semibold capitalize', PHASE_COLORS[b.phase] ?? 'bg-zinc-700 text-zinc-300 border-zinc-600')}>
+                        {b.phase ?? b.block_type ?? 'block'}
+                      </span>
+                      <span className={cn('text-xs px-2 py-0.5 rounded-full border font-semibold capitalize',
+                        b.status === 'active'    ? 'bg-green-500/15 text-green-300 border-green-500/30' :
+                        b.status === 'completed' ? 'bg-zinc-700/50 text-zinc-400 border-zinc-600/30' :
+                        'bg-yellow-500/15 text-yellow-300 border-yellow-500/30'
+                      )}>{b.status ?? 'planned'}</span>
+                      {!isDemo && (
+                        <>
+                          <button onClick={() => openEdit(b)} className="p-1 rounded text-zinc-500 hover:text-zinc-200 transition-colors" title="Edit">
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button onClick={() => setDeletingId(b.id)} className="p-1 rounded text-zinc-500 hover:text-red-400 transition-colors" title="Delete">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </>
+                      )}
                     </div>
                   </div>
                 </CardHeader>
-                {recentSession && (
-                  <CardBody>
-                    <div className="grid grid-cols-3 gap-3">
-                      <div className="bg-zinc-800/40 rounded-xl p-2 text-center">
-                        <p className="text-xs text-zinc-500">Last Session</p>
-                        <p className="text-xs font-semibold text-zinc-200 mt-0.5">{recentSession.name}</p>
-                      </div>
-                      <div className="bg-zinc-800/40 rounded-xl p-2 text-center">
-                        <p className="text-xs text-zinc-500">Date</p>
-                        <p className="text-xs font-semibold text-zinc-200 mt-0.5">{recentSession.date}</p>
-                      </div>
-                      <div className="bg-zinc-800/40 rounded-xl p-2 text-center">
-                        <p className="text-xs text-zinc-500">RPE</p>
-                        <p className={cn('text-sm font-bold mt-0.5', recentSession.rpe >= 8.5 ? 'text-red-400' : recentSession.rpe >= 7.5 ? 'text-orange-400' : 'text-green-400')}>
-                          {recentSession.rpe}
-                        </p>
-                      </div>
+                <CardBody className="space-y-3">
+                  <div className="grid grid-cols-3 gap-3 text-center">
+                    <div className="bg-zinc-800/40 rounded-xl p-2">
+                      <p className="text-xs text-zinc-500">Sessions</p>
+                      <p className="text-sm font-bold text-zinc-200">{b.sessions_completed ?? 0}/{b.sessions_planned ?? 0}</p>
                     </div>
-                    {a.coach_notes && (
-                      <p className="text-xs text-zinc-500 mt-2 italic">Coach note: {a.coach_notes}</p>
-                    )}
-                  </CardBody>
-                )}
+                    <div className="bg-zinc-800/40 rounded-xl p-2">
+                      <p className="text-xs text-zinc-500">RPE Target</p>
+                      <p className="text-sm font-bold text-zinc-200">{b.avg_rpe_target ?? '–'}</p>
+                    </div>
+                    <div className="bg-zinc-800/40 rounded-xl p-2">
+                      <p className="text-xs text-zinc-500">Focus</p>
+                      <p className="text-xs font-bold text-zinc-200">{b.focus ?? '–'}</p>
+                    </div>
+                  </div>
+                  {b.status !== 'planned' && (b.sessions_planned ?? 0) > 0 && (
+                    <ProgressBar value={b.sessions_completed ?? 0} max={b.sessions_planned} color={b.status === 'completed' ? 'green' : 'purple'} size="sm" />
+                  )}
+                  {b.notes && <p className="text-xs text-zinc-500 italic">"{b.notes}"</p>}
+                </CardBody>
               </Card>
-            )
-          })}
-        </div>
-      )}
+            ))
+          )}
 
-      {/* Blocks tab */}
-      {tab === 'blocks' && (
-        <div className="space-y-3">
-          {trainingBlocks.map(b => (
-            <Card key={b.id}>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle>{b.name}</CardTitle>
-                    <p className="text-xs text-zinc-500 mt-0.5">{b.start_date} → {b.end_date} · {b.weeks} weeks</p>
-                  </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <span className={cn('text-xs px-2 py-0.5 rounded-full border font-semibold capitalize', PHASE_COLORS[b.phase] ?? 'bg-zinc-700 text-zinc-300 border-zinc-600')}>{b.phase}</span>
-                    <span className={cn('text-xs px-2 py-0.5 rounded-full border font-semibold',
-                      b.status === 'active' ? 'bg-green-500/15 text-green-300 border-green-500/30' :
-                      b.status === 'completed' ? 'bg-zinc-700/50 text-zinc-400 border-zinc-600/30' :
-                      'bg-yellow-500/15 text-yellow-300 border-yellow-500/30'
-                    )}>{b.status}</span>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardBody className="space-y-3">
-                <div className="grid grid-cols-3 gap-3 text-center">
-                  <div className="bg-zinc-800/40 rounded-xl p-2">
-                    <p className="text-xs text-zinc-500">Sessions</p>
-                    <p className="text-sm font-bold text-zinc-200">{b.sessions_completed}/{b.sessions_planned}</p>
-                  </div>
-                  <div className="bg-zinc-800/40 rounded-xl p-2">
-                    <p className="text-xs text-zinc-500">RPE Target</p>
-                    <p className="text-sm font-bold text-zinc-200">{b.avg_rpe_target}</p>
-                  </div>
-                  <div className="bg-zinc-800/40 rounded-xl p-2">
-                    <p className="text-xs text-zinc-500">Focus</p>
-                    <p className="text-xs font-bold text-zinc-200">{b.focus}</p>
-                  </div>
-                </div>
-                {b.status !== 'planned' && (
-                  <ProgressBar value={b.sessions_completed} max={b.sessions_planned} color={b.status === 'completed' ? 'green' : 'purple'} size="sm" />
-                )}
-                <p className="text-xs text-zinc-500 italic">"{b.notes}"</p>
-              </CardBody>
-            </Card>
-          ))}
-          <Button className="w-full" variant="outline" onClick={() => setActivePage?.('programming')}>
-            <Dumbbell className="w-3.5 h-3.5" /> Create New Block in Program Builder
-          </Button>
+          {!isDemo && trainingBlocks.length > 0 && (
+            <Button className="w-full" variant="outline" onClick={openCreate}>
+              <Plus className="w-3.5 h-3.5" /> Create New Block
+            </Button>
+          )}
         </div>
       )}
     </div>
