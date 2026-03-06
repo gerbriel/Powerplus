@@ -365,6 +365,7 @@ export async function saveProfile(userId, updates) {
   if (updates.display_name!= null) row.display_name = sanitizeText(updates.display_name, 60)
   if (updates.bio         != null) row.bio          = sanitizeText(updates.bio, 500)
   if (updates.weight_class!= null) row.weight_class = sanitizeText(updates.weight_class, 20)
+  if (updates.member_id   != null) row.member_id    = sanitizeText(updates.member_id, 60)
   if (updates.federation  != null) row.federation   = allowedFederations.includes(updates.federation?.toLowerCase?.() ?? updates.federation) ? updates.federation : null
   if (updates.equipment_type != null) {
     const eq = (updates.equipment_type ?? '').toLowerCase()
@@ -599,4 +600,133 @@ export async function toggleShoppingItem(itemId, checked) {
     .from('shopping_list_items').update({ checked: sanitizeBool(checked) }).eq('id', itemId).select().single()
   if (error) { console.error('[db] toggleShoppingItem:', error.message); return null }
   return data
+}
+
+// ─── Nutrition Plans ──────────────────────────────────────────────────────────
+
+/**
+ * Upsert a nutrition plan record for an athlete.
+ * Used by the coach's Meal Plan editor in the Roster modal.
+ */
+export async function saveNutritionPlan(athleteId, createdBy, orgId, planData) {
+  if (!isSupabaseConfigured() || !athleteId) return null
+
+  const row = {
+    athlete_id:              athleteId,
+    created_by:              createdBy ?? null,
+    last_edited_by:          createdBy ?? null,
+    org_id:                  orgId ?? null,
+    name:                    sanitizeText(planData.name, 200) || 'Meal Plan',
+    calories_training:       sanitizeNumber(planData.calories_training ?? planData.target_calories, 0, 50000),
+    calories_rest:           sanitizeNumber(planData.calories_rest, 0, 50000),
+    protein_g:               sanitizeNumber(planData.protein_g ?? planData.target_protein, 0, 2000),
+    carbs_g:                 sanitizeNumber(planData.carbs_g, 0, 2000),
+    fat_g:                   sanitizeNumber(planData.fat_g, 0, 2000),
+    fiber_g:                 sanitizeNumber(planData.fiber_g, 0, 200),
+    water_ml:                sanitizeNumber(planData.water_ml, 0, 20000),
+    cadence:                 planData.cadence ?? 'weekly',
+    valid_from:              sanitizeDate(planData.valid_from),
+    valid_to:                sanitizeDate(planData.valid_to),
+    linked_training_block_id: planData.block_id ?? null,
+    linked_goal_ids:         Array.isArray(planData.goal_ids) ? planData.goal_ids : [],
+    coach_notes:             sanitizeText(planData.coach_notes, 2000),
+    athlete_can_edit:        sanitizeBool(planData.athlete_can_edit ?? false),
+    active:                  true,
+    updated_at:              new Date().toISOString(),
+  }
+
+  // Upsert on id if a real DB id was supplied (not a mock 'np-' prefixed id)
+  if (planData.id && !planData.id.startsWith('np-')) {
+    const { data, error } = await supabase
+      .from('nutrition_plans')
+      .update(row)
+      .eq('id', planData.id)
+      .select().single()
+    if (error) { console.error('[db] saveNutritionPlan update:', error.message); return null }
+    return data
+  }
+
+  const { data, error } = await supabase.from('nutrition_plans').insert(row).select().single()
+  if (error) { console.error('[db] saveNutritionPlan insert:', error.message); return null }
+  return data
+}
+
+// ─── Coach Notes ──────────────────────────────────────────────────────────────
+
+/**
+ * Persist a coach note for an athlete using the audit_logs table.
+ * action = 'coach_note', entity_type = 'athlete', entity_id = athleteId,
+ * changes = { note: <text>, note_id: <local id> }
+ */
+export async function saveCoachNote(staffId, athleteId, noteText, noteId = null) {
+  if (!isSupabaseConfigured() || !staffId || !athleteId) return null
+  const sanitized = sanitizeText(noteText, 2000)
+  if (!sanitized) return null
+
+  const row = {
+    actor_id:    staffId,
+    action:      'coach_note',
+    entity_type: 'athlete',
+    entity_id:   athleteId,
+    changes:     { note: sanitized, ...(noteId != null ? { note_id: String(noteId) } : {}) },
+  }
+
+  const { data, error } = await supabase.from('audit_logs').insert(row).select().single()
+  if (error) { console.error('[db] saveCoachNote:', error.message); return null }
+  return data
+}
+
+// ─── Direct Messaging ─────────────────────────────────────────────────────────
+
+/**
+ * Send a direct message from a coach/staff member to an athlete.
+ * Finds or creates the DM channel, then inserts the message.
+ */
+export async function sendDirectMessage(fromId, toAthleteId, orgId, content) {
+  if (!isSupabaseConfigured() || !fromId || !toAthleteId) return null
+  const sanitized = sanitizeText(content, 2000)
+  if (!sanitized) return null
+
+  try {
+    // Find or create a DM channel between the two users
+    let channelId = null
+
+    const { data: existing } = await supabase
+      .rpc('find_dm_channel', { p_org_id: orgId, p_user_a: fromId, p_user_b: toAthleteId })
+    if (existing) {
+      channelId = existing
+    } else {
+      // Create a new DM channel
+      const { data: chan, error: chanErr } = await supabase
+        .from('channels')
+        .insert({
+          org_id:       orgId,
+          name:         `dm-${fromId}-${toAthleteId}`,
+          description:  '',
+          channel_type: 'dm',
+          created_by:   fromId,
+        })
+        .select().single()
+      if (chanErr) { console.error('[db] sendDirectMessage createChannel:', chanErr.message); return null }
+      channelId = chan.id
+
+      // Add both users as members
+      await supabase.from('channel_members').insert([
+        { channel_id: channelId, user_id: fromId },
+        { channel_id: channelId, user_id: toAthleteId },
+      ])
+    }
+
+    if (!channelId) return null
+
+    const { data, error } = await supabase
+      .from('messages')
+      .insert({ channel_id: channelId, sender_id: fromId, content: sanitized, message_type: 'text' })
+      .select().single()
+    if (error) { console.error('[db] sendDirectMessage insert message:', error.message); return null }
+    return data
+  } catch (err) {
+    console.error('[db] sendDirectMessage:', err.message)
+    return null
+  }
 }

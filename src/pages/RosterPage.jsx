@@ -22,7 +22,7 @@ import {
 } from '../lib/mockData'
 import { useSettingsStore, useAuthStore, useUIStore, useNutritionStore, useGoalsStore, useTrainingStore, resolveRole } from '../lib/store'
 import { cn, adherenceColor, flagLabel, formatDate, calcDotsScore, convertWeight } from '../lib/utils'
-import { saveTrainingBlock, saveGoal, saveProfile } from '../lib/db'
+import { saveTrainingBlock, saveGoal, saveProfile, sendDirectMessage, saveNutritionPlan, saveCoachNote, updateInjury } from '../lib/db'
 
 export function RosterPage() {
   const [selectedAthlete, setSelectedAthlete] = useState(null)
@@ -440,11 +440,15 @@ function AthleteProfileModal({ athlete, onClose }) {
 // ─── Message Overlay ─────────────────────────────────────────────────────────
 
 function MessageOverlay({ athlete, onClose }) {
+  const { isDemo, profile, activeOrgId } = useAuthStore()
   const [msg, setMsg] = useState('')
   const [sent, setSent] = useState(false)
-  function handleSend() {
+  async function handleSend() {
     if (!msg.trim()) return
     setSent(true)
+    if (!isDemo && profile?.id && athlete?.id && !athlete.id.startsWith('u-')) {
+      await sendDirectMessage(profile.id, athlete.id, activeOrgId, msg.trim())
+    }
     setTimeout(onClose, 1200)
   }
   return (
@@ -635,7 +639,7 @@ function deepCopyPlan(plan) {
 }
 
 function EditMealPlanOverlay({ athlete, onClose }) {
-  const { isDemo } = useAuthStore()
+  const { isDemo, profile, activeOrgId } = useAuthStore()
   const { goals: storeGoals } = useGoalsStore()
   const { blocks: storeBlocks } = useTrainingStore()
   const { boardPlans, athletePrepLog, athleteRecipes } = useNutritionStore()
@@ -650,6 +654,12 @@ function EditMealPlanOverlay({ athlete, onClose }) {
   const [saved, setSaved] = useState(false)
   const [mealHistory, setMealHistory] = useState([])
   const [showHistory, setShowHistory] = useState(false)
+
+  // Derived block + goals for this athlete
+  const block = storeBlocks.find(b => b.id === athlete.current_block_id)
+    ?? (isDemo ? MOCK_TRAINING_BLOCKS.find(b => b.id === athlete.current_block_id) : null)
+  const allGoals = storeGoals.length ? storeGoals : (isDemo ? MOCK_GOALS : [])
+  const linkedGoals = allGoals.filter(g => (athlete.goal_ids || []).includes(g.id))
 
   const weekRange = getWeekRange(weekOffset)
   const weekNum = getWeekNumber(weekOffset)
@@ -739,12 +749,13 @@ function EditMealPlanOverlay({ athlete, onClose }) {
     setAddMode(null)
   }
 
-  function handleSavePlan() {
+  async function handleSavePlan() {
     const compliance = Math.min(100, Math.round((dayTotals.calories / targetCalories) * 100))
+    const date = new Date(weekRange.start.getTime() + MEAL_DAYS.indexOf(selectedDay) * 86400000).toISOString().split('T')[0]
     const entry = {
       id: `mh-${Date.now()}`,
       athlete_id: athlete.id,
-      date: new Date(weekRange.start.getTime() + MEAL_DAYS.indexOf(selectedDay) * 86400000).toISOString().split('T')[0],
+      date,
       week_label: `Week ${weekNum} — ${block?.phase || 'Block'}`,
       block_id: block?.id || null,
       goal_ids: linkedGoals.map(g => g.id),
@@ -758,6 +769,18 @@ function EditMealPlanOverlay({ athlete, onClose }) {
     setMealHistory(prev => [entry, ...prev.filter(e => e.date !== entry.date)])
     setSaved(true)
     setTimeout(() => setSaved(false), 1500)
+    if (!isDemo && athlete?.id && !athlete.id.startsWith('u-')) {
+      await saveNutritionPlan(athlete.id, profile?.id, activeOrgId, {
+        name: `${athlete.full_name} — Week ${weekNum} Plan`,
+        calories_training: targetCalories,
+        target_calories:   targetCalories,
+        target_protein:    targetProtein,
+        block_id:          block?.id || null,
+        goal_ids:          linkedGoals.map(g => g.id),
+        valid_from:        date,
+        coach_notes:       '',
+      })
+    }
   }
 
   // All prep items (flattened)
@@ -1227,7 +1250,7 @@ function OverviewTab({ athlete }) {
     // Persist federation + member_id to the athlete's profile
     const { isDemo } = useAuthStore.getState()
     if (!isDemo && athlete?.id && !athlete.id.startsWith('u-')) {
-      saveProfile(athlete.id, { federation })
+      saveProfile(athlete.id, { federation, member_id: memberId.trim() || null })
     }
   }
 
@@ -2328,6 +2351,7 @@ function GoalEditForm({ goal, onSave, onCancel }) {
 // ─── Notes Tab ────────────────────────────────────────────────────────────────
 
 function NotesTab({ athlete }) {
+  const { isDemo, profile } = useAuthStore()
   const initNotes = athlete.coach_notes
     ? [{ id: 1, text: athlete.coach_notes, timestamp: '2026-02-20 09:00', pinned: false }]
     : []
@@ -2342,12 +2366,16 @@ function NotesTab({ athlete }) {
   const [editingInjury, setEditingInjury] = useState(false)
   const [savedInjury, setSavedInjury] = useState(false)
 
-  function addNote() {
+  async function addNote() {
     if (!newNote.trim()) return
     const now = new Date()
     const ts = now.toISOString().slice(0, 16).replace('T', ' ')
-    setNotesList(prev => [{ id: Date.now(), text: newNote.trim(), timestamp: ts, pinned: false }, ...prev])
+    const noteId = Date.now()
+    setNotesList(prev => [{ id: noteId, text: newNote.trim(), timestamp: ts, pinned: false }, ...prev])
     setNewNote('')
+    if (!isDemo && profile?.id && athlete?.id && !athlete.id.startsWith('u-')) {
+      await saveCoachNote(profile.id, athlete.id, newNote.trim(), noteId)
+    }
   }
 
   function startEdit(note) {
@@ -2355,9 +2383,12 @@ function NotesTab({ athlete }) {
     setEditText(note.text)
   }
 
-  function saveEdit(id) {
+  async function saveEdit(id) {
     setNotesList(prev => prev.map(n => n.id === id ? { ...n, text: editText } : n))
     setEditingId(null)
+    if (!isDemo && profile?.id && athlete?.id && !athlete.id.startsWith('u-')) {
+      await saveCoachNote(profile.id, athlete.id, editText, id)
+    }
   }
 
   function deleteNote(id) {
@@ -2365,10 +2396,17 @@ function NotesTab({ athlete }) {
     setConfirmDelete(null)
   }
 
-  function saveInjury() {
+  async function saveInjury() {
     setSavedInjury(true)
     setEditingInjury(false)
     setTimeout(() => setSavedInjury(false), 2000)
+    if (!isDemo && athlete?.id && !athlete.id.startsWith('u-')) {
+      // Find the most recent non-mock injury log id from athlete data if available
+      const injuryId = athlete.injury_log_id
+      if (injuryId && !String(injuryId).startsWith('inj-')) {
+        await updateInjury(injuryId, { coach_notes: injuryText.trim() || null })
+      }
+    }
   }
 
   return (
