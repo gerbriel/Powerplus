@@ -1,6 +1,6 @@
 import { create } from 'zustand'
-import { MOCK_USERS, MOCK_GOALS, MOCK_TRAINING_BLOCKS, MOCK_MEETS, MOCK_ORGS, MOCK_ORG_MEMBERS, MOCK_STAFF_ASSIGNMENTS, MOCK_ATHLETE_RECIPES, MOCK_ATHLETE_PREP_LOG, MOCK_ATHLETE_SHOPPING_LISTS, MOCK_ATHLETE_MEAL_PLANS, MOCK_CHANNELS, MOCK_MESSAGES, MOCK_DIRECT_MESSAGES } from './mockData'
-import { upsertProfile, isSupabaseConfigured, onAuthStateChange, fetchProfile, fetchOrgMemberships, signOut as supabaseSignOut, getSession, fetchChannels as sbFetchChannels, createChannel as sbCreateChannel, updateChannel as sbUpdateChannel, archiveChannel as sbArchiveChannel, fetchMessages as sbFetchMessages, sendMessage as sbSendMessage, editMessage as sbEditMessage, deleteMessage as sbDeleteMessage, toggleReaction as sbToggleReaction, findOrCreateDM as sbFindOrCreateDM, findOrCreateGroup as sbFindOrCreateGroup, markChannelRead as sbMarkChannelRead, fetchOrgAthletes, fetchOrgReviewQueue } from './supabase'
+import { MOCK_USERS, MOCK_GOALS, MOCK_TRAINING_BLOCKS, MOCK_MEETS, MOCK_ORGS, MOCK_ORG_MEMBERS, MOCK_STAFF_ASSIGNMENTS, MOCK_ATHLETE_RECIPES, MOCK_ATHLETE_PREP_LOG, MOCK_ATHLETE_SHOPPING_LISTS, MOCK_ATHLETE_MEAL_PLANS, MOCK_CHANNELS, MOCK_MESSAGES, MOCK_DIRECT_MESSAGES, MOCK_EXERCISES } from './mockData'
+import { upsertProfile, isSupabaseConfigured, onAuthStateChange, fetchProfile, fetchOrgMemberships, signOut as supabaseSignOut, getSession, fetchChannels as sbFetchChannels, createChannel as sbCreateChannel, updateChannel as sbUpdateChannel, archiveChannel as sbArchiveChannel, fetchMessages as sbFetchMessages, sendMessage as sbSendMessage, editMessage as sbEditMessage, deleteMessage as sbDeleteMessage, toggleReaction as sbToggleReaction, findOrCreateDM as sbFindOrCreateDM, findOrCreateGroup as sbFindOrCreateGroup, markChannelRead as sbMarkChannelRead, fetchOrgAthletes, fetchOrgReviewQueue, fetchExercises, fetchProgramTemplates } from './supabase'
 
 export const useAuthStore = create((set, get) => ({
   user: null,
@@ -58,6 +58,7 @@ export const useAuthStore = create((set, get) => ({
     useTrainingStore.setState({ blocks: [], meets: [] })
     useNutritionStore.setState({ athleteRecipes: {}, athletePrepLog: {}, athleteShoppingLists: {}, boardPlans: {} })
     useRosterStore.setState({ athletes: [], reviewQueue: [], loading: false, error: null })
+    useProgrammingStore.setState({ templates: [], exercises: [], loading: false })
   },
 
   // ── Real auth ────────────────────────────────────────────────────────────
@@ -79,6 +80,7 @@ export const useAuthStore = create((set, get) => ({
     useTrainingStore.setState({ blocks: [], meets: [] })
     useNutritionStore.setState({ athleteRecipes: {}, athletePrepLog: {}, athleteShoppingLists: {}, boardPlans: {} })
     useRosterStore.setState({ athletes: [], reviewQueue: [], loading: false, error: null })
+    useProgrammingStore.setState({ templates: [], exercises: [], loading: false })
     const [profile, memberships] = await Promise.all([
       fetchProfile(session.user.id),
       fetchOrgMemberships(session.user.id),
@@ -158,6 +160,7 @@ export const useAuthStore = create((set, get) => ({
     useTrainingStore.setState({ blocks: [], meets: [] })
     useNutritionStore.setState({ athleteRecipes: {}, athletePrepLog: {}, athleteShoppingLists: {}, boardPlans: {} })
     useRosterStore.setState({ athletes: [], reviewQueue: [], loading: false, error: null })
+    useProgrammingStore.setState({ templates: [], exercises: [], loading: false })
   },
 
   setProfile: (profile) => set({ profile }),
@@ -1138,3 +1141,58 @@ export const useRosterStore = create((set) => ({
       athletes: s.athletes.map((a) => a.id === athleteId ? { ...a, ...updates } : a),
     })),
 }))
+
+// ── Programming Store ─────────────────────────────────────────────────────────
+// Holds program templates and the exercise library for the active org.
+// Demo mode seeds from MOCK_EXERCISES / SAMPLE_TEMPLATES in ProgrammingPage.
+// Real users load from Supabase on mount.
+
+const DEMO_TEMPLATES = [
+  { id: 't1', name: '12-Week Meet Prep – Squat Focus', weeks: 12, style: 'hybrid', programming_style: 'hybrid', block_type: 'accumulation', athletes: 3 },
+  { id: 't2', name: '8-Week Bench Specialization',     weeks: 8,  style: 'rpe',    programming_style: 'rpe',    block_type: 'intensification', athletes: 1 },
+  { id: 't3', name: 'Off-Season Volume Block',         weeks: 10, style: 'percentage', programming_style: 'percentage', block_type: 'accumulation', athletes: 4 },
+  { id: 't4', name: '4-Week Peaking Program',          weeks: 4,  style: 'hybrid', programming_style: 'hybrid', block_type: 'peak', athletes: 6 },
+]
+
+export const useProgrammingStore = create((set, get) => ({
+  templates:  [],
+  exercises:  [],
+  loading:    false,
+  error:      null,
+
+  // Load all data for the given org (called on mount for real users)
+  loadProgramming: async (orgId) => {
+    set({ loading: true, error: null })
+    const [templates, exercises] = await Promise.all([
+      fetchProgramTemplates(orgId),
+      fetchExercises(orgId),
+    ])
+    set({ templates, exercises, loading: false })
+  },
+
+  // ── Templates ──────────────────────────────────────────────────────────────
+  addTemplate: (t) => set((s) => ({ templates: [t, ...s.templates] })),
+
+  updateTemplate: (id, updates) =>
+    set((s) => ({
+      templates: s.templates.map((t) => t.id === id ? { ...t, ...updates } : t),
+    })),
+
+  removeTemplate: (id) =>
+    set((s) => ({ templates: s.templates.filter((t) => t.id !== id) })),
+
+  // ── Exercises ──────────────────────────────────────────────────────────────
+  addExercise: (ex) => set((s) => ({ exercises: [...s.exercises, ex] })),
+
+  updateExercise: (id, updates) =>
+    set((s) => ({
+      exercises: s.exercises.map((e) => e.id === id ? { ...e, ...updates } : e),
+    })),
+
+  removeExercise: (id) =>
+    set((s) => ({ exercises: s.exercises.filter((e) => e.id !== id) })),
+
+  getDemoTemplates: () => DEMO_TEMPLATES,
+  getDemoExercises: () => MOCK_EXERCISES,
+}))
+

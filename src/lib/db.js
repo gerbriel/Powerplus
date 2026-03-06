@@ -730,3 +730,154 @@ export async function sendDirectMessage(fromId, toAthleteId, orgId, content) {
     return null
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Programming — exercises
+// ─────────────────────────────────────────────────────────────────────────────
+
+import {
+  createExercise as sbCreateExercise,
+  updateExercise as sbUpdateExercise,
+  deleteExercise as sbDeleteExercise,
+  createProgramTemplate as sbCreateProgramTemplate,
+  updateProgramTemplate as sbUpdateProgramTemplate,
+  deleteProgramTemplate as sbDeleteProgramTemplate,
+  upsertWorkoutTemplate as sbUpsertWorkoutTemplate,
+  saveWorkoutTemplateExercises as sbSaveWorkoutTemplateExercises,
+} from './supabase'
+
+/**
+ * Sanitize and upsert an exercise.
+ * @param {object} fields — { name, category, muscle_groups, equipment, description,
+ *                            video_url, technique_tags, is_competition_lift,
+ *                            created_by, org_id, is_global }
+ */
+export async function saveExercise(fields) {
+  if (!isSupabaseConfigured()) return null
+  const sanitized = {
+    name:               sanitizeText(fields.name, 200),
+    category:           sanitizeText(fields.category, 50),
+    description:        sanitizeText(fields.description, 2000) ?? null,
+    video_url:          sanitizeText(fields.video_url, 500) ?? null,
+    is_competition_lift: Boolean(fields.is_competition_lift),
+    is_global:          Boolean(fields.is_global),
+    created_by:         fields.created_by ?? null,
+    org_id:             fields.org_id ?? null,
+    muscle_groups:      Array.isArray(fields.muscle_groups)
+                          ? fields.muscle_groups.map(s => sanitizeText(s, 100)).filter(Boolean)
+                          : null,
+    equipment:          Array.isArray(fields.equipment)
+                          ? fields.equipment.map(s => sanitizeText(s, 100)).filter(Boolean)
+                          : null,
+    technique_tags:     Array.isArray(fields.technique_tags)
+                          ? fields.technique_tags.map(s => sanitizeText(s, 100)).filter(Boolean)
+                          : null,
+  }
+  if (!sanitized.name || !sanitized.category) {
+    console.warn('[db] saveExercise: name and category are required')
+    return null
+  }
+  if (fields.id) {
+    return sbUpdateExercise(fields.id, sanitized)
+  }
+  return sbCreateExercise(sanitized)
+}
+
+/** Delete an exercise by id. */
+export async function deleteExercise(id) {
+  if (!isSupabaseConfigured() || !id) return false
+  return sbDeleteExercise(id)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Programming — program templates
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Sanitize and save a program template (create or update).
+ * @param {object} fields — { id?, name, description, weeks, block_type,
+ *                            programming_style, created_by, org_id, tags }
+ */
+export async function saveProgramTemplate(fields) {
+  if (!isSupabaseConfigured()) return null
+  const sanitized = {
+    name:               sanitizeText(fields.name, 200),
+    description:        sanitizeText(fields.description, 2000) ?? null,
+    weeks:              sanitizeNumber(fields.weeks, 1, 52) ?? 12,
+    block_type:         sanitizeText(fields.block_type, 50) ?? 'accumulation',
+    programming_style:  sanitizeText(fields.programming_style, 50) ?? 'hybrid',
+    created_by:         fields.created_by ?? null,
+    org_id:             fields.org_id ?? null,
+    is_public:          Boolean(fields.is_public),
+    tags:               Array.isArray(fields.tags)
+                          ? fields.tags.map(s => sanitizeText(s, 100)).filter(Boolean)
+                          : null,
+  }
+  if (!sanitized.name) {
+    console.warn('[db] saveProgramTemplate: name is required')
+    return null
+  }
+  if (fields.id) {
+    return sbUpdateProgramTemplate(fields.id, sanitized)
+  }
+  return sbCreateProgramTemplate(sanitized)
+}
+
+/** Delete a program template (cascades to child tables). */
+export async function deleteProgramTemplate(id) {
+  if (!isSupabaseConfigured() || !id) return false
+  return sbDeleteProgramTemplate(id)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Programming — workout templates (Workout Builder)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Save a Workout Builder session: upsert the workout_template row then
+ * replace all its exercises. Returns { workoutTemplate, success }.
+ *
+ * @param {object} meta — { id?, template_id, week_id?, day_of_week, name, notes, estimated_duration }
+ * @param {Array}  blocks — [{ type, exercises: [{ exercise_id, sets, reps, intensity_type,
+ *                             intensity_value, rest_seconds, tempo, coaching_cues, notes }] }]
+ */
+export async function saveWorkoutBuilder(meta, blocks) {
+  if (!isSupabaseConfigured()) return { workoutTemplate: null, success: false }
+
+  const sanitizedMeta = {
+    id:                 meta.id ?? undefined,
+    template_id:        meta.template_id ?? null,
+    week_id:            meta.week_id ?? null,
+    day_of_week:        sanitizeNumber(meta.day_of_week, 0, 6) ?? 0,
+    name:               sanitizeText(meta.name, 200) ?? 'Untitled Session',
+    notes:              sanitizeText(meta.notes, 2000) ?? null,
+    estimated_duration: sanitizeNumber(meta.estimated_duration, 1, 480) ?? null,
+  }
+
+  const workoutTemplate = await sbUpsertWorkoutTemplate(sanitizedMeta)
+  if (!workoutTemplate) return { workoutTemplate: null, success: false }
+
+  // Flatten blocks into ordered exercise rows
+  const exerciseRows = []
+  let order = 0
+  for (const block of blocks) {
+    for (const ex of block.exercises) {
+      exerciseRows.push({
+        exercise_id:     ex.exercise_id,
+        block_type:      sanitizeText(block.type, 50),
+        order_index:     order++,
+        sets:            sanitizeNumber(ex.sets, 1, 100) ?? null,
+        reps:            sanitizeText(ex.reps, 50) ?? null,
+        intensity_type:  sanitizeText(ex.intensity_type, 50) ?? null,
+        intensity_value: sanitizeText(ex.intensity_value, 100) ?? null,
+        rest_seconds:    sanitizeNumber(ex.rest_seconds, 0, 3600) ?? null,
+        tempo:           sanitizeText(ex.tempo, 50) ?? null,
+        coaching_cues:   sanitizeText(ex.coaching_cues, 1000) ?? null,
+        notes:           sanitizeText(ex.notes, 1000) ?? null,
+      })
+    }
+  }
+
+  const success = await sbSaveWorkoutTemplateExercises(workoutTemplate.id, exerciseRows)
+  return { workoutTemplate, success }
+}

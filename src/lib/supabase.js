@@ -693,3 +693,186 @@ export async function fetchOrgReviewQueue(orgId) {
     flags:        row.flags ?? [],
   }))
 }
+
+// ── Programming: exercises ────────────────────────────────────────────────────
+
+/** Fetch all exercises visible to this user (global + org-private). */
+export async function fetchExercises(orgId) {
+  if (!isSupabaseConfigured()) return []
+  let q = supabase
+    .from('exercises')
+    .select('id, name, category, muscle_groups, equipment, description, video_url, technique_tags, is_competition_lift, created_by, org_id, is_global')
+    .order('name', { ascending: true })
+
+  // Include global exercises OR exercises belonging to this org
+  if (orgId) {
+    q = q.or(`is_global.eq.true,org_id.eq.${orgId},org_id.is.null`)
+  } else {
+    q = q.or('is_global.eq.true,org_id.is.null')
+  }
+
+  const { data, error } = await q
+  if (error) { console.error('[supabase] fetchExercises:', error.message); return [] }
+  return data ?? []
+}
+
+/** Insert a new exercise. Returns the created row or null. */
+export async function createExercise(fields) {
+  if (!isSupabaseConfigured()) return null
+  const { data, error } = await supabase
+    .from('exercises')
+    .insert(fields)
+    .select()
+    .single()
+  if (error) { console.error('[supabase] createExercise:', error.message); return null }
+  return data
+}
+
+/** Update an exercise by id. Returns the updated row or null. */
+export async function updateExercise(id, fields) {
+  if (!isSupabaseConfigured()) return null
+  const { data, error } = await supabase
+    .from('exercises')
+    .update(fields)
+    .eq('id', id)
+    .select()
+    .single()
+  if (error) { console.error('[supabase] updateExercise:', error.message); return null }
+  return data
+}
+
+/** Delete an exercise by id. */
+export async function deleteExercise(id) {
+  if (!isSupabaseConfigured()) return false
+  const { error } = await supabase.from('exercises').delete().eq('id', id)
+  if (error) { console.error('[supabase] deleteExercise:', error.message); return false }
+  return true
+}
+
+// ── Programming: program_templates ───────────────────────────────────────────
+
+/** Fetch all program templates for an org (with athlete assignment count). */
+export async function fetchProgramTemplates(orgId) {
+  if (!isSupabaseConfigured() || !orgId) return []
+  const { data, error } = await supabase
+    .from('program_templates')
+    .select(`
+      id, name, description, weeks, block_type, programming_style,
+      created_by, org_id, is_public, tags, created_at, updated_at,
+      program_instances(id)
+    `)
+    .eq('org_id', orgId)
+    .order('created_at', { ascending: false })
+  if (error) { console.error('[supabase] fetchProgramTemplates:', error.message); return [] }
+  return (data ?? []).map(t => ({
+    ...t,
+    athletes: t.program_instances?.length ?? 0,
+    style: t.programming_style ?? 'hybrid',
+    block_type: t.block_type ?? 'accumulation',
+    program_instances: undefined,
+  }))
+}
+
+/** Create a program template. Returns created row or null. */
+export async function createProgramTemplate(fields) {
+  if (!isSupabaseConfigured()) return null
+  const { data, error } = await supabase
+    .from('program_templates')
+    .insert(fields)
+    .select()
+    .single()
+  if (error) { console.error('[supabase] createProgramTemplate:', error.message); return null }
+  return { ...data, athletes: 0, style: data.programming_style ?? 'hybrid' }
+}
+
+/** Update a program template. Returns updated row or null. */
+export async function updateProgramTemplate(id, fields) {
+  if (!isSupabaseConfigured()) return null
+  const { data, error } = await supabase
+    .from('program_templates')
+    .update({ ...fields, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select()
+    .single()
+  if (error) { console.error('[supabase] updateProgramTemplate:', error.message); return null }
+  return data
+}
+
+/** Delete a program template (cascades to weeks, workout_templates, exercises). */
+export async function deleteProgramTemplate(id) {
+  if (!isSupabaseConfigured()) return false
+  const { error } = await supabase.from('program_templates').delete().eq('id', id)
+  if (error) { console.error('[supabase] deleteProgramTemplate:', error.message); return false }
+  return true
+}
+
+// ── Programming: workout_templates ───────────────────────────────────────────
+
+/**
+ * Fetch a single workout template with all its exercises (joined to exercise name/category).
+ * Used by the Workout Builder when editing an existing template.
+ */
+export async function fetchWorkoutTemplate(workoutTemplateId) {
+  if (!isSupabaseConfigured() || !workoutTemplateId) return null
+  const { data, error } = await supabase
+    .from('workout_templates')
+    .select(`
+      id, template_id, week_id, day_of_week, name, notes, estimated_duration,
+      workout_template_exercises (
+        id, exercise_id, block_type, order_index, sets, reps,
+        intensity_type, intensity_value, rest_seconds, tempo, coaching_cues, notes,
+        exercises ( id, name, category, is_competition_lift )
+      )
+    `)
+    .eq('id', workoutTemplateId)
+    .single()
+  if (error) { console.error('[supabase] fetchWorkoutTemplate:', error.message); return null }
+  return data
+}
+
+/** Upsert a workout template row. Returns row or null. */
+export async function upsertWorkoutTemplate(fields) {
+  if (!isSupabaseConfigured()) return null
+  const { data, error } = await supabase
+    .from('workout_templates')
+    .upsert(fields, { onConflict: 'id' })
+    .select()
+    .single()
+  if (error) { console.error('[supabase] upsertWorkoutTemplate:', error.message); return null }
+  return data
+}
+
+/**
+ * Save all exercises for a workout template.
+ * Deletes existing rows then re-inserts the full ordered list.
+ */
+export async function saveWorkoutTemplateExercises(workoutTemplateId, exercises) {
+  if (!isSupabaseConfigured() || !workoutTemplateId) return false
+  // Delete existing
+  const { error: delErr } = await supabase
+    .from('workout_template_exercises')
+    .delete()
+    .eq('workout_template_id', workoutTemplateId)
+  if (delErr) { console.error('[supabase] saveWorkoutTemplateExercises delete:', delErr.message); return false }
+
+  if (!exercises.length) return true
+
+  const rows = exercises.map((ex, i) => ({
+    workout_template_id: workoutTemplateId,
+    exercise_id:     ex.exercise_id,
+    block_type:      ex.block_type,
+    order_index:     ex.order_index ?? i,
+    sets:            ex.sets,
+    reps:            ex.reps,
+    intensity_type:  ex.intensity_type ?? null,
+    intensity_value: ex.intensity_value ?? null,
+    rest_seconds:    ex.rest_seconds ?? null,
+    tempo:           ex.tempo ?? null,
+    coaching_cues:   ex.coaching_cues ?? null,
+    notes:           ex.notes ?? null,
+  }))
+
+  const { error } = await supabase.from('workout_template_exercises').insert(rows)
+  if (error) { console.error('[supabase] saveWorkoutTemplateExercises insert:', error.message); return false }
+  return true
+}
