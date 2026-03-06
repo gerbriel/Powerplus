@@ -16,7 +16,7 @@
  *  - Date strings are validated as ISO dates; invalid dates become null
  */
 
-import { supabase, isSupabaseConfigured } from './supabase'
+import { supabase, isSupabaseConfigured, createChannel, sendMessage, editMessage, updateChannel } from './supabase'
 
 // ─── Sanitization utilities ───────────────────────────────────────────────────
 
@@ -1063,4 +1063,63 @@ export async function savePrepSessionFull(athleteId, orgId, createdBy, session, 
     if (iErr) console.error('[db] savePrepSessionFull items:', iErr.message)
   }
   return newSession
+}
+
+// ── Messaging helpers ─────────────────────────────────────────────────────────
+
+const VALID_CHANNEL_TYPES = ['public', 'private', 'announcement', 'dm', 'group']
+const VALID_MESSAGE_TYPES = ['text', 'image', 'video', 'gif', 'file']
+
+/**
+ * Sanitize + write a channel record.
+ */
+export async function saveChannelRecord({ orgId, name, description, channelType, createdBy, memberIds = [] }) {
+  if (!isSupabaseConfigured()) return null
+  const cleanName = sanitizeText(name, 80)?.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
+  if (!cleanName) { console.warn('[db] saveChannelRecord: name required'); return null }
+  const cleanDesc = sanitizeText(description, 500) ?? ''
+  const cleanType = VALID_CHANNEL_TYPES.includes(channelType) ? channelType : 'public'
+  const cleanMembers = sanitizeStringArray(memberIds, 100)
+  return createChannel({ orgId, name: cleanName, description: cleanDesc, channelType: cleanType, createdBy, memberIds: cleanMembers })
+}
+
+/**
+ * Sanitize + write a message to a channel.
+ */
+export async function saveMessageRecord({ channelId, senderId, content, messageType = 'text', mediaUrl = null, gifUrl = null, formatting = null }) {
+  if (!isSupabaseConfigured()) return null
+  const cleanContent = sanitizeText(content, 4000)
+  if (!cleanContent) { console.warn('[db] saveMessageRecord: content required'); return null }
+  const cleanType    = VALID_MESSAGE_TYPES.includes(messageType) ? messageType : 'text'
+  const cleanMedia   = mediaUrl   ? sanitizeText(mediaUrl,   1000) : null
+  const cleanGif     = gifUrl     ? sanitizeText(gifUrl,     1000) : null
+  const cleanFmt     = formatting ? {
+    bold:      sanitizeBool(formatting.bold),
+    italic:    sanitizeBool(formatting.italic),
+    underline: sanitizeBool(formatting.underline),
+  } : null
+  return sendMessage({ channelId, senderId, content: cleanContent, messageType: cleanType, mediaUrl: cleanMedia, gifUrl: cleanGif, formatting: cleanFmt })
+}
+
+/**
+ * Sanitize + update message content.
+ */
+export async function updateMessageRecord(messageId, content) {
+  if (!isSupabaseConfigured()) return false
+  const cleanContent = sanitizeText(content, 4000)
+  if (!cleanContent) { console.warn('[db] updateMessageRecord: content required'); return false }
+  return editMessage(messageId, cleanContent)
+}
+
+/**
+ * Sanitize + update channel fields (name/description/type).
+ */
+export async function updateChannelRecord(channelId, updates) {
+  if (!isSupabaseConfigured()) return false
+  const clean = {}
+  if (updates.name !== undefined)        clean.name        = sanitizeText(updates.name, 80)?.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
+  if (updates.description !== undefined) clean.description = sanitizeText(updates.description, 500) ?? ''
+  if (updates.channel_type !== undefined && VALID_CHANNEL_TYPES.includes(updates.channel_type)) clean.channel_type = updates.channel_type
+  if (updates.type !== undefined && VALID_CHANNEL_TYPES.includes(updates.type)) clean.channel_type = updates.type
+  return updateChannel(channelId, clean)
 }
