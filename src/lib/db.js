@@ -515,15 +515,16 @@ export async function saveEvent(createdBy, orgId, event) {
 
   const validTypes = ['session','meeting','meet','deadline','other']
   const row = {
-    created_by:       createdBy,
-    org_id:           orgId ?? null,
-    title:            sanitizeText(event.title, 200),
-    description:      sanitizeText(event.description, 1000),
-    event_type:       validTypes.includes(event.event_type) ? event.event_type : 'other',
-    start_time:       event.start_time ? new Date(event.start_time).toISOString() : null,
-    end_time:         event.end_time   ? new Date(event.end_time).toISOString()   : null,
-    location:         sanitizeText(event.location, 300),
-    meeting_url:      sanitizeText(event.meeting_url, 500),
+    created_by:   createdBy,
+    org_id:       orgId ?? null,
+    title:        sanitizeText(event.title, 200),
+    description:  sanitizeText(event.description, 1000),
+    event_type:   validTypes.includes(event.event_type) ? event.event_type : 'other',
+    start_time:   event.start_time ? new Date(event.start_time).toISOString() : null,
+    end_time:     event.end_time   ? new Date(event.end_time).toISOString()   : null,
+    location:     sanitizeText(event.location, 300),
+    meeting_url:  sanitizeText(event.meeting_url, 500),
+    attendee_ids: Array.isArray(event.attendee_ids) ? event.attendee_ids.filter(id => typeof id === 'string' && id.length > 0) : [],
   }
 
   if (!row.title || !row.start_time) { console.warn('[db] saveEvent: title and start_time required'); return null }
@@ -947,13 +948,14 @@ export async function updateEvent(eventId, fields) {
   if (!isSupabaseConfigured() || !eventId) return null
   const validTypes = ['session','meeting','meet','deadline','other']
   const row = {}
-  if (fields.title      !== undefined) row.title       = sanitizeText(fields.title, 200)
-  if (fields.description!== undefined) row.description = sanitizeText(fields.description, 1000)
-  if (fields.event_type !== undefined) row.event_type  = validTypes.includes(fields.event_type) ? fields.event_type : 'other'
-  if (fields.start_time !== undefined) row.start_time  = fields.start_time ? new Date(fields.start_time).toISOString() : null
-  if (fields.end_time   !== undefined) row.end_time    = fields.end_time   ? new Date(fields.end_time).toISOString()   : null
-  if (fields.location   !== undefined) row.location    = sanitizeText(fields.location, 300)
-  if (fields.meeting_url!== undefined) row.meeting_url = sanitizeText(fields.meeting_url, 500)
+  if (fields.title        !== undefined) row.title        = sanitizeText(fields.title, 200)
+  if (fields.description  !== undefined) row.description  = sanitizeText(fields.description, 1000)
+  if (fields.event_type   !== undefined) row.event_type   = validTypes.includes(fields.event_type) ? fields.event_type : 'other'
+  if (fields.start_time   !== undefined) row.start_time   = fields.start_time ? new Date(fields.start_time).toISOString() : null
+  if (fields.end_time     !== undefined) row.end_time     = fields.end_time   ? new Date(fields.end_time).toISOString()   : null
+  if (fields.location     !== undefined) row.location     = sanitizeText(fields.location, 300)
+  if (fields.meeting_url  !== undefined) row.meeting_url  = sanitizeText(fields.meeting_url, 500)
+  if (fields.attendee_ids !== undefined) row.attendee_ids = Array.isArray(fields.attendee_ids) ? fields.attendee_ids.filter(id => typeof id === 'string' && id.length > 0) : []
   if (!Object.keys(row).length) return null
   const { data, error } = await supabase.from('events').update(row).eq('id', eventId).select().single()
   if (error) { console.error('[db] updateEvent:', error.message); return null }

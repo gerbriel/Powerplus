@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { MOCK_USERS, MOCK_GOALS, MOCK_TRAINING_BLOCKS, MOCK_MEETS, MOCK_ORGS, MOCK_ORG_MEMBERS, MOCK_STAFF_ASSIGNMENTS, MOCK_ATHLETE_RECIPES, MOCK_ATHLETE_PREP_LOG, MOCK_ATHLETE_SHOPPING_LISTS, MOCK_ATHLETE_MEAL_PLANS, MOCK_CHANNELS, MOCK_MESSAGES, MOCK_DIRECT_MESSAGES, MOCK_EXERCISES } from './mockData'
-import { upsertProfile, isSupabaseConfigured, onAuthStateChange, fetchProfile, fetchOrgMemberships, signOut as supabaseSignOut, getSession, fetchChannels as sbFetchChannels, createChannel as sbCreateChannel, updateChannel as sbUpdateChannel, archiveChannel as sbArchiveChannel, fetchMessages as sbFetchMessages, sendMessage as sbSendMessage, editMessage as sbEditMessage, deleteMessage as sbDeleteMessage, toggleReaction as sbToggleReaction, togglePinMessage as sbTogglePinMessage, findOrCreateDM as sbFindOrCreateDM, findOrCreateGroup as sbFindOrCreateGroup, markChannelRead as sbMarkChannelRead, subscribeToChannel as sbSubscribeToChannel, uploadMessageFile as sbUploadMessageFile, fetchOrgAthletes, fetchOrgReviewQueue, fetchExercises, fetchProgramTemplates, fetchOrgTrainingBlocks, fetchPrepLog, fetchShoppingLists, fetchOrgRecipes, fetchNutritionLogs, fetchOrgEvents, fetchUserEvents } from './supabase'
+import { upsertProfile, isSupabaseConfigured, onAuthStateChange, fetchProfile, fetchOrgMemberships, signOut as supabaseSignOut, getSession, fetchChannels as sbFetchChannels, createChannel as sbCreateChannel, updateChannel as sbUpdateChannel, archiveChannel as sbArchiveChannel, fetchMessages as sbFetchMessages, sendMessage as sbSendMessage, editMessage as sbEditMessage, deleteMessage as sbDeleteMessage, toggleReaction as sbToggleReaction, togglePinMessage as sbTogglePinMessage, findOrCreateDM as sbFindOrCreateDM, findOrCreateGroup as sbFindOrCreateGroup, markChannelRead as sbMarkChannelRead, subscribeToChannel as sbSubscribeToChannel, uploadMessageFile as sbUploadMessageFile, subscribeToOrgEvents as sbSubscribeToOrgEvents, fetchOrgAthletes, fetchOrgReviewQueue, fetchExercises, fetchProgramTemplates, fetchOrgTrainingBlocks, fetchPrepLog, fetchShoppingLists, fetchOrgRecipes, fetchNutritionLogs, fetchOrgEvents, fetchUserEvents } from './supabase'
 import { saveMessageRecord, updateMessageRecord, saveChannelRecord, updateChannelRecord } from './db'
 
 export const useAuthStore = create((set, get) => ({
@@ -60,6 +60,7 @@ export const useAuthStore = create((set, get) => ({
     useNutritionStore.setState({ athleteRecipes: {}, athletePrepLog: {}, athleteShoppingLists: {}, boardPlans: {}, orgRecipes: [], orgRecipesLoaded: false, nutritionLogs: {} })
     useRosterStore.setState({ athletes: [], reviewQueue: [], loading: false, error: null })
     useProgrammingStore.setState({ templates: [], exercises: [], loading: false })
+    useCalendarStore.getState().reset()
   },
 
   // ── Real auth ────────────────────────────────────────────────────────────
@@ -82,6 +83,7 @@ export const useAuthStore = create((set, get) => ({
     useNutritionStore.setState({ athleteRecipes: {}, athletePrepLog: {}, athleteShoppingLists: {}, boardPlans: {}, orgRecipes: [], orgRecipesLoaded: false, nutritionLogs: {} })
     useRosterStore.setState({ athletes: [], reviewQueue: [], loading: false, error: null })
     useProgrammingStore.setState({ templates: [], exercises: [], loading: false })
+    useCalendarStore.getState().reset()
     const [profile, memberships] = await Promise.all([
       fetchProfile(session.user.id),
       fetchOrgMemberships(session.user.id),
@@ -162,12 +164,17 @@ export const useAuthStore = create((set, get) => ({
     useNutritionStore.setState({ athleteRecipes: {}, athletePrepLog: {}, athleteShoppingLists: {}, boardPlans: {} })
     useRosterStore.setState({ athletes: [], reviewQueue: [], loading: false, error: null })
     useProgrammingStore.setState({ templates: [], exercises: [], loading: false })
+    useCalendarStore.getState().reset()
   },
 
   setProfile: (profile) => set({ profile }),
 
-  // Switch the active org (e.g. user belongs to multiple orgs)
-  setActiveOrg: (orgId) => set({ activeOrgId: orgId }),
+  // Switch the active org (e.g. user belongs to multiple orgs) — reset per-org stores
+  setActiveOrg: (orgId) => {
+    const prev = get().activeOrgId
+    if (prev !== orgId) useCalendarStore.getState().reset()
+    set({ activeOrgId: orgId })
+  },
 
   // Returns the org_role for the current user in the active org
   getActiveOrgRole: () => {
@@ -910,37 +917,80 @@ export const useNutritionStore = create((set) => ({
 // Holds live calendar events for the active org + current user.
 // Demo mode relies on SAMPLE_EVENTS in CalendarPage — this store is for real users.
 export const useCalendarStore = create((set, get) => ({
-  events:  [],   // [{ id, org_id, created_by, title, description, event_type, start_time, end_time, location, meeting_url }]
-  loading: false,
-  loaded:  false,
+  events:       [],   // [{ id, org_id, created_by, title, description, event_type, start_time, end_time, location, meeting_url, attendee_ids }]
+  loading:      false,
+  loaded:       false,
+  loadedOrgId:  null, // tracks which org's events are currently loaded
+  _realtimeSub: null, // unsubscribe fn for the active realtime subscription
 
   loadEvents: async (orgId, userId) => {
     if (!isSupabaseConfigured()) return
+    const { loadedOrgId, _realtimeSub } = get()
+
+    // Already loaded for this org — skip
+    if (loadedOrgId === orgId && get().loaded) return
+
+    // Tear down any previous realtime sub (org switch)
+    if (_realtimeSub) { _realtimeSub(); }
+
     set({ loading: true })
+
     const [orgEvts, userEvts] = await Promise.all([
-      fetchOrgEvents(orgId),
+      orgId ? fetchOrgEvents(orgId) : [],
       fetchUserEvents(userId),
     ])
-    // Merge and deduplicate by id
+
+    // Merge and deduplicate by id (user events may overlap with org events)
     const combined = [...(orgEvts ?? []), ...(userEvts ?? [])]
     const seen = new Set()
     const unique = combined.filter(e => { if (seen.has(e.id)) return false; seen.add(e.id); return true })
-    // Sort ascending by start_time
     unique.sort((a, b) => new Date(a.start_time) - new Date(b.start_time))
-    set({ events: unique, loading: false, loaded: true })
+    set({ events: unique, loading: false, loaded: true, loadedOrgId: orgId })
+
+    // Wire realtime subscription for this org
+    if (orgId) {
+      const unsub = sbSubscribeToOrgEvents(orgId, {
+        onInsert: (row) => {
+          set((s) => {
+            // Skip if already in store (optimistic add)
+            if (s.events.find(e => e.id === row.id)) return {}
+            const next = [...s.events, row].sort((a, b) => new Date(a.start_time) - new Date(b.start_time))
+            return { events: next }
+          })
+        },
+        onUpdate: (row) => {
+          set((s) => ({
+            events: s.events
+              .map(e => e.id === row.id ? { ...e, ...row } : e)
+              .sort((a, b) => new Date(a.start_time) - new Date(b.start_time)),
+          }))
+        },
+        onDelete: (row) => {
+          set((s) => ({ events: s.events.filter(e => e.id !== row.id) }))
+        },
+      })
+      set({ _realtimeSub: unsub })
+    }
   },
 
-  addEvent: (event) => set((s) => ({ events: [...s.events, event].sort((a, b) => new Date(a.start_time) - new Date(b.start_time)) })),
+  addEvent: (event) => set((s) => ({
+    events: [...s.events, event].sort((a, b) => new Date(a.start_time) - new Date(b.start_time)),
+  })),
 
   updateEvent: (id, updates) =>
     set((s) => ({
-      events: s.events.map((e) => e.id === id ? { ...e, ...updates } : e)
+      events: s.events
+        .map((e) => e.id === id ? { ...e, ...updates } : e)
         .sort((a, b) => new Date(a.start_time) - new Date(b.start_time)),
     })),
 
   removeEvent: (id) => set((s) => ({ events: s.events.filter((e) => e.id !== id) })),
 
-  reset: () => set({ events: [], loading: false, loaded: false }),
+  reset: () => {
+    const { _realtimeSub } = get()
+    if (_realtimeSub) _realtimeSub()
+    set({ events: [], loading: false, loaded: false, loadedOrgId: null, _realtimeSub: null })
+  },
 }))
 
 // ─── Messaging Store ──────────────────────────────────────────────────────────
