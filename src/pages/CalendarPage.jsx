@@ -6,6 +6,7 @@ import { Badge } from '../components/ui/Badge'
 import { Modal } from '../components/ui/Modal'
 import { cn } from '../lib/utils'
 import { useAuthStore } from '../lib/store'
+import { saveEvent } from '../lib/db'
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
@@ -36,11 +37,30 @@ const SAMPLE_EVENTS = {
 }
 
 export function CalendarPage() {
-  const { profile, isDemo } = useAuthStore()
+  const { profile, isDemo, activeOrgId } = useAuthStore()
   const [year, setYear] = useState(new Date().getFullYear())
   const [month, setMonth] = useState(new Date().getMonth()) // 0-indexed
   const [selectedDay, setSelectedDay] = useState(null)
   const [addEventOpen, setAddEventOpen] = useState(false)
+  const [eventForm, setEventForm] = useState({ type: 'meeting', title: '', date: '', time: '', meeting_url: '' })
+  const updEvent = (k, v) => setEventForm(f => ({ ...f, [k]: v }))
+
+  const handleAddEvent = async () => {
+    if (!eventForm.title.trim() || !eventForm.date) return
+    if (!isDemo && profile?.id) {
+      const startTime = eventForm.time
+        ? `${eventForm.date}T${eventForm.time}:00`
+        : `${eventForm.date}T00:00:00`
+      await saveEvent(profile.id, activeOrgId, {
+        title: eventForm.title,
+        event_type: eventForm.type.toLowerCase().replace(/\s+/g, '_'),
+        start_time: startTime,
+        meeting_url: eventForm.meeting_url,
+      })
+    }
+    setEventForm({ type: 'meeting', title: '', date: '', time: '', meeting_url: '' })
+    setAddEventOpen(false)
+  }
 
   const firstDay = new Date(year, month, 1)
   const lastDay = new Date(year, month + 1, 0)
@@ -189,7 +209,8 @@ export function CalendarPage() {
         <div className="p-6 space-y-4">
           <div>
             <label className="block text-xs font-medium text-zinc-400 mb-1.5">Event Type</label>
-            <select className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500">
+            <select value={eventForm.type} onChange={e => updEvent('type', e.target.value)}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500">
               <option>Meeting</option>
               <option>Session (Online)</option>
               <option>In-Person Session</option>
@@ -200,23 +221,27 @@ export function CalendarPage() {
           </div>
           <div>
             <label className="block text-xs font-medium text-zinc-400 mb-1.5">Title</label>
-            <input type="text" placeholder="Event title…" className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500" />
+            <input type="text" value={eventForm.title} onChange={e => updEvent('title', e.target.value)}
+              placeholder="Event title…" className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500" />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-zinc-400 mb-1.5">Date</label>
-              <input type="date" className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500" />
+              <input type="date" value={eventForm.date} onChange={e => updEvent('date', e.target.value)}
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500" />
             </div>
             <div>
               <label className="block text-xs font-medium text-zinc-400 mb-1.5">Time</label>
-              <input type="time" className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500" />
+              <input type="time" value={eventForm.time} onChange={e => updEvent('time', e.target.value)}
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500" />
             </div>
           </div>
           <div>
             <label className="block text-xs font-medium text-zinc-400 mb-1.5">Meeting Link (optional)</label>
-            <input type="url" placeholder="https://zoom.us/j/…" className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500" />
+            <input type="url" value={eventForm.meeting_url} onChange={e => updEvent('meeting_url', e.target.value)}
+              placeholder="https://zoom.us/j/…" className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500" />
           </div>
-          <Button className="w-full" onClick={() => setAddEventOpen(false)}>
+          <Button className="w-full" onClick={handleAddEvent} disabled={!eventForm.title.trim() || !eventForm.date}>
             <Plus className="w-4 h-4" /> Add Event
           </Button>
         </div>
