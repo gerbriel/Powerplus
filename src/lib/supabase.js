@@ -273,7 +273,8 @@ export async function fetchOrgEvents(orgId) {
 }
 
 /**
- * Fetch personal events created by a user (where org_id may be null).
+ * Fetch all events created by a user (personal + org events they own).
+ * De-duplication against org events is handled in the store.
  */
 export async function fetchUserEvents(userId) {
   if (!isSupabaseConfigured() || !userId) return []
@@ -281,7 +282,6 @@ export async function fetchUserEvents(userId) {
     .from('events')
     .select('id, org_id, created_by, title, description, event_type, start_time, end_time, location, meeting_url, attendee_ids, created_at')
     .eq('created_by', userId)
-    .is('org_id', null)
     .order('start_time', { ascending: true })
   if (error) { console.error('[supabase] fetchUserEvents:', error.message); return [] }
   return data ?? []
@@ -310,6 +310,37 @@ export async function deleteEvent(id) {
   const { error } = await supabase.from('events').delete().eq('id', id)
   if (error) console.error('[supabase] deleteEvent:', error.message)
   return !error
+}
+
+/**
+ * Subscribe to live INSERT / UPDATE / DELETE on the events table for an org.
+ * callbacks: { onInsert, onUpdate, onDelete }
+ * Returns an unsubscribe function.
+ */
+export function subscribeToOrgEvents(orgId, { onInsert, onUpdate, onDelete } = {}) {
+  if (!isSupabaseConfigured() || !orgId) return () => {}
+  const sub = supabase
+    .channel(`events:${orgId}`)
+    .on('postgres_changes', {
+      event: 'INSERT',
+      schema: 'public',
+      table: 'events',
+      filter: `org_id=eq.${orgId}`,
+    }, (payload) => onInsert?.(payload.new))
+    .on('postgres_changes', {
+      event: 'UPDATE',
+      schema: 'public',
+      table: 'events',
+      filter: `org_id=eq.${orgId}`,
+    }, (payload) => onUpdate?.(payload.new))
+    .on('postgres_changes', {
+      event: 'DELETE',
+      schema: 'public',
+      table: 'events',
+      filter: `org_id=eq.${orgId}`,
+    }, (payload) => onDelete?.(payload.old))
+    .subscribe()
+  return () => supabase.removeChannel(sub)
 }
 
 // ── Auth helpers ─────────────────────────────────────────────────────────────

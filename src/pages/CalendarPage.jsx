@@ -3,30 +3,26 @@ import { Plus, ChevronLeft, ChevronRight, Dumbbell, Trophy, Users, Trash2, Edit2
 import { Card, CardHeader, CardTitle } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { Modal } from '../components/ui/Modal'
-import { cn } from '../lib/utils'
+import { cn, formatRelativeTime } from '../lib/utils'
 import { useAuthStore, useCalendarStore } from '../lib/store'
 import { saveEvent, updateEvent, deleteCalendarEvent } from '../lib/db'
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December']
 
-const SAMPLE_EVENTS = {
-  '2026-02-28': [
-    { id: 's1', event_type: 'session', title: 'Heavy Squat', start_time: '2026-02-28T16:00:00', location: '' },
-    { id: 's2', event_type: 'other', title: 'Nutrition log', start_time: '2026-02-28T20:00:00', location: '' },
-  ],
-  '2026-03-03': [
-    { id: 's3', event_type: 'session', title: 'Bench Focus', start_time: '2026-03-03T17:00:00', location: '' },
-  ],
-  '2026-03-10': [
-    { id: 's4', event_type: 'meeting', title: '1:1 w/ Coach', start_time: '2026-03-10T09:00:00', meeting_url: '' },
-  ],
-  '2026-03-15': [
-    { id: 's5', event_type: 'deadline', title: 'Meet Registration Due', start_time: '2026-03-15T00:00:00', location: '' },
-  ],
-  '2026-04-12': [
-    { id: 's6', event_type: 'meet', title: 'Spring Classic 2026', start_time: '2026-04-12T08:00:00', location: '' },
-  ],
+// Demo events are offset from today so they're always in the near future
+function buildDemoEvents() {
+  const today = new Date()
+  const fmt = (d) => d.toISOString().slice(0, 10)
+  const offset = (days) => { const d = new Date(today); d.setDate(d.getDate() + days); return fmt(d) }
+  return [
+    { id: 's1', event_type: 'session',  title: 'Heavy Squat',            start_time: `${offset(-1)}T16:00:00`, location: 'Main gym' },
+    { id: 's2', event_type: 'other',    title: 'Nutrition log',           start_time: `${offset(0)}T20:00:00`,  location: '' },
+    { id: 's3', event_type: 'session',  title: 'Bench Focus',             start_time: `${offset(2)}T17:00:00`,  location: '' },
+    { id: 's4', event_type: 'meeting',  title: '1:1 w/ Coach',            start_time: `${offset(4)}T09:00:00`,  meeting_url: 'https://zoom.us/j/example' },
+    { id: 's5', event_type: 'deadline', title: 'Meet Registration Due',   start_time: `${offset(9)}T00:00:00`,  location: '' },
+    { id: 's6', event_type: 'meet',     title: 'Spring Classic 2026',     start_time: `${offset(37)}T08:00:00`, location: 'Convention Center' },
+  ]
 }
 
 const EVENT_COLORS = {
@@ -45,7 +41,7 @@ const EVENT_ICONS = {
   other:    Trophy,
 }
 
-const BLANK_FORM = { title: '', event_type: 'meeting', date: '', time: '', end_date: '', end_time: '', location: '', meeting_url: '', description: '' }
+const BLANK_FORM = { title: '', event_type: 'meeting', date: '', time: '', end_date: '', end_time: '', location: '', meeting_url: '', description: '', attendee_ids: '' }
 
 function fmtTime(isoStr) {
   if (!isoStr) return ''
@@ -63,22 +59,20 @@ export function CalendarPage() {
   const [year, setYear]           = useState(new Date().getFullYear())
   const [month, setMonth]         = useState(new Date().getMonth())
   const [addOpen, setAddOpen]     = useState(false)
-  const [editEvent, setEditEvent] = useState(null) // event object being edited
+  const [editEvent, setEditEvent] = useState(null)
   const [form, setForm]           = useState(BLANK_FORM)
   const [saving, setSaving]       = useState(false)
   const [draggedId, setDraggedId] = useState(null)
 
-  // Load events on mount for real users
+  // Load events on mount and whenever org changes (store guards against redundant fetches)
   useEffect(() => {
-    if (!isDemo && activeOrgId && profile?.id && !calStore.loaded && !calStore.loading) {
+    if (!isDemo && profile?.id) {
       loadEvents(activeOrgId, profile.id)
     }
   }, [isDemo, activeOrgId, profile?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Build events map: dateKey → events[]
-  const allEvents = isDemo
-    ? Object.values(SAMPLE_EVENTS).flat()
-    : storeEvents
+  const allEvents = isDemo ? buildDemoEvents() : storeEvents
 
   const eventsByDate = allEvents.reduce((map, ev) => {
     const key = (ev.start_time ?? '').slice(0, 10)
@@ -124,11 +118,18 @@ export function CalendarPage() {
     const existing = allEvents.find(ev => ev.id === eventId)
     if (!existing) return
     const existingTime = existing.start_time?.slice(11) ?? '00:00:00'
-    const newStart = `${dateKey}T${existingTime}`
+    const newStart     = `${dateKey}T${existingTime}`
+    const prevStart    = existing.start_time
+
     // Optimistic update
     storeUpdate(eventId, { start_time: newStart })
+
     if (!isDemo) {
-      await updateEvent(eventId, { start_time: newStart })
+      const result = await updateEvent(eventId, { start_time: newStart })
+      if (!result) {
+        // Revert on DB failure
+        storeUpdate(eventId, { start_time: prevStart })
+      }
     }
   }, [allEvents, isDemo, storeUpdate])
 
@@ -143,15 +144,16 @@ export function CalendarPage() {
     const dateStr = (ev.start_time ?? '').slice(0, 10)
     const timeStr = (ev.start_time ?? '').slice(11, 16)
     setForm({
-      title:       ev.title ?? '',
-      event_type:  ev.event_type ?? 'meeting',
-      date:        dateStr,
-      time:        timeStr,
-      end_date:    (ev.end_time ?? '').slice(0, 10),
-      end_time:    (ev.end_time ?? '').slice(11, 16),
-      location:    ev.location ?? '',
-      meeting_url: ev.meeting_url ?? '',
-      description: ev.description ?? '',
+      title:        ev.title ?? '',
+      event_type:   ev.event_type ?? 'meeting',
+      date:         dateStr,
+      time:         timeStr,
+      end_date:     (ev.end_time ?? '').slice(0, 10),
+      end_time:     (ev.end_time ?? '').slice(11, 16),
+      location:     ev.location ?? '',
+      meeting_url:  ev.meeting_url ?? '',
+      description:  ev.description ?? '',
+      attendee_ids: (ev.attendee_ids ?? []).join(', '),
     })
     setEditEvent(ev)
     setAddOpen(true)
@@ -160,27 +162,51 @@ export function CalendarPage() {
   const handleSave = async () => {
     if (!form.title.trim() || !form.date) return
     setSaving(true)
-    const startTime = form.time ? `${form.date}T${form.time}:00` : `${form.date}T00:00:00`
-    const endTime   = form.end_date ? (form.end_time ? `${form.end_date}T${form.end_time}:00` : `${form.end_date}T00:00:00`) : null
+
+    const startTime    = form.time ? `${form.date}T${form.time}:00` : `${form.date}T00:00:00`
+    const endTime      = form.end_date ? (form.end_time ? `${form.end_date}T${form.end_time}:00` : `${form.end_date}T00:00:00`) : null
+    const attendeeIds  = form.attendee_ids
+      ? form.attendee_ids.split(',').map(s => s.trim()).filter(Boolean)
+      : []
+
+    const payload = {
+      title:        form.title,
+      event_type:   form.event_type,
+      start_time:   startTime,
+      end_time:     endTime,
+      location:     form.location,
+      meeting_url:  form.meeting_url,
+      description:  form.description,
+      attendee_ids: attendeeIds,
+    }
 
     if (editEvent) {
-      // Edit
-      const patch = { title: form.title, event_type: form.event_type, start_time: startTime, end_time: endTime, location: form.location, meeting_url: form.meeting_url, description: form.description }
-      storeUpdate(editEvent.id, patch)
-      if (!isDemo) await updateEvent(editEvent.id, patch)
+      // Optimistic update
+      storeUpdate(editEvent.id, payload)
+      if (!isDemo) {
+        const result = await updateEvent(editEvent.id, payload)
+        if (!result) {
+          // Revert store on DB failure
+          storeUpdate(editEvent.id, editEvent)
+        }
+      }
     } else {
-      // Create
+      // Optimistic create
       const tempId = `tmp-${Date.now()}`
-      const newEv = { id: tempId, title: form.title, event_type: form.event_type, start_time: startTime, end_time: endTime, location: form.location, meeting_url: form.meeting_url, description: form.description }
-      storeAdd(newEv)
+      storeAdd({ id: tempId, org_id: activeOrgId, created_by: profile?.id, ...payload })
+
       if (!isDemo && profile?.id) {
-        const saved = await saveEvent(profile.id, activeOrgId, { title: form.title, event_type: form.event_type, start_time: startTime, end_time: endTime, location: form.location, meeting_url: form.meeting_url, description: form.description })
+        const saved = await saveEvent(profile.id, activeOrgId, payload)
         if (saved?.id) {
           storeRemove(tempId)
-          storeAdd({ ...newEv, id: saved.id })
+          storeAdd({ ...saved })
+        } else {
+          // Revert on DB failure
+          storeRemove(tempId)
         }
       }
     }
+
     setSaving(false)
     setAddOpen(false)
     setForm(BLANK_FORM)
@@ -189,7 +215,7 @@ export function CalendarPage() {
 
   const handleDelete = async (ev) => {
     storeRemove(ev.id)
-    if (!isDemo && !ev.id.startsWith('s') && !ev.id.startsWith('tmp')) {
+    if (!isDemo && !ev.id.startsWith('tmp')) {
       await deleteCalendarEvent(ev.id)
     }
     setAddOpen(false)
@@ -415,5 +441,3 @@ export function CalendarPage() {
     </div>
   )
 }
-
-
