@@ -240,18 +240,24 @@ export async function saveMeet(createdBy, orgId, meet) {
 
   const validFeds = ['USAPL','IPF','USPA','NASA','RPS','SPF','WPC','Other']
   const validStatuses = ['upcoming','registered','completed','cancelled']
+  const validEquipment = ['raw','single-ply','multi-ply','wraps']
 
   const row = {
     created_by:            createdBy,
     org_id:                orgId ?? null,
     name:                  sanitizeText(meet.name, 200),
     federation:            validFeds.includes(meet.federation) ? meet.federation : 'Other',
+    equipment:             validEquipment.includes(meet.equipment) ? meet.equipment : 'raw',
     location:              sanitizeText(meet.location, 200),
     meet_date:             sanitizeDate(meet.meet_date),
     registration_deadline: sanitizeDate(meet.registration_deadline),
     status:                validStatuses.includes(meet.status) ? meet.status : 'upcoming',
     website_url:           sanitizeText(meet.website_url, 500),
     notes:                 sanitizeText(meet.notes, 1000),
+    // linked arrays — only valid UUIDs (filter out mock 'g1'/'tb-1' style ids)
+    linked_goal_ids:  (Array.isArray(meet.linked_goal_ids)  ? meet.linked_goal_ids  : []).filter(id => id && !/^(g|tb|meet)-/.test(id)),
+    linked_block_ids: (Array.isArray(meet.linked_block_ids) ? meet.linked_block_ids : []).filter(id => id && !/^(g|tb|meet)-/.test(id)),
+    attempts:         meet.attempts ?? null,
   }
 
   if (!row.name) { console.warn('[db] saveMeet: name required'); return null }
@@ -264,6 +270,37 @@ export async function saveMeet(createdBy, orgId, meet) {
 
   const { data, error } = await supabase.from('meets').insert(row).select().single()
   if (error) { console.error('[db] saveMeet insert:', error.message); return null }
+  return data
+}
+
+/**
+ * Delete a meet by id.
+ */
+export async function deleteMeet(meetId) {
+  if (!isSupabaseConfigured() || !meetId) return false
+  const { error } = await supabase.from('meets').delete().eq('id', meetId)
+  if (error) { console.error('[db] deleteMeet:', error.message); return false }
+  return true
+}
+
+/**
+ * Save attempt planner for a specific meet (updates attempts jsonb column).
+ */
+export async function saveMeetAttempts(meetId, attempts) {
+  if (!isSupabaseConfigured() || !meetId) return null
+  // Validate structure: { squat:{1,2,3}, bench:{1,2,3}, deadlift:{1,2,3} }
+  const lifts = ['squat','bench','deadlift']
+  const clean = {}
+  for (const lift of lifts) {
+    if (!attempts[lift]) { clean[lift] = { 1: 0, 2: 0, 3: 0 }; continue }
+    clean[lift] = {
+      1: sanitizeNumber(attempts[lift][1], 0, 1500),
+      2: sanitizeNumber(attempts[lift][2], 0, 1500),
+      3: sanitizeNumber(attempts[lift][3], 0, 1500),
+    }
+  }
+  const { data, error } = await supabase.from('meets').update({ attempts: clean }).eq('id', meetId).select().single()
+  if (error) { console.error('[db] saveMeetAttempts:', error.message); return null }
   return data
 }
 
@@ -419,7 +456,7 @@ export async function saveNutritionLog(athleteId, log) {
 export async function saveTrainingBlock(athleteId, orgId, block) {
   if (!isSupabaseConfigured() || !athleteId) return null
 
-  const validPhases = ['accumulation','intensification','peak','deload','transition']
+  const validPhases = ['accumulation','intensification','peak','deload','transition','peaking']
   const validStatuses = ['planned','active','completed']
 
   const row = {
@@ -434,6 +471,9 @@ export async function saveTrainingBlock(athleteId, orgId, block) {
     focus:          sanitizeText(block.focus, 300),
     avg_rpe_target: sanitizeNumber(block.avg_rpe_target, 1, 10),
     notes:          sanitizeText(block.notes, 1000),
+    // linked ids — strip mock-id patterns
+    linked_meet_id:  (block.linked_meet_id && !/^(g|tb|meet)-/.test(block.linked_meet_id)) ? block.linked_meet_id : null,
+    linked_goal_ids: (Array.isArray(block.linked_goal_ids) ? block.linked_goal_ids : []).filter(id => id && !/^(g|tb|meet)-/.test(id)),
   }
 
   if (!row.name) { console.warn('[db] saveTrainingBlock: name required'); return null }
