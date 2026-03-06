@@ -16,7 +16,7 @@
  *  - Date strings are validated as ISO dates; invalid dates become null
  */
 
-import { supabase, isSupabaseConfigured, createChannel, sendMessage, editMessage, updateChannel } from './supabase'
+import { supabase, isSupabaseConfigured, createChannel, sendMessage, editMessage, updateChannel, upsertOrgPublicPage as sbUpsertOrgPublicPage, fetchOrgPublicPage as sbFetchOrgPublicPage, fetchOrgLeads as sbFetchOrgLeads, insertLead as sbInsertLead, updateLeadRecord as sbUpdateLeadRecord, deleteLeadRecord as sbDeleteLeadRecord } from './supabase'
 
 // ─── Sanitization utilities ───────────────────────────────────────────────────
 
@@ -1164,4 +1164,177 @@ export async function updateChannelRecord(channelId, updates) {
   if (updates.channel_type !== undefined && VALID_CHANNEL_TYPES.includes(updates.channel_type)) clean.channel_type = updates.channel_type
   if (updates.type !== undefined && VALID_CHANNEL_TYPES.includes(updates.type)) clean.channel_type = updates.type
   return updateChannel(channelId, clean)
+}
+
+// ─── Sanitization constants ───────────────────────────────────────────────────
+const VALID_LEAD_STATUSES = ['new', 'contacted', 'onboarded', 'declined']
+const VALID_FIELD_TYPES   = ['text', 'email', 'tel', 'number', 'textarea', 'select', 'section_heading']
+const VALID_SECTION_TYPES = ['about', 'coaches', 'highlights', 'testimonials', 'faq', 'intake', 'custom']
+
+// ─── Org Website / Public Page helpers ───────────────────────────────────────
+
+/** Sanitize a section object before writing to Supabase. */
+function sanitizeSection(sec) {
+  return {
+    id: sanitizeText(sec.id, 60) || `sec-${Date.now()}`,
+    type: VALID_SECTION_TYPES.includes(sec.type) ? sec.type : 'custom',
+    title: sanitizeText(sec.title, 120) || '',
+    body: sanitizeText(sec.body, 5000) || '',
+    visible: sanitizeBool(sec.visible ?? true),
+    order: sanitizeNumber(sec.order ?? 0, 0, 999),
+    items: Array.isArray(sec.items) ? sec.items.map(sanitizeSectionItem) : [],
+  }
+}
+
+/** Sanitize a single section item (highlight string, testimonial, faq pair). */
+function sanitizeSectionItem(item) {
+  if (typeof item === 'string') return sanitizeText(item, 500) || ''
+  if (typeof item === 'object' && item !== null) {
+    // testimonial
+    if ('author' in item || 'text' in item) {
+      return {
+        author: sanitizeText(item.author, 120) || '',
+        role:   sanitizeText(item.role, 120) || '',
+        text:   sanitizeText(item.text, 1000) || '',
+      }
+    }
+    // faq
+    if ('q' in item || 'a' in item) {
+      return {
+        q: sanitizeText(item.q, 500) || '',
+        a: sanitizeText(item.a, 2000) || '',
+      }
+    }
+  }
+  return item
+}
+
+/** Sanitize an intake field definition. */
+function sanitizeIntakeField(f) {
+  return {
+    id:          sanitizeText(f.id, 60) || `f-${Date.now()}`,
+    label:       sanitizeText(f.label, 200) || '',
+    type:        VALID_FIELD_TYPES.includes(f.type) ? f.type : 'text',
+    required:    sanitizeBool(f.required ?? false),
+    placeholder: sanitizeText(f.placeholder, 200) || '',
+    options:     Array.isArray(f.options) ? f.options.map((o) => sanitizeText(o, 200)).filter(Boolean) : [],
+    half:        sanitizeBool(f.half ?? false),
+    order:       sanitizeNumber(f.order ?? 0, 0, 999),
+  }
+}
+
+/**
+ * Sanitize + upsert the org_public_pages row.
+ * Pass the full public_page object (hero settings, sections, intake_fields).
+ */
+export async function saveOrgPublicPage(orgId, page) {
+  if (!isSupabaseConfigured() || !orgId) return null
+
+  const payload = {}
+  if (page.published        !== undefined) payload.published        = sanitizeBool(page.published)
+  if (page.hero_headline    !== undefined) payload.hero_headline    = sanitizeText(page.hero_headline, 200)
+  if (page.hero_subheadline !== undefined) payload.hero_subheadline = sanitizeText(page.hero_subheadline, 500)
+  if (page.hero_cta         !== undefined) payload.hero_cta         = sanitizeText(page.hero_cta, 100)
+  if (page.accent_color     !== undefined) payload.accent_color     = /^#[0-9a-fA-F]{3,8}$/.test(page.accent_color) ? page.accent_color : '#a855f7'
+  if (page.logo_url         !== undefined) payload.logo_url         = sanitizeText(page.logo_url, 500)
+  if (page.custom_url       !== undefined) payload.custom_url       = sanitizeText(page.custom_url, 300)
+  if (page.sections         !== undefined) payload.sections         = (page.sections || []).map(sanitizeSection)
+  if (page.intake_fields    !== undefined) payload.intake_fields    = (page.intake_fields || []).map(sanitizeIntakeField)
+
+  return sbUpsertOrgPublicPage(orgId, payload)
+}
+
+/**
+ * Fetch the org public page row from Supabase.
+ */
+export async function loadOrgPublicPage(orgId) {
+  if (!isSupabaseConfigured() || !orgId) return null
+  return sbFetchOrgPublicPage(orgId)
+}
+
+/**
+ * Fetch all leads for an org.
+ */
+export async function loadOrgLeads(orgId) {
+  if (!isSupabaseConfigured() || !orgId) return []
+  return sbFetchOrgLeads(orgId)
+}
+
+/**
+ * Sanitize + insert an intake form submission (lead).
+ * Called from the public OrgPublicPage — no auth required.
+ */
+export async function submitIntakeLead(orgId, lead) {
+  if (!isSupabaseConfigured() || !orgId) return null
+
+  const clean = {
+    org_id:              orgId,
+    full_name:           sanitizeText(lead.full_name, 120) || 'Unknown',
+    email:               sanitizeText(lead.email, 200) || '',
+    phone:               sanitizeText(lead.phone, 40) || null,
+    instagram:           sanitizeText(lead.instagram, 80) || null,
+    service:             sanitizeText(lead.service, 100) || null,
+    coach_pref:          sanitizeText(lead.coach_pref, 100) || null,
+    age:                 lead.age != null ? sanitizeNumber(lead.age, 10, 100) : null,
+    occupation:          sanitizeText(lead.occupation, 200) || null,
+    height:              sanitizeText(lead.height, 40) || null,
+    bodyweight:          sanitizeText(lead.bodyweight, 40) || null,
+    weight_class:        sanitizeText(lead.weight_class, 40) || null,
+    obligations:         sanitizeText(lead.obligations, 500) || null,
+    days_per_week:       lead.days_per_week != null ? sanitizeNumber(lead.days_per_week, 1, 7) : null,
+    training_days:       sanitizeText(lead.training_days, 200) || null,
+    training_time:       sanitizeText(lead.training_time, 80) || null,
+    sleep_schedule:      sanitizeText(lead.sleep_schedule, 80) || null,
+    sleep_hours:         lead.sleep_hours != null ? sanitizeNumber(lead.sleep_hours, 0, 24) : null,
+    squat_max:           sanitizeText(lead.squat_max, 40) || null,
+    bench_max:           sanitizeText(lead.bench_max, 40) || null,
+    deadlift_max:        sanitizeText(lead.deadlift_max, 40) || null,
+    squat_freq:          lead.squat_freq != null ? sanitizeNumber(lead.squat_freq, 0, 14) : null,
+    bench_freq:          lead.bench_freq != null ? sanitizeNumber(lead.bench_freq, 0, 14) : null,
+    deadlift_freq:       lead.deadlift_freq != null ? sanitizeNumber(lead.deadlift_freq, 0, 14) : null,
+    squat_style:         sanitizeText(lead.squat_style, 100) || null,
+    bench_style:         sanitizeText(lead.bench_style, 100) || null,
+    deadlift_style:      sanitizeText(lead.deadlift_style, 100) || null,
+    current_program:     sanitizeText(lead.current_program, 200) || null,
+    weakpoints:          sanitizeText(lead.weakpoints, 500) || null,
+    experience:          sanitizeText(lead.experience, 100) || null,
+    federation:          sanitizeText(lead.federation, 80) || null,
+    membership_num:      sanitizeText(lead.membership_num, 80) || null,
+    injuries:            sanitizeText(lead.injuries, 500) || null,
+    nutrition_score:     lead.nutrition_score != null ? sanitizeNumber(lead.nutrition_score, 1, 10) : null,
+    hydration_score:     lead.hydration_score != null ? sanitizeNumber(lead.hydration_score, 1, 10) : null,
+    stress_score:        lead.stress_score != null ? sanitizeNumber(lead.stress_score, 1, 10) : null,
+    recovery_score:      lead.recovery_score != null ? sanitizeNumber(lead.recovery_score, 1, 10) : null,
+    external_stressors:  sanitizeText(lead.external_stressors, 500) || null,
+    learner_type:        sanitizeText(lead.learner_type, 100) || null,
+    expectations:        sanitizeText(lead.expectations, 1000) || null,
+    concerns:            sanitizeText(lead.concerns, 1000) || null,
+    goals:               sanitizeText(lead.goals, 1000) || null,
+    source:              sanitizeText(lead.source, 100) || 'Public page',
+    extra_answers:       (lead.extra_answers && typeof lead.extra_answers === 'object') ? lead.extra_answers : {},
+    status:              'new',
+  }
+
+  return sbInsertLead(orgId, clean)
+}
+
+/**
+ * Sanitize + update a lead's CRM fields.
+ */
+export async function saveLead(leadId, updates) {
+  if (!isSupabaseConfigured() || !leadId) return null
+  const clean = {}
+  if (updates.status !== undefined && VALID_LEAD_STATUSES.includes(updates.status)) clean.status = updates.status
+  if (updates.notes !== undefined) clean.notes = sanitizeText(updates.notes, 5000) ?? ''
+  if (updates.assigned_to !== undefined) clean.assigned_to = updates.assigned_to || null
+  if (!Object.keys(clean).length) return null
+  return sbUpdateLeadRecord(leadId, clean)
+}
+
+/**
+ * Delete a lead.
+ */
+export async function removeLead(leadId) {
+  if (!isSupabaseConfigured() || !leadId) return false
+  return sbDeleteLeadRecord(leadId)
 }

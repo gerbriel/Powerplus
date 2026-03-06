@@ -1,7 +1,9 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { CheckCircle2, ChevronDown, ChevronUp, Zap, Star, Trophy, Users, ArrowRight, Mail, Phone, Instagram, Globe } from 'lucide-react'
+import { CheckCircle2, ChevronDown, ChevronUp, Zap, Star, Trophy, Users, ArrowRight, Mail, Phone, Instagram, Globe, Loader2 } from 'lucide-react'
 import { useOrgStore } from '../lib/store'
+import { fetchPublicOrgBySlug } from '../lib/supabase'
+import { submitIntakeLead } from '../lib/db'
 import { cn } from '../lib/utils'
 
 // ─── Public-facing org page (no auth required) ─────────────────────────────
@@ -10,9 +12,57 @@ export function OrgPublicPage() {
   const { slug } = useParams()
   const { orgs, addLead } = useOrgStore()
 
-  const org = orgs.find((o) => o.slug === slug)
+  // Try store first (when logged-in admin previews their own page); fall back to Supabase fetch
+  const storeOrg = orgs.find((o) => o.slug === slug)
 
-  if (!org) {
+  const [liveData, setLiveData] = useState(null)   // { org, page, staff }
+  const [loading, setLoading]   = useState(!storeOrg)
+  const [fetchErr, setFetchErr] = useState(false)
+
+  useEffect(() => {
+    if (storeOrg) return  // already have it in the store
+    setLoading(true)
+    fetchPublicOrgBySlug(slug).then((result) => {
+      if (result) setLiveData(result)
+      else setFetchErr(true)
+      setLoading(false)
+    }).catch(() => { setFetchErr(true); setLoading(false) })
+  }, [slug, storeOrg])
+
+  // Loading state
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#0d1117] flex flex-col items-center justify-center text-center px-4">
+        <Loader2 className="w-8 h-8 text-zinc-600 animate-spin mb-4" />
+        <p className="text-zinc-500 text-sm">Loading team page…</p>
+      </div>
+    )
+  }
+
+  // Resolve org + page from store (admin preview) or Supabase fetch (public)
+  let org, page, coaches, athleteCount
+  if (storeOrg) {
+    org          = storeOrg
+    page         = storeOrg.public_page || {}
+    coaches      = (storeOrg.members || []).filter((m) => ['head_coach','coach','nutritionist'].includes(m.org_role))
+    athleteCount = (storeOrg.members || []).filter((m) => m.org_role === 'athlete').length
+  } else if (liveData) {
+    org          = liveData.org
+    page         = liveData.page ? {
+      published:        liveData.page.published,
+      hero_headline:    liveData.page.hero_headline    || '',
+      hero_subheadline: liveData.page.hero_subheadline || '',
+      hero_cta:         liveData.page.hero_cta         || 'Apply to Join',
+      accent_color:     liveData.page.accent_color     || '#a855f7',
+      logo_url:         liveData.page.logo_url         || null,
+      custom_url:       liveData.page.custom_url       || '',
+      sections:         liveData.page.sections         || [],
+      intake_fields:    liveData.page.intake_fields    || [],
+    } : {}
+    coaches      = liveData.staff || []
+    athleteCount = 0
+  } else {
+    // Not found
     return (
       <div className="min-h-screen bg-[#0d1117] flex flex-col items-center justify-center text-center px-4">
         <Zap className="w-10 h-10 text-zinc-600 mb-4" />
@@ -24,8 +74,6 @@ export function OrgPublicPage() {
       </div>
     )
   }
-
-  const page = org.public_page || {}
 
   if (!page.published) {
     return (
@@ -41,11 +89,6 @@ export function OrgPublicPage() {
   const sections = (page.sections || [])
     .filter((s) => s.visible)
     .sort((a, b) => a.order - b.order)
-
-  const coaches = (org.members || []).filter(
-    (m) => m.org_role === 'head_coach' || m.org_role === 'coach' || m.org_role === 'nutritionist'
-  )
-  const athleteCount = (org.members || []).filter((m) => m.org_role === 'athlete').length
 
   // Derive stats from mock data for social proof
   const stats = [
@@ -442,7 +485,10 @@ function IntakeSection({ id, section, accent, orgId, orgName, intakeFields, addL
         )
       ),
     }
-    addLead(orgId, lead)
+    // Submit to Supabase (no auth required — public RLS policy)
+    submitIntakeLead(orgId, lead).catch(() => {})
+    // Also update local store if the admin is previewing their own page
+    if (typeof addLead === 'function') addLead(orgId, lead)
     setSubmitted(true)
   }
 

@@ -1,7 +1,8 @@
 import { create } from 'zustand'
 import { MOCK_USERS, MOCK_GOALS, MOCK_TRAINING_BLOCKS, MOCK_MEETS, MOCK_ORGS, MOCK_ORG_MEMBERS, MOCK_STAFF_ASSIGNMENTS, MOCK_ATHLETE_RECIPES, MOCK_ATHLETE_PREP_LOG, MOCK_ATHLETE_SHOPPING_LISTS, MOCK_ATHLETE_MEAL_PLANS, MOCK_CHANNELS, MOCK_MESSAGES, MOCK_DIRECT_MESSAGES, MOCK_EXERCISES } from './mockData'
 import { upsertProfile, isSupabaseConfigured, onAuthStateChange, fetchProfile, fetchOrgMemberships, signOut as supabaseSignOut, getSession, fetchChannels as sbFetchChannels, createChannel as sbCreateChannel, updateChannel as sbUpdateChannel, archiveChannel as sbArchiveChannel, fetchMessages as sbFetchMessages, sendMessage as sbSendMessage, editMessage as sbEditMessage, deleteMessage as sbDeleteMessage, toggleReaction as sbToggleReaction, togglePinMessage as sbTogglePinMessage, findOrCreateDM as sbFindOrCreateDM, findOrCreateGroup as sbFindOrCreateGroup, markChannelRead as sbMarkChannelRead, subscribeToChannel as sbSubscribeToChannel, uploadMessageFile as sbUploadMessageFile, subscribeToOrgEvents as sbSubscribeToOrgEvents, fetchOrgAthletes, fetchOrgReviewQueue, fetchExercises, fetchProgramTemplates, fetchOrgTrainingBlocks, fetchPrepLog, fetchShoppingLists, fetchOrgRecipes, fetchNutritionLogs, fetchOrgEvents, fetchUserEvents, fetchAthleteSessions, fetchAthleteWorkoutSets, fetchAthleteCheckIns, fetchAthleteInjuries, fetchOrgWorkoutSessions, fetchOrgWorkoutSets, fetchOrgCheckIns, fetchOrgInjuries, fetchOrgStaffMembers, fetchOrgNutritionLogs, fetchUserMeets, fetchUserTrainingBlocks, fetchUserGoals, fetchAthleteMeetHistory } from './supabase'
-import { saveMessageRecord, updateMessageRecord, saveChannelRecord, updateChannelRecord } from './db'
+import { saveMessageRecord, updateMessageRecord, saveChannelRecord, updateChannelRecord, saveOrgPublicPage, loadOrgPublicPage, loadOrgLeads, submitIntakeLead, saveLead, removeLead } from './db'
+import { subscribeToOrgLeads } from './supabase'
 
 export const useAuthStore = create((set, get) => ({
   user: null,
@@ -55,7 +56,7 @@ export const useAuthStore = create((set, get) => ({
   logout: () => {
     // Clear auth state AND all stores so demo/real data can't leak between sessions
     set({ user: null, profile: null, orgMemberships: [], activeOrgId: null, isDemo: false, viewAsAthlete: false })
-    useOrgStore.setState({ orgs: [], staffAssignments: [] })
+    useOrgStore.setState({ orgs: [], staffAssignments: [], websiteLoadedFor: new Set() })
     useGoalsStore.setState({ goals: [] })
     useTrainingStore.setState({ blocks: [], meets: [] })
     useNutritionStore.setState({ athleteRecipes: {}, athletePrepLog: {}, athleteShoppingLists: {}, boardPlans: {}, orgRecipes: [], orgRecipesLoaded: false, nutritionLogs: {} })
@@ -78,7 +79,7 @@ export const useAuthStore = create((set, get) => ({
     }
     set({ isLoading: true })
     // Clear any demo data that may have been loaded in a prior demo session
-    useOrgStore.setState({ orgs: [], staffAssignments: [] })
+    useOrgStore.setState({ orgs: [], staffAssignments: [], websiteLoadedFor: new Set() })
     useGoalsStore.setState({ goals: [] })
     useTrainingStore.setState({ blocks: [], meets: [] })
     useNutritionStore.setState({ athleteRecipes: {}, athletePrepLog: {}, athleteShoppingLists: {}, boardPlans: {}, orgRecipes: [], orgRecipesLoaded: false, nutritionLogs: {} })
@@ -161,7 +162,7 @@ export const useAuthStore = create((set, get) => ({
     if (isSupabaseConfigured()) await supabaseSignOut()
     set({ user: null, profile: null, orgMemberships: [], activeOrgId: null, isDemo: false, viewAsAthlete: false })
     // Clear all stores back to empty (remove any demo or real user data)
-    useOrgStore.setState({ orgs: [], staffAssignments: [] })
+    useOrgStore.setState({ orgs: [], staffAssignments: [], websiteLoadedFor: new Set() })
     useGoalsStore.setState({ goals: [] })
     useTrainingStore.setState({ blocks: [], meets: [] })
     useNutritionStore.setState({ athleteRecipes: {}, athletePrepLog: {}, athleteShoppingLists: {}, boardPlans: {} })
@@ -494,9 +495,41 @@ export const useTrainingStore = create((set) => ({
 export const useOrgStore = create((set, get) => ({
   orgs: [],
   staffAssignments: [],
+  // Track which orgs have had their website data loaded from Supabase
+  websiteLoadedFor: new Set(),
 
   // Get a single org by id
   getOrg: (orgId) => get().orgs.find((o) => o.id === orgId),
+
+  // Load org website (public_page + leads) from Supabase and hydrate the org object.
+  loadOrgWebsite: async (orgId) => {
+    if (!orgId) return
+    // Skip if already loaded (cache)
+    if (get().websiteLoadedFor.has(orgId)) return
+    const [pageRow, leads] = await Promise.all([
+      loadOrgPublicPage(orgId),
+      loadOrgLeads(orgId),
+    ])
+    set((s) => ({
+      websiteLoadedFor: new Set([...s.websiteLoadedFor, orgId]),
+      orgs: s.orgs.map((o) => {
+        if (o.id !== orgId) return o
+        // Map DB row → public_page shape
+        const public_page = pageRow ? {
+          published:         pageRow.published,
+          hero_headline:     pageRow.hero_headline || '',
+          hero_subheadline:  pageRow.hero_subheadline || '',
+          hero_cta:          pageRow.hero_cta || 'Apply to Join',
+          accent_color:      pageRow.accent_color || '#a855f7',
+          logo_url:          pageRow.logo_url || null,
+          custom_url:        pageRow.custom_url || '',
+          sections:          pageRow.sections || [],
+          intake_fields:     pageRow.intake_fields || [],
+        } : (o.public_page || {})
+        return { ...o, public_page, leads: leads || o.leads || [] }
+      }),
+    }))
+  },
 
   // Create a new organization
   createOrg: (data) =>
@@ -714,99 +747,144 @@ export const useOrgStore = create((set, get) => ({
 
   // ── Public Page ─────────────────────────────────────────────────────────
   // Update top-level page settings (published, hero_*, accent_color)
-  updatePublicPage: (orgId, updates) =>
+  updatePublicPage: (orgId, updates) => {
     set((s) => ({
       orgs: s.orgs.map((o) =>
         o.id !== orgId ? o : { ...o, public_page: { ...o.public_page, ...updates } }
       ),
-    })),
+    }))
+    // Persist to Supabase — pass the full merged page so sections/intake_fields are preserved
+    const org = get().orgs.find((o) => o.id === orgId)
+    if (org) saveOrgPublicPage(orgId, { ...org.public_page, ...updates }).catch(() => {})
+  },
 
   // Add a new content section
-  addPageSection: (orgId, section) =>
+  addPageSection: (orgId, section) => {
     set((s) => ({
       orgs: s.orgs.map((o) => {
         if (o.id !== orgId) return o
         const sections = o.public_page?.sections || []
-        return { ...o, public_page: { ...o.public_page, sections: [...sections, { id: `sec-${Date.now()}`, order: sections.length + 1, visible: true, items: [], ...section }] } }
+        const newSections = [...sections, { id: `sec-${Date.now()}`, order: sections.length + 1, visible: true, items: [], ...section }]
+        // Persist
+        saveOrgPublicPage(orgId, { ...o.public_page, sections: newSections }).catch(() => {})
+        return { ...o, public_page: { ...o.public_page, sections: newSections } }
       }),
-    })),
+    }))
+  },
 
   // Update an existing section
-  updatePageSection: (orgId, sectionId, updates) =>
+  updatePageSection: (orgId, sectionId, updates) => {
     set((s) => ({
-      orgs: s.orgs.map((o) =>
-        o.id !== orgId ? o : {
-          ...o,
-          public_page: {
-            ...o.public_page,
-            sections: o.public_page.sections.map((sec) =>
-              sec.id === sectionId ? { ...sec, ...updates } : sec
-            ),
-          },
-        }
-      ),
-    })),
+      orgs: s.orgs.map((o) => {
+        if (o.id !== orgId) return o
+        const sections = (o.public_page?.sections || []).map((sec) =>
+          sec.id === sectionId ? { ...sec, ...updates } : sec
+        )
+        saveOrgPublicPage(orgId, { ...o.public_page, sections }).catch(() => {})
+        return { ...o, public_page: { ...o.public_page, sections } }
+      }),
+    }))
+  },
 
   // Delete a section
-  deletePageSection: (orgId, sectionId) =>
+  deletePageSection: (orgId, sectionId) => {
     set((s) => ({
-      orgs: s.orgs.map((o) =>
-        o.id !== orgId ? o : {
-          ...o,
-          public_page: {
-            ...o.public_page,
-            sections: o.public_page.sections.filter((sec) => sec.id !== sectionId),
-          },
-        }
-      ),
-    })),
+      orgs: s.orgs.map((o) => {
+        if (o.id !== orgId) return o
+        const sections = (o.public_page?.sections || []).filter((sec) => sec.id !== sectionId)
+        saveOrgPublicPage(orgId, { ...o.public_page, sections }).catch(() => {})
+        return { ...o, public_page: { ...o.public_page, sections } }
+      }),
+    }))
+  },
 
   // Reorder sections (accepts full new sections array)
-  reorderSections: (orgId, sections) =>
+  reorderSections: (orgId, sections) => {
     set((s) => ({
-      orgs: s.orgs.map((o) =>
-        o.id !== orgId ? o : { ...o, public_page: { ...o.public_page, sections } }
-      ),
-    })),
+      orgs: s.orgs.map((o) => {
+        if (o.id !== orgId) return o
+        saveOrgPublicPage(orgId, { ...o.public_page, sections }).catch(() => {})
+        return { ...o, public_page: { ...o.public_page, sections } }
+      }),
+    }))
+  },
 
   // Update intake fields
-  updateIntakeFields: (orgId, fields) =>
+  updateIntakeFields: (orgId, fields) => {
     set((s) => ({
-      orgs: s.orgs.map((o) =>
-        o.id !== orgId ? o : { ...o, public_page: { ...o.public_page, intake_fields: fields } }
-      ),
-    })),
+      orgs: s.orgs.map((o) => {
+        if (o.id !== orgId) return o
+        saveOrgPublicPage(orgId, { ...o.public_page, intake_fields: fields }).catch(() => {})
+        return { ...o, public_page: { ...o.public_page, intake_fields: fields } }
+      }),
+    }))
+  },
 
   // ── Leads ───────────────────────────────────────────────────────────────
   // Add a new lead (from public intake form submission)
-  addLead: (orgId, lead) =>
+  addLead: async (orgId, lead) => {
+    // Optimistic local add
+    const tempId = `lead-${Date.now()}`
     set((s) => ({
       orgs: s.orgs.map((o) =>
         o.id !== orgId ? o : {
           ...o,
           leads: [
-            { id: `lead-${Date.now()}`, submitted_at: new Date().toISOString().slice(0, 10), status: 'new', notes: '', assigned_to: null, ...lead },
+            { id: tempId, submitted_at: new Date().toISOString(), status: 'new', notes: '', assigned_to: null, ...lead },
             ...(o.leads || []),
           ],
         }
       ),
-    })),
+    }))
+    // Persist to Supabase
+    const saved = await submitIntakeLead(orgId, lead).catch(() => null)
+    if (saved) {
+      // Replace temp with real record
+      set((s) => ({
+        orgs: s.orgs.map((o) =>
+          o.id !== orgId ? o : {
+            ...o,
+            leads: (o.leads || []).map((l) => l.id === tempId ? saved : l),
+          }
+        ),
+      }))
+    }
+  },
 
   // Update a lead (status, notes, assigned_to)
-  updateLead: (orgId, leadId, updates) =>
+  updateLead: (orgId, leadId, updates) => {
     set((s) => ({
       orgs: s.orgs.map((o) =>
         o.id !== orgId ? o : { ...o, leads: (o.leads || []).map((l) => l.id === leadId ? { ...l, ...updates } : l) }
       ),
-    })),
+    }))
+    saveLead(leadId, updates).catch(() => {})
+  },
 
   // Delete a lead
-  deleteLead: (orgId, leadId) =>
+  deleteLead: (orgId, leadId) => {
     set((s) => ({
       orgs: s.orgs.map((o) =>
         o.id !== orgId ? o : { ...o, leads: (o.leads || []).filter((l) => l.id !== leadId) }
       ),
-    })),
+    }))
+    removeLead(leadId).catch(() => {})
+  },
+
+  // Subscribe to realtime new leads for an org (returns unsubscribe fn)
+  subscribeLeads: (orgId) => {
+    const channel = subscribeToOrgLeads(orgId, (newLead) => {
+      set((s) => ({
+        orgs: s.orgs.map((o) =>
+          o.id !== orgId ? o : {
+            ...o,
+            leads: [(newLead), ...(o.leads || []).filter((l) => l.id !== newLead.id)],
+          }
+        ),
+      }))
+    })
+    return () => channel?.unsubscribe?.()
+  },
 }))
 
 // ─── Shared role resolution helper ───────────────────────────────────────────
