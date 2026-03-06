@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { MOCK_USERS, MOCK_GOALS, MOCK_TRAINING_BLOCKS, MOCK_MEETS, MOCK_ORGS, MOCK_ORG_MEMBERS, MOCK_STAFF_ASSIGNMENTS, MOCK_ATHLETE_RECIPES, MOCK_ATHLETE_PREP_LOG, MOCK_ATHLETE_SHOPPING_LISTS, MOCK_ATHLETE_MEAL_PLANS, MOCK_CHANNELS, MOCK_MESSAGES, MOCK_DIRECT_MESSAGES, MOCK_EXERCISES } from './mockData'
-import { upsertProfile, isSupabaseConfigured, onAuthStateChange, fetchProfile, fetchOrgMemberships, signOut as supabaseSignOut, getSession, fetchChannels as sbFetchChannels, createChannel as sbCreateChannel, updateChannel as sbUpdateChannel, archiveChannel as sbArchiveChannel, fetchMessages as sbFetchMessages, sendMessage as sbSendMessage, editMessage as sbEditMessage, deleteMessage as sbDeleteMessage, toggleReaction as sbToggleReaction, togglePinMessage as sbTogglePinMessage, findOrCreateDM as sbFindOrCreateDM, findOrCreateGroup as sbFindOrCreateGroup, markChannelRead as sbMarkChannelRead, subscribeToChannel as sbSubscribeToChannel, uploadMessageFile as sbUploadMessageFile, subscribeToOrgEvents as sbSubscribeToOrgEvents, fetchOrgAthletes, fetchOrgReviewQueue, fetchExercises, fetchProgramTemplates, fetchOrgTrainingBlocks, fetchPrepLog, fetchShoppingLists, fetchOrgRecipes, fetchNutritionLogs, fetchOrgEvents, fetchUserEvents, fetchAthleteSessions, fetchAthleteWorkoutSets, fetchAthleteCheckIns, fetchAthleteInjuries, fetchOrgWorkoutSessions, fetchOrgWorkoutSets, fetchOrgCheckIns, fetchOrgInjuries, fetchOrgStaffMembers, fetchOrgNutritionLogs } from './supabase'
+import { upsertProfile, isSupabaseConfigured, onAuthStateChange, fetchProfile, fetchOrgMemberships, signOut as supabaseSignOut, getSession, fetchChannels as sbFetchChannels, createChannel as sbCreateChannel, updateChannel as sbUpdateChannel, archiveChannel as sbArchiveChannel, fetchMessages as sbFetchMessages, sendMessage as sbSendMessage, editMessage as sbEditMessage, deleteMessage as sbDeleteMessage, toggleReaction as sbToggleReaction, togglePinMessage as sbTogglePinMessage, findOrCreateDM as sbFindOrCreateDM, findOrCreateGroup as sbFindOrCreateGroup, markChannelRead as sbMarkChannelRead, subscribeToChannel as sbSubscribeToChannel, uploadMessageFile as sbUploadMessageFile, subscribeToOrgEvents as sbSubscribeToOrgEvents, fetchOrgAthletes, fetchOrgReviewQueue, fetchExercises, fetchProgramTemplates, fetchOrgTrainingBlocks, fetchPrepLog, fetchShoppingLists, fetchOrgRecipes, fetchNutritionLogs, fetchOrgEvents, fetchUserEvents, fetchAthleteSessions, fetchAthleteWorkoutSets, fetchAthleteCheckIns, fetchAthleteInjuries, fetchOrgWorkoutSessions, fetchOrgWorkoutSets, fetchOrgCheckIns, fetchOrgInjuries, fetchOrgStaffMembers, fetchOrgNutritionLogs, fetchUserMeets, fetchUserTrainingBlocks, fetchUserGoals, fetchAthleteMeetHistory } from './supabase'
 import { saveMessageRecord, updateMessageRecord, saveChannelRecord, updateChannelRecord } from './db'
 
 export const useAuthStore = create((set, get) => ({
@@ -37,6 +37,7 @@ export const useAuthStore = create((set, get) => ({
     useOrgStore.setState({ orgs: MOCK_ORGS, staffAssignments: MOCK_STAFF_ASSIGNMENTS })
     useGoalsStore.setState({ goals: MOCK_GOALS })
     useTrainingStore.setState({ blocks: MOCK_TRAINING_BLOCKS, meets: MOCK_MEETS })
+    useMeetsStore.setState({ meets: MOCK_MEETS, blocks: MOCK_TRAINING_BLOCKS, goals: MOCK_GOALS, history: [], loading: false, loadedFor: profile.id })
     useNutritionStore.setState({
       athleteRecipes: JSON.parse(JSON.stringify(MOCK_ATHLETE_RECIPES)),
       athletePrepLog: JSON.parse(JSON.stringify(MOCK_ATHLETE_PREP_LOG)),
@@ -62,6 +63,7 @@ export const useAuthStore = create((set, get) => ({
     useProgrammingStore.setState({ templates: [], exercises: [], loading: false })
     useCalendarStore.getState().reset()
     useAnalyticsStore.getState().reset()
+    useMeetsStore.getState().reset()
   },
 
   /**
@@ -84,6 +86,7 @@ export const useAuthStore = create((set, get) => ({
     useProgrammingStore.setState({ templates: [], exercises: [], loading: false })
     useCalendarStore.getState().reset()
     useAnalyticsStore.getState().reset()
+    useMeetsStore.getState().reset()
     const [profile, memberships] = await Promise.all([
       fetchProfile(session.user.id),
       fetchOrgMemberships(session.user.id),
@@ -166,6 +169,7 @@ export const useAuthStore = create((set, get) => ({
     useProgrammingStore.setState({ templates: [], exercises: [], loading: false })
     useCalendarStore.getState().reset()
     useAnalyticsStore.getState().reset()
+    useMeetsStore.getState().reset()
   },
 
   setProfile: (profile) => set({ profile }),
@@ -176,6 +180,7 @@ export const useAuthStore = create((set, get) => ({
     if (prev !== orgId) {
       useCalendarStore.getState().reset()
       useAnalyticsStore.getState().reset()
+      useMeetsStore.getState().reset()
     }
     set({ activeOrgId: orgId })
   },
@@ -379,6 +384,59 @@ export const useGoalsStore = create((set, get) => ({
         }),
       }
     }),
+}))
+
+// ─── Meets Store (athlete competition calendar + training blocks + history) ───
+export const useMeetsStore = create((set, get) => ({
+  meets:   [],
+  blocks:  [],
+  goals:   [],
+  history: [],
+  loading: false,
+  loadedFor: null,   // userId this data was last fetched for
+
+  /**
+   * Load all meets, personal training blocks, goals, and meet history
+   * for the current athlete. Skips if already loaded for this user.
+   */
+  load: async (userId, orgId, force = false) => {
+    if (!userId) return
+    if (!force && get().loadedFor === userId && get().meets.length > 0) return
+    set({ loading: true })
+    const [meets, blocks, goals, history] = await Promise.all([
+      fetchUserMeets(userId, orgId),
+      fetchUserTrainingBlocks(userId, orgId),
+      fetchUserGoals(userId),
+      fetchAthleteMeetHistory(userId),
+    ])
+    set({ meets, blocks, goals, history, loading: false, loadedFor: userId })
+  },
+
+  // ── Meets CRUD ────────────────────────────────────────────────────────────
+  addMeet: (meet) => set((s) => ({ meets: [meet, ...s.meets] })),
+  updateMeet: (id, updates) =>
+    set((s) => ({ meets: s.meets.map((m) => m.id === id ? { ...m, ...updates } : m) })),
+  removeMeet: (id) =>
+    set((s) => ({ meets: s.meets.filter((m) => m.id !== id) })),
+
+  // ── Training Blocks CRUD ──────────────────────────────────────────────────
+  addBlock: (block) => set((s) => ({ blocks: [block, ...s.blocks] })),
+  updateBlock: (id, updates) =>
+    set((s) => ({ blocks: s.blocks.map((b) => b.id === id ? { ...b, ...updates } : b) })),
+  removeBlock: (id) =>
+    set((s) => ({ blocks: s.blocks.filter((b) => b.id !== id) })),
+
+  // ── Goals (read from DB; push updated goals locally) ─────────────────────
+  updateGoal: (id, updates) =>
+    set((s) => ({ goals: s.goals.map((g) => g.id === id ? { ...g, ...updates } : g) })),
+
+  // ── Meet history ──────────────────────────────────────────────────────────
+  addHistoryEntry: (entry) => set((s) => ({ history: [entry, ...s.history] })),
+  updateHistoryEntry: (id, updates) =>
+    set((s) => ({ history: s.history.map((h) => h.id === id ? { ...h, ...updates } : h) })),
+
+  // ── Reset (logout / org switch) ───────────────────────────────────────────
+  reset: () => set({ meets: [], blocks: [], goals: [], history: [], loading: false, loadedFor: null }),
 }))
 
 // ─── Training / Block Store ───────────────────────────────────────────────────

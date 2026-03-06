@@ -1334,6 +1334,93 @@ export async function fetchOrgStaffMembers(orgId) {
   }))
 }
 
+// ── Meets & Training Blocks (personal / athlete view) ────────────────────────
+
+/**
+ * Fetch all meets created by this athlete (or shared with their org).
+ */
+export async function fetchUserMeets(userId, orgId) {
+  if (!isSupabaseConfigured() || !userId) return []
+  let q = supabase
+    .from('meets')
+    .select(`
+      id, org_id, created_by, name, federation, location,
+      meet_date, registration_deadline, weigh_in_date, status,
+      website_url, notes, equipment, athletes_registered, athletes_confirmed,
+      attempts, linked_goal_ids, linked_block_ids, created_at
+    `)
+    .order('meet_date', { ascending: true })
+
+  if (orgId) {
+    q = q.or(`created_by.eq.${userId},org_id.eq.${orgId}`)
+  } else {
+    q = q.eq('created_by', userId)
+  }
+  const { data, error } = await q
+  if (error) { console.error('[supabase] fetchUserMeets:', error.message); return [] }
+  return data ?? []
+}
+
+/**
+ * Fetch all training blocks for an athlete (personal + org-shared).
+ */
+export async function fetchUserTrainingBlocks(userId, orgId) {
+  if (!isSupabaseConfigured() || !userId) return []
+  let q = supabase
+    .from('training_blocks')
+    .select(`
+      id, org_id, athlete_id, created_by, name, block_type,
+      phase, weeks, status, focus, avg_rpe_target, color,
+      sessions_planned, sessions_completed,
+      start_date, end_date, notes, active,
+      linked_meet_id, linked_goal_ids, created_at
+    `)
+    .order('start_date', { ascending: false })
+
+  if (orgId) {
+    q = q.or(`athlete_id.eq.${userId},org_id.eq.${orgId}`)
+  } else {
+    q = q.eq('athlete_id', userId)
+  }
+  const { data, error } = await q
+  if (error) { console.error('[supabase] fetchUserTrainingBlocks:', error.message); return [] }
+  return data ?? []
+}
+
+/**
+ * Fetch goals for an athlete.
+ */
+export async function fetchUserGoals(userId) {
+  if (!isSupabaseConfigured() || !userId) return []
+  const { data, error } = await supabase
+    .from('goals')
+    .select('id, athlete_id, title, goal_type, target_value, current_value, target_unit, target_date, completed, notes, linked_meet_id, progress_history, created_at')
+    .eq('athlete_id', userId)
+    .order('created_at', { ascending: false })
+  if (error) { console.error('[supabase] fetchUserGoals:', error.message); return [] }
+  return data ?? []
+}
+
+/**
+ * Fetch completed meet entries (results) for an athlete — meet history tab.
+ */
+export async function fetchAthleteMeetHistory(userId) {
+  if (!isSupabaseConfigured() || !userId) return []
+  const { data, error } = await supabase
+    .from('athlete_meet_entries')
+    .select(`
+      id, athlete_id, weight_class, equipment_type,
+      squat_opener, bench_opener, deadlift_opener,
+      squat_result, bench_result, deadlift_result,
+      total_result, dots_score, wilks_score, placement, notes, updated_at,
+      meet:meet_id ( id, name, meet_date, federation, location, status )
+    `)
+    .eq('athlete_id', userId)
+    .order('updated_at', { ascending: false })
+  if (error) { console.error('[supabase] fetchAthleteMeetHistory:', error.message); return [] }
+  return data ?? []
+}
+
 /**
  * Fetch nutrition logs for the entire org (for team nutrition compliance).
  */
