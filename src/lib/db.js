@@ -447,3 +447,156 @@ export async function saveTrainingBlock(athleteId, orgId, block) {
   if (error) { console.error('[db] saveTrainingBlock insert:', error.message); return null }
   return data
 }
+
+// ─── Calendar events ──────────────────────────────────────────────────────────
+
+/**
+ * Save a calendar event.
+ */
+export async function saveEvent(createdBy, orgId, event) {
+  if (!isSupabaseConfigured() || !createdBy) return null
+
+  const validTypes = ['session','meeting','meet','deadline','other']
+  const row = {
+    created_by:       createdBy,
+    org_id:           orgId ?? null,
+    title:            sanitizeText(event.title, 200),
+    description:      sanitizeText(event.description, 1000),
+    event_type:       validTypes.includes(event.event_type) ? event.event_type : 'other',
+    start_time:       event.start_time ? new Date(event.start_time).toISOString() : null,
+    end_time:         event.end_time   ? new Date(event.end_time).toISOString()   : null,
+    location:         sanitizeText(event.location, 300),
+    meeting_url:      sanitizeText(event.meeting_url, 500),
+  }
+
+  if (!row.title || !row.start_time) { console.warn('[db] saveEvent: title and start_time required'); return null }
+
+  const { data, error } = await supabase.from('events').insert(row).select().single()
+  if (error) { console.error('[db] saveEvent:', error.message); return null }
+  return data
+}
+
+// ─── Meal prep recipes ────────────────────────────────────────────────────────
+
+/**
+ * Upsert a meal prep recipe.
+ */
+export async function saveMealPrepRecipe(createdBy, orgId, recipe) {
+  if (!isSupabaseConfigured() || !createdBy) return null
+
+  const validMealTypes = ['breakfast','lunch','dinner','snack','pre-workout','post-workout','']
+
+  const row = {
+    created_by:  createdBy,
+    org_id:      orgId ?? null,
+    name:        sanitizeText(recipe.name, 200),
+    meal_type:   validMealTypes.includes(recipe.meal_type) ? recipe.meal_type : null,
+    prep_time:   sanitizeNumber(recipe.prep_time, 0, 600),
+    cook_time:   sanitizeNumber(recipe.cook_time, 0, 600),
+    servings:    sanitizeNumber(recipe.servings, 1, 100) ?? 1,
+    macros_per_serving: {
+      calories: sanitizeNumber(recipe.macros_per_serving?.calories, 0, 10000) ?? 0,
+      protein:  sanitizeNumber(recipe.macros_per_serving?.protein,  0, 500)  ?? 0,
+      carbs:    sanitizeNumber(recipe.macros_per_serving?.carbs,    0, 1000) ?? 0,
+      fat:      sanitizeNumber(recipe.macros_per_serving?.fat,      0, 500)  ?? 0,
+    },
+    ingredients:  Array.isArray(recipe.ingredients)
+      ? recipe.ingredients.map(i => ({ name: sanitizeText(i.name, 100), amount: sanitizeText(i.amount, 50) })).filter(i => i.name)
+      : [],
+    instructions: sanitizeText(recipe.instructions, 5000),
+    tags:         sanitizeStringArray(recipe.tags, 50),
+  }
+
+  if (!row.name) { console.warn('[db] saveMealPrepRecipe: name required'); return null }
+
+  if (recipe.id && !recipe.id.startsWith('r-')) {
+    const { data, error } = await supabase
+      .from('meal_prep_recipes')
+      .update({ ...row, updated_at: new Date().toISOString() })
+      .eq('id', recipe.id).select().single()
+    if (error) { console.error('[db] saveMealPrepRecipe update:', error.message); return null }
+    return data
+  }
+
+  const { data, error } = await supabase.from('meal_prep_recipes').insert(row).select().single()
+  if (error) { console.error('[db] saveMealPrepRecipe insert:', error.message); return null }
+  return data
+}
+
+// ─── Shopping lists ───────────────────────────────────────────────────────────
+
+/**
+ * Upsert a shopping list.
+ */
+export async function saveShoppingList(athleteId, createdBy, orgId, list) {
+  if (!isSupabaseConfigured() || !athleteId) return null
+
+  const row = {
+    athlete_id:  athleteId,
+    created_by:  createdBy ?? athleteId,
+    org_id:      orgId ?? null,
+    label:       sanitizeText(list.label, 200),
+    week_start:  sanitizeDate(list.week_start),
+    week_end:    sanitizeDate(list.week_end),
+    budget:      sanitizeNumber(list.budget, 0, 100000),
+    status:      ['active','completed'].includes(list.status) ? list.status : 'active',
+    notes:       sanitizeText(list.notes, 500),
+  }
+
+  if (!row.label) { console.warn('[db] saveShoppingList: label required'); return null }
+
+  if (list.id && !list.id.startsWith('sl-')) {
+    const { data, error } = await supabase
+      .from('shopping_lists')
+      .update({ ...row, updated_at: new Date().toISOString() })
+      .eq('id', list.id).select().single()
+    if (error) { console.error('[db] saveShoppingList update:', error.message); return null }
+    return data
+  }
+
+  const { data, error } = await supabase.from('shopping_lists').insert(row).select().single()
+  if (error) { console.error('[db] saveShoppingList insert:', error.message); return null }
+  return data
+}
+
+/**
+ * Upsert a single shopping list item (check/uncheck or add new).
+ */
+export async function saveShoppingListItem(listId, item, addedBy = null) {
+  if (!isSupabaseConfigured() || !listId) return null
+
+  const row = {
+    list_id:   listId,
+    name:      sanitizeText(item.name, 200),
+    amount:    sanitizeText(item.amount, 100),
+    weight_g:  sanitizeNumber(item.weight_g, 0, 100000),
+    price:     sanitizeNumber(item.price, 0, 100000),
+    checked:   sanitizeBool(item.checked ?? false),
+    notes:     sanitizeText(item.notes, 300),
+    added_by:  addedBy ?? null,
+  }
+
+  if (!row.name) return null
+
+  if (item.id && !item.id.startsWith('sli-')) {
+    const { data, error } = await supabase
+      .from('shopping_list_items').update(row).eq('id', item.id).select().single()
+    if (error) { console.error('[db] saveShoppingListItem update:', error.message); return null }
+    return data
+  }
+
+  const { data, error } = await supabase.from('shopping_list_items').insert(row).select().single()
+  if (error) { console.error('[db] saveShoppingListItem insert:', error.message); return null }
+  return data
+}
+
+/**
+ * Toggle the checked state of a shopping list item.
+ */
+export async function toggleShoppingItem(itemId, checked) {
+  if (!isSupabaseConfigured() || !itemId) return null
+  const { data, error } = await supabase
+    .from('shopping_list_items').update({ checked: sanitizeBool(checked) }).eq('id', itemId).select().single()
+  if (error) { console.error('[db] toggleShoppingItem:', error.message); return null }
+  return data
+}

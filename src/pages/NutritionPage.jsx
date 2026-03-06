@@ -26,7 +26,7 @@ import {
 } from '../lib/mockData'
 import { useAuthStore, useUIStore, useNutritionStore, useGoalsStore, useTrainingStore, resolveRole, isStaffRole } from '../lib/store'
 import { cn, macroPercent } from '../lib/utils'
-import { saveNutritionLog } from '../lib/db'
+import { saveNutritionLog, saveMealPrepRecipe, saveShoppingList, toggleShoppingItem } from '../lib/db'
 
 const TABS = [
   { id: 'dashboard', label: 'Dashboard' },
@@ -2247,7 +2247,7 @@ function RecipeFormModal({ open, onClose, initial, onSave }) {
 
 // ─── Recipes Tab ──────────────────────────────────────────────────────────────
 function RecipesTab({ isStaff, athleteRecipes, setAthleteRecipes }) {
-  const { isDemo } = useAuthStore()
+  const { isDemo, profile, activeOrgId } = useAuthStore()
   const mockAthletes = isDemo ? MOCK_ATHLETES : []
   const [recipes, setRecipes]             = useState(isDemo ? MOCK_MEAL_PLAN_RECIPES : [])
   const [expanded, setExpanded]           = useState(null)
@@ -2268,8 +2268,15 @@ function RecipesTab({ isStaff, athleteRecipes, setAthleteRecipes }) {
   const mealTypes = ['all', ...new Set(recipes.map(r => r.meal_type))]
   const filtered  = filter === 'all' ? recipes : recipes.filter(r => r.meal_type === filter)
 
-  const handleAdd    = (recipe) => setRecipes(prev => [...prev, { ...recipe, id: genRecipeId(), day_types: ['training', 'rest'] }])
-  const handleEdit   = (recipe) => setRecipes(prev => prev.map(r => r.id === recipe.id ? recipe : r))
+  const handleAdd    = async (recipe) => {
+    const newId = genRecipeId()
+    setRecipes(prev => [...prev, { ...recipe, id: newId, day_types: ['training', 'rest'] }])
+    if (!isDemo && profile?.id) await saveMealPrepRecipe(profile.id, activeOrgId, recipe)
+  }
+  const handleEdit   = async (recipe) => {
+    setRecipes(prev => prev.map(r => r.id === recipe.id ? recipe : r))
+    if (!isDemo && profile?.id) await saveMealPrepRecipe(profile.id, activeOrgId, recipe)
+  }
   const handleDelete = (id)     => { setRecipes(prev => prev.filter(r => r.id !== id)); setDeleteConfirm(null) }
 
   function doAssign(recipe, athleteId) {
@@ -3009,7 +3016,7 @@ let _nextSliId  = 5000
 const genSliId  = () => `sli-n${_nextSliId++}`
 
 function AthleteShoppingView({ athleteRecipes, athleteShoppingLists, setAthleteShoppingLists, selectedAthleteId, setSelectedAthleteId, athletePrepLog, boardPlans }) {
-  const { isDemo } = useAuthStore()
+  const { isDemo, profile, activeOrgId } = useAuthStore()
   const mockAthletes = isDemo ? MOCK_ATHLETES : []
   const athlete    = mockAthletes.find(a => a.id === selectedAthleteId)
   const myLists    = athleteShoppingLists?.[selectedAthleteId] ?? []
@@ -3245,6 +3252,10 @@ function AthleteShoppingView({ athleteRecipes, athleteShoppingLists, setAthleteS
     const cat = activeList?.categories?.find(c => c.name === catName)
     const item = cat?.items?.find(i => i.id === itemId)
     const nowChecking = item && !item.checked
+    // Persist to DB for real item IDs
+    if (!isDemo && itemId && !String(itemId).startsWith('sli-') && !String(itemId).startsWith('asl')) {
+      toggleShoppingItem(itemId, nowChecking)
+    }
     setAthleteShoppingLists(prev => ({
       ...prev,
       [selectedAthleteId]: (prev[selectedAthleteId] ?? []).map(l => {
@@ -3354,6 +3365,15 @@ function AthleteShoppingView({ athleteRecipes, athleteShoppingLists, setAthleteS
     setNewListStart('')
     setNewListEnd('')
     setNewListShopDate('')
+    if (!isDemo && selectedAthleteId) {
+      saveShoppingList(selectedAthleteId, profile?.id, activeOrgId, {
+        label: newList.label,
+        week_start: newList.week_start,
+        week_end: newList.week_end,
+        budget: newList.budget,
+        status: 'active',
+      })
+    }
   }
 
   return (

@@ -22,6 +22,7 @@ import {
 } from '../lib/mockData'
 import { useSettingsStore, useAuthStore, useUIStore, useNutritionStore, useGoalsStore, useTrainingStore, resolveRole } from '../lib/store'
 import { cn, adherenceColor, flagLabel, formatDate, calcDotsScore, convertWeight } from '../lib/utils'
+import { saveTrainingBlock, saveGoal, saveProfile } from '../lib/db'
 
 export function RosterPage() {
   const [selectedAthlete, setSelectedAthlete] = useState(null)
@@ -483,7 +484,7 @@ function MessageOverlay({ athlete, onClose }) {
 // ─── Edit Program Overlay ─────────────────────────────────────────────────────
 
 function EditProgramOverlay({ athlete, onClose }) {
-  const { isDemo } = useAuthStore()
+  const { isDemo, activeOrgId } = useAuthStore()
   const { blocks: storeBlocks } = useTrainingStore()
   const block = storeBlocks.find(b => b.id === athlete.current_block_id)
     ?? (isDemo ? MOCK_TRAINING_BLOCKS.find(b => b.id === athlete.current_block_id) : null)
@@ -493,7 +494,16 @@ function EditProgramOverlay({ athlete, onClose }) {
   const [notes, setNotes] = useState(block?.notes ?? '')
   const [saved, setSaved] = useState(false)
 
-  function handleSave() {
+  async function handleSave() {
+    if (!isDemo && block?.id && !block.id.startsWith('tb-') && athlete?.id) {
+      await saveTrainingBlock(athlete.id, activeOrgId, {
+        id: block.id,
+        name: block.name,
+        phase: block.phase,
+        focus,
+        notes,
+      })
+    }
     setSaved(true)
     setTimeout(() => { setSaved(false); onClose() }, 1200)
   }
@@ -1214,6 +1224,11 @@ function OverviewTab({ athlete }) {
     setSavedIdent(true)
     setEditing(false)
     setTimeout(() => setSavedIdent(false), 2000)
+    // Persist federation + member_id to the athlete's profile
+    const { isDemo } = useAuthStore.getState()
+    if (!isDemo && athlete?.id && !athlete.id.startsWith('u-')) {
+      saveProfile(athlete.id, { federation })
+    }
   }
 
   return (
@@ -2108,7 +2123,7 @@ function NutritionTab({ athlete }) {
 
 function GoalsTab({ athlete }) {
   const { weightUnit } = useSettingsStore()
-  const { isDemo } = useAuthStore()
+  const { isDemo, profile } = useAuthStore()
   const { goals: storeGoals } = useGoalsStore()
   const allGoals = storeGoals.length ? storeGoals : (isDemo ? MOCK_GOALS : [])
   const linkedGoals = allGoals.filter(g => (athlete.goal_ids || []).includes(g.id))
@@ -2120,17 +2135,23 @@ function GoalsTab({ athlete }) {
   const [newGoal, setNewGoal] = useState({ title: '', goal_type: 'performance', target_value: '', target_unit: 'kg', target_date: '', notes: '' })
   const [confirmDelete, setConfirmDelete] = useState(null)
 
-  function saveEdit(id, patch) {
+  async function saveEdit(id, patch) {
     setGoals(prev => prev.map(g => g.id === id ? { ...g, ...patch } : g))
     setEditingId(null)
+    if (!isDemo && profile?.id && id && !id.startsWith('g')) {
+      await saveGoal(athlete.id, { id, ...patch }, profile.id)
+    }
   }
 
-  function addGoal() {
+  async function addGoal() {
     if (!newGoal.title.trim()) return
     const g = { ...newGoal, id: 'new-' + Date.now(), current_value: 0, target_value: Number(newGoal.target_value) || 0, completed: false, progress_history: [] }
     setGoals(prev => [...prev, g])
     setNewGoal({ title: '', goal_type: 'performance', target_value: '', target_unit: 'kg', target_date: '', notes: '' })
     setShowAdd(false)
+    if (!isDemo && athlete?.id) {
+      await saveGoal(athlete.id, { ...newGoal, target_value: Number(newGoal.target_value) || 0 }, profile?.id)
+    }
   }
 
   function deleteGoal(id) {
