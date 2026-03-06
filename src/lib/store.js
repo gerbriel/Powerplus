@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { MOCK_USERS, MOCK_GOALS, MOCK_TRAINING_BLOCKS, MOCK_MEETS, MOCK_ORGS, MOCK_ORG_MEMBERS, MOCK_STAFF_ASSIGNMENTS, MOCK_ATHLETE_RECIPES, MOCK_ATHLETE_PREP_LOG, MOCK_ATHLETE_SHOPPING_LISTS, MOCK_ATHLETE_MEAL_PLANS, MOCK_CHANNELS, MOCK_MESSAGES, MOCK_DIRECT_MESSAGES, MOCK_EXERCISES } from './mockData'
-import { upsertProfile, isSupabaseConfigured, onAuthStateChange, fetchProfile, fetchOrgMemberships, signOut as supabaseSignOut, getSession, fetchChannels as sbFetchChannels, createChannel as sbCreateChannel, updateChannel as sbUpdateChannel, archiveChannel as sbArchiveChannel, fetchMessages as sbFetchMessages, sendMessage as sbSendMessage, editMessage as sbEditMessage, deleteMessage as sbDeleteMessage, toggleReaction as sbToggleReaction, togglePinMessage as sbTogglePinMessage, findOrCreateDM as sbFindOrCreateDM, findOrCreateGroup as sbFindOrCreateGroup, markChannelRead as sbMarkChannelRead, subscribeToChannel as sbSubscribeToChannel, uploadMessageFile as sbUploadMessageFile, subscribeToOrgEvents as sbSubscribeToOrgEvents, fetchOrgAthletes, fetchOrgReviewQueue, fetchExercises, fetchProgramTemplates, fetchOrgTrainingBlocks, fetchPrepLog, fetchShoppingLists, fetchOrgRecipes, fetchNutritionLogs, fetchOrgEvents, fetchUserEvents } from './supabase'
+import { upsertProfile, isSupabaseConfigured, onAuthStateChange, fetchProfile, fetchOrgMemberships, signOut as supabaseSignOut, getSession, fetchChannels as sbFetchChannels, createChannel as sbCreateChannel, updateChannel as sbUpdateChannel, archiveChannel as sbArchiveChannel, fetchMessages as sbFetchMessages, sendMessage as sbSendMessage, editMessage as sbEditMessage, deleteMessage as sbDeleteMessage, toggleReaction as sbToggleReaction, togglePinMessage as sbTogglePinMessage, findOrCreateDM as sbFindOrCreateDM, findOrCreateGroup as sbFindOrCreateGroup, markChannelRead as sbMarkChannelRead, subscribeToChannel as sbSubscribeToChannel, uploadMessageFile as sbUploadMessageFile, subscribeToOrgEvents as sbSubscribeToOrgEvents, fetchOrgAthletes, fetchOrgReviewQueue, fetchExercises, fetchProgramTemplates, fetchOrgTrainingBlocks, fetchPrepLog, fetchShoppingLists, fetchOrgRecipes, fetchNutritionLogs, fetchOrgEvents, fetchUserEvents, fetchAthleteSessions, fetchAthleteWorkoutSets, fetchAthleteCheckIns, fetchAthleteInjuries, fetchOrgWorkoutSessions, fetchOrgWorkoutSets, fetchOrgCheckIns, fetchOrgInjuries, fetchOrgStaffMembers, fetchOrgNutritionLogs } from './supabase'
 import { saveMessageRecord, updateMessageRecord, saveChannelRecord, updateChannelRecord } from './db'
 
 export const useAuthStore = create((set, get) => ({
@@ -61,9 +61,8 @@ export const useAuthStore = create((set, get) => ({
     useRosterStore.setState({ athletes: [], reviewQueue: [], loading: false, error: null })
     useProgrammingStore.setState({ templates: [], exercises: [], loading: false })
     useCalendarStore.getState().reset()
+    useAnalyticsStore.getState().reset()
   },
-
-  // ── Real auth ────────────────────────────────────────────────────────────
 
   /**
    * Called with a live Supabase session (from onAuthStateChange or callback page).
@@ -84,6 +83,7 @@ export const useAuthStore = create((set, get) => ({
     useRosterStore.setState({ athletes: [], reviewQueue: [], loading: false, error: null })
     useProgrammingStore.setState({ templates: [], exercises: [], loading: false })
     useCalendarStore.getState().reset()
+    useAnalyticsStore.getState().reset()
     const [profile, memberships] = await Promise.all([
       fetchProfile(session.user.id),
       fetchOrgMemberships(session.user.id),
@@ -165,6 +165,7 @@ export const useAuthStore = create((set, get) => ({
     useRosterStore.setState({ athletes: [], reviewQueue: [], loading: false, error: null })
     useProgrammingStore.setState({ templates: [], exercises: [], loading: false })
     useCalendarStore.getState().reset()
+    useAnalyticsStore.getState().reset()
   },
 
   setProfile: (profile) => set({ profile }),
@@ -172,7 +173,10 @@ export const useAuthStore = create((set, get) => ({
   // Switch the active org (e.g. user belongs to multiple orgs) — reset per-org stores
   setActiveOrg: (orgId) => {
     const prev = get().activeOrgId
-    if (prev !== orgId) useCalendarStore.getState().reset()
+    if (prev !== orgId) {
+      useCalendarStore.getState().reset()
+      useAnalyticsStore.getState().reset()
+    }
     set({ activeOrgId: orgId })
   },
 
@@ -1507,3 +1511,370 @@ export const useProgrammingStore = create((set, get) => ({
   getDemoExercises: () => MOCK_EXERCISES,
 }))
 
+// ─── Analytics Store ──────────────────────────────────────────────────────────
+// Read-only aggregation over workout_sessions, workout_sets, check_ins,
+// nutrition_logs, injuries — no writes, just computed views.
+
+/** Epley formula: weight * (1 + reps/30) */
+function calcE1RM(weight, reps) {
+  if (!weight || !reps || reps <= 0) return 0
+  return Math.round(weight * (1 + reps / 30))
+}
+
+/** ISO week label like "W23" for grouping */
+function isoWeek(dateStr) {
+  const d = new Date(dateStr)
+  const jan4 = new Date(d.getFullYear(), 0, 4)
+  const startOfWeek = new Date(jan4)
+  startOfWeek.setDate(jan4.getDate() - jan4.getDay() + 1)
+  const weekNum = Math.ceil(((d - startOfWeek) / 86400000 + 1) / 7)
+  return `W${weekNum}`
+}
+
+/** Returns "Mon Jan 13" style short label from a date string */
+function shortDateLabel(dateStr) {
+  return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
+/** Groups dates into N-week buckets, returns label for the bucket */
+function weekBucket(dateStr, buckets = 8) {
+  const d = new Date(dateStr)
+  const now = new Date()
+  const daysAgo = Math.floor((now - d) / 86400000)
+  const bucket = buckets - 1 - Math.floor(daysAgo / 7)
+  return bucket < 0 ? null : `W-${buckets - 1 - bucket}`
+}
+
+export const useAnalyticsStore = create((set, get) => ({
+  // ── Personal analytics (athlete-scoped) ─────────────────────────────────
+  personal: null,          // computed object — see loadPersonalAnalytics
+  personalLoading: false,
+  personalFor: null,       // userId this data belongs to
+
+  // ── Team analytics (org-scoped) ──────────────────────────────────────────
+  team: null,              // computed object — see loadTeamAnalytics
+  teamLoading: false,
+  teamFor: null,           // orgId this data belongs to
+
+  // ── Load personal analytics for the current athlete ──────────────────────
+  loadPersonalAnalytics: async (userId, orgId) => {
+    if (!isSupabaseConfigured() || !userId) return
+    // Don't re-load if already loaded for this user
+    if (get().personalFor === userId && get().personal) return
+    set({ personalLoading: true })
+
+    const [sessions, sets, checkIns, injuries, nutLogs] = await Promise.all([
+      fetchAthleteSessions(userId, 180),
+      fetchAthleteWorkoutSets(userId, 180),
+      fetchAthleteCheckIns(userId, 180),
+      fetchAthleteInjuries(userId),
+      fetchNutritionLogs(userId, 90),
+    ])
+
+    // ── Adherence: completed / total scheduled per week (8 buckets) ─────
+    const bucketMap = {}
+    for (const s of sessions) {
+      const b = weekBucket(s.scheduled_date, 8)
+      if (!b) continue
+      if (!bucketMap[b]) bucketMap[b] = { week: b, scheduled: 0, completed: 0, rpe: [], nutrition: 0, nutCount: 0 }
+      bucketMap[b].scheduled++
+      if (s.status === 'completed') bucketMap[b].completed++
+      if (s.overall_rpe) bucketMap[b].rpe.push(s.overall_rpe)
+    }
+    for (const nl of nutLogs) {
+      const b = weekBucket(nl.log_date, 8)
+      if (!b) continue
+      if (!bucketMap[b]) bucketMap[b] = { week: b, scheduled: 0, completed: 0, rpe: [], nutrition: 0, nutCount: 0 }
+      if (nl.compliance_score != null) { bucketMap[b].nutrition += nl.compliance_score; bucketMap[b].nutCount++ }
+    }
+    const adherenceTrend = Object.values(bucketMap).sort((a, b) => a.week.localeCompare(b.week)).map(b => ({
+      week: b.week,
+      adherence: b.scheduled > 0 ? Math.round((b.completed / b.scheduled) * 100) : null,
+      nutrition: b.nutCount > 0 ? Math.round(b.nutrition / b.nutCount) : null,
+      rpe: b.rpe.length > 0 ? parseFloat((b.rpe.reduce((s, v) => s + v, 0) / b.rpe.length).toFixed(1)) : null,
+    }))
+
+    // ── e1RM trend: group best e1RM per comp lift by month ───────────────
+    const liftKeys = { squat: [], bench: [], deadlift: [] }
+    const SQUAT_WORDS = ['squat']
+    const BENCH_WORDS = ['bench', 'press']
+    const DEAD_WORDS  = ['deadlift', 'dead lift']
+    for (const s of sets) {
+      if (!s.performed_weight || !s.performed_reps || !s.scheduled_date) continue
+      const nm = (s.exercise_name || '').toLowerCase()
+      const e1rm = calcE1RM(s.performed_weight, s.performed_reps)
+      const monthKey = s.scheduled_date.slice(0, 7) // "2025-03"
+      const label = new Date(s.scheduled_date).toLocaleDateString('en-US', { month: 'short', year: '2-digit' })
+      if (SQUAT_WORDS.some(w => nm.includes(w))) liftKeys.squat.push({ month: monthKey, label, e1rm })
+      else if (BENCH_WORDS.some(w => nm.includes(w))) liftKeys.bench.push({ month: monthKey, label, e1rm })
+      else if (DEAD_WORDS.some(w => nm.includes(w))) liftKeys.deadlift.push({ month: monthKey, label, e1rm })
+    }
+    // Best per month per lift
+    const bestPerMonth = (arr) => {
+      const map = {}
+      for (const r of arr) {
+        if (!map[r.month] || r.e1rm > map[r.month].e1rm) map[r.month] = r
+      }
+      return Object.values(map).sort((a, b) => a.month.localeCompare(b.month))
+    }
+    const sqB = bestPerMonth(liftKeys.squat)
+    const bnB = bestPerMonth(liftKeys.bench)
+    const dlB = bestPerMonth(liftKeys.deadlift)
+    // Merge into unified date axis
+    const allMonths = [...new Set([...sqB, ...bnB, ...dlB].map(r => r.month))].sort()
+    const strengthTrend = allMonths.map(m => ({
+      date: new Date(m + '-01').toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
+      squat:    sqB.find(r => r.month === m)?.e1rm ?? null,
+      bench:    bnB.find(r => r.month === m)?.e1rm ?? null,
+      deadlift: dlB.find(r => r.month === m)?.e1rm ?? null,
+    }))
+
+    // ── PR log: best top set per comp lift (is_pr or highest e1RM) ───────
+    const prMap = {}
+    for (const s of sets) {
+      if (!s.performed_weight || !s.performed_reps) continue
+      const nm = (s.exercise_name || '').toLowerCase()
+      let lift = null
+      if (SQUAT_WORDS.some(w => nm.includes(w))) lift = 'Squat'
+      else if (BENCH_WORDS.some(w => nm.includes(w))) lift = 'Bench'
+      else if (DEAD_WORDS.some(w => nm.includes(w))) lift = 'Deadlift'
+      if (!lift) continue
+      const e1rm = calcE1RM(s.performed_weight, s.performed_reps)
+      if (!prMap[lift] || e1rm > prMap[lift].e1rm) {
+        prMap[lift] = { lift, weight: s.performed_weight, reps: s.performed_reps, e1rm, date: s.scheduled_date }
+      }
+    }
+    const prRows = ['Squat', 'Bench', 'Deadlift'].filter(l => prMap[l]).map(l => ({
+      lift: l, weight: prMap[l].weight, reps: prMap[l].reps,
+      e1rm: prMap[l].e1rm, date: shortDateLabel(prMap[l].date),
+    }))
+
+    // ── Bodyweight trend (last 12 weeks) ─────────────────────────────────
+    const bwTrend = checkIns.filter(c => c.bodyweight > 0)
+      .slice(0, 24)
+      .reverse()
+      .map(c => ({ date: shortDateLabel(c.check_date), bw: parseFloat(c.bodyweight.toFixed(1)) }))
+
+    // ── Sleep trend weekly avg ────────────────────────────────────────────
+    const sleepBuckets = {}
+    for (const c of checkIns) {
+      if (!c.sleep_hours) continue
+      const b = weekBucket(c.check_date, 8)
+      if (!b) continue
+      if (!sleepBuckets[b]) sleepBuckets[b] = { week: b, sleep: [], stress: [], soreness: [], motivation: [] }
+      sleepBuckets[b].sleep.push(c.sleep_hours)
+      if (c.stress_level) sleepBuckets[b].stress.push(c.stress_level)
+      if (c.soreness_level) sleepBuckets[b].soreness.push(c.soreness_level)
+      if (c.motivation_level) sleepBuckets[b].motivation.push(c.motivation_level)
+    }
+    const wellnessTrend = Object.values(sleepBuckets).sort((a, b) => a.week.localeCompare(b.week)).map(b => {
+      const avg = arr => arr.length ? parseFloat((arr.reduce((s, v) => s + v, 0) / arr.length).toFixed(1)) : null
+      return { week: b.week, sleep: avg(b.sleep), stress: avg(b.stress), soreness: avg(b.soreness), motivation: avg(b.motivation) }
+    })
+
+    // ── Volume trend: total kg moved per week ────────────────────────────
+    const volBuckets = {}
+    for (const s of sets) {
+      if (!s.performed_weight || !s.performed_reps || !s.scheduled_date) continue
+      const b = weekBucket(s.scheduled_date, 8)
+      if (!b) continue
+      if (!volBuckets[b]) volBuckets[b] = { week: b, volume: 0 }
+      volBuckets[b].volume += s.performed_weight * s.performed_reps
+    }
+    const volumeTrend = Object.values(volBuckets).sort((a, b) => a.week.localeCompare(b.week)).map(b => ({
+      week: b.week, volume: Math.round(b.volume),
+    }))
+
+    // ── Radar: normalize 0-100 each axis ─────────────────────────────────
+    const recentSessions = sessions.slice(0, 28)
+    const completedRecent = recentSessions.filter(s => s.status === 'completed').length
+    const adherenceScore = recentSessions.length ? Math.round((completedRecent / recentSessions.length) * 100) : 0
+    const latestCheckIns = checkIns.slice(0, 14)
+    const avgSleep = latestCheckIns.filter(c => c.sleep_hours).length
+      ? latestCheckIns.filter(c => c.sleep_hours).reduce((s, c) => s + c.sleep_hours, 0) / latestCheckIns.filter(c => c.sleep_hours).length
+      : 0
+    const sleepScore = Math.min(100, Math.round((avgSleep / 9) * 100))
+    const latestNut = nutLogs.slice(0, 14)
+    const nutScore = latestNut.filter(n => n.compliance_score).length
+      ? Math.round(latestNut.filter(n => n.compliance_score).reduce((s, n) => s + n.compliance_score, 0) / latestNut.filter(n => n.compliance_score).length)
+      : 0
+    const toScore = (e1rm, baseline) => e1rm > 0 ? Math.min(100, Math.round((e1rm / baseline) * 100)) : 0
+    const radarData = [
+      { subject: 'Squat',      A: toScore(prMap['Squat']?.e1rm ?? 0, 200) },
+      { subject: 'Bench',      A: toScore(prMap['Bench']?.e1rm ?? 0, 140) },
+      { subject: 'Deadlift',   A: toScore(prMap['Deadlift']?.e1rm ?? 0, 250) },
+      { subject: 'Nutrition',  A: nutScore },
+      { subject: 'Sleep',      A: sleepScore },
+      { subject: 'Adherence',  A: adherenceScore },
+    ]
+
+    // ── Summary stats ─────────────────────────────────────────────────────
+    const totalCompleted = sessions.filter(s => s.status === 'completed').length
+    const recentRPE = sessions.filter(s => s.overall_rpe).slice(0, 14)
+    const avgRPE = recentRPE.length ? parseFloat((recentRPE.reduce((s, w) => s + w.overall_rpe, 0) / recentRPE.length).toFixed(1)) : null
+    const avgSleepDisplay = avgSleep > 0 ? avgSleep.toFixed(1) + 'h' : null
+    const activeInjuries = injuries.filter(i => i.status === 'active').length
+
+    set({
+      personal: {
+        strengthTrend,
+        adherenceTrend,
+        volumeTrend,
+        bwTrend,
+        wellnessTrend,
+        radarData,
+        prRows,
+        totalCompleted,
+        adherenceScore,
+        avgSleep: avgSleepDisplay,
+        avgRPE,
+        nutScore,
+        activeInjuries,
+        injuryHistory: injuries,
+      },
+      personalLoading: false,
+      personalFor: userId,
+    })
+  },
+
+  // ── Load team analytics for a coach/admin ────────────────────────────────
+  loadTeamAnalytics: async (orgId) => {
+    if (!isSupabaseConfigured() || !orgId) return
+    if (get().teamFor === orgId && get().team) return
+    set({ teamLoading: true })
+
+    const [athletes, sessions, sets, checkIns, injuries, nutLogs, staff] = await Promise.all([
+      fetchOrgAthletes(orgId),
+      fetchOrgWorkoutSessions(orgId, 90),
+      fetchOrgWorkoutSets(orgId, 90),
+      fetchOrgCheckIns(orgId, 30),
+      fetchOrgInjuries(orgId),
+      fetchOrgNutritionLogs(orgId, 30),
+      fetchOrgStaffMembers(orgId),
+    ])
+
+    // ── Per-athlete adherence (last 4 weeks) ─────────────────────────────
+    const per4wk = {}
+    for (const s of sessions) {
+      if (!per4wk[s.athlete_id]) per4wk[s.athlete_id] = { scheduled: 0, completed: 0 }
+      per4wk[s.athlete_id].scheduled++
+      if (s.status === 'completed') per4wk[s.athlete_id].completed++
+    }
+    const teamAdherence = athletes.map(a => ({
+      athlete: (a.display_name || a.full_name || '').split(' ')[0],
+      full_name: a.display_name || a.full_name || '',
+      adherence: per4wk[a.id]?.scheduled > 0
+        ? Math.round((per4wk[a.id].completed / per4wk[a.id].scheduled) * 100)
+        : (a.adherence || 0),
+    })).sort((a, b) => a.adherence - b.adherence)
+
+    // ── Team volume trend (weekly, last 8 weeks) ──────────────────────────
+    const teamVolBuckets = {}
+    for (const s of sets) {
+      if (!s.performed_weight || !s.performed_reps || !s.scheduled_date) continue
+      const b = weekBucket(s.scheduled_date, 8)
+      if (!b) continue
+      if (!teamVolBuckets[b]) teamVolBuckets[b] = { week: b, volume: 0, prs: 0 }
+      teamVolBuckets[b].volume += s.performed_weight * s.performed_reps
+      if (s.is_pr) teamVolBuckets[b].prs++
+    }
+    const teamVolumeTrend = Object.values(teamVolBuckets).sort((a, b) => a.week.localeCompare(b.week)).map(b => ({
+      week: b.week, volume: Math.round(b.volume / 1000), prs: b.prs, // volume in tonnes
+    }))
+
+    // ── Team wellness (avg per day over last 30 days) ─────────────────────
+    const wellMap = {}
+    for (const c of checkIns) {
+      const d = c.check_date
+      if (!wellMap[d]) wellMap[d] = { date: shortDateLabel(d), sleep: [], stress: [], soreness: [] }
+      if (c.sleep_hours) wellMap[d].sleep.push(c.sleep_hours)
+      if (c.stress_level) wellMap[d].stress.push(c.stress_level)
+      if (c.soreness_level) wellMap[d].soreness.push(c.soreness_level)
+    }
+    const teamWellnessTrend = Object.entries(wellMap).sort(([a], [b]) => a.localeCompare(b)).slice(-14).map(([, v]) => {
+      const avg = arr => arr.length ? parseFloat((arr.reduce((s, x) => s + x, 0) / arr.length).toFixed(1)) : null
+      return { date: v.date, sleep: avg(v.sleep), stress: avg(v.stress), soreness: avg(v.soreness) }
+    })
+
+    // ── Injury breakdown by body part ─────────────────────────────────────
+    const injuryMap = {}
+    for (const i of injuries) {
+      const part = i.body_part || 'Unknown'
+      if (!injuryMap[part]) injuryMap[part] = { part, active: 0, resolved: 0 }
+      if (i.status === 'active') injuryMap[part].active++
+      else injuryMap[part].resolved++
+    }
+    const injuryByPart = Object.values(injuryMap).sort((a, b) => b.active - a.active)
+
+    // ── Flagged athletes ─────────────────────────────────────────────────
+    const flagged = athletes.filter(a => (a.flags?.length > 0) || (per4wk[a.id]?.scheduled > 0 && (per4wk[a.id].completed / per4wk[a.id].scheduled) < 0.6))
+      .map(a => ({
+        ...a,
+        computed_adherence: per4wk[a.id]?.scheduled > 0
+          ? Math.round((per4wk[a.id].completed / per4wk[a.id].scheduled) * 100)
+          : (a.adherence || 0),
+      }))
+
+    // ── Nutrition compliance per athlete ─────────────────────────────────
+    const nutByAthlete = {}
+    for (const nl of nutLogs) {
+      if (!nutByAthlete[nl.athlete_id]) nutByAthlete[nl.athlete_id] = { scores: [], cals: [] }
+      if (nl.compliance_score != null) nutByAthlete[nl.athlete_id].scores.push(nl.compliance_score)
+      if (nl.calories_actual) nutByAthlete[nl.athlete_id].cals.push(nl.calories_actual)
+    }
+    const avgTeamNut = Object.values(nutByAthlete).flatMap(n => n.scores)
+    const teamNutScore = avgTeamNut.length ? Math.round(avgTeamNut.reduce((s, v) => s + v, 0) / avgTeamNut.length) : null
+
+    // ── Staff analytics: per-coach athlete assignments + adherence ────────
+    const staffRows = staff.map(s => {
+      // Rough: count athletes whose adherence we can see (all org athletes for now)
+      return {
+        user_id:     s.user_id,
+        name:        s.display_name || s.full_name,
+        org_role:    s.org_role,
+        avatar_url:  s.avatar_url,
+        athletes:    athletes.length, // real per-coach would need staff_assignments join
+        adherence:   teamAdherence.length ? Math.round(teamAdherence.reduce((s, a) => s + a.adherence, 0) / teamAdherence.length) : 0,
+        activeInjuries: injuries.filter(i => i.status === 'active').length,
+        joined_at:   s.joined_at,
+      }
+    })
+
+    // ── Summary stats ─────────────────────────────────────────────────────
+    const avgTeamAdherence = teamAdherence.length
+      ? Math.round(teamAdherence.reduce((s, a) => s + a.adherence, 0) / teamAdherence.length)
+      : null
+    const activeInjuries = injuries.filter(i => i.status === 'active').length
+
+    set({
+      team: {
+        athletes,
+        teamAdherence,
+        teamVolumeTrend,
+        teamWellnessTrend,
+        injuryByPart,
+        flagged,
+        staffRows,
+        avgTeamAdherence,
+        activeInjuries,
+        teamNutScore,
+        totalSessions: sessions.length,
+        totalPRs: sets.filter(s => s.is_pr).length,
+      },
+      teamLoading: false,
+      teamFor: orgId,
+    })
+  },
+
+  // Force reload (use when org changes or user wants fresh data)
+  invalidatePersonal: () => set({ personal: null, personalFor: null }),
+  invalidateTeam: () => set({ team: null, teamFor: null }),
+
+  reset: () => set({
+    personal: null, personalLoading: false, personalFor: null,
+    team: null, teamLoading: false, teamFor: null,
+  }),
+}))
+
+// Helper re-exported so AnalyticsPage can import without re-defining
+export { calcE1RM }

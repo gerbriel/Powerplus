@@ -1123,3 +1123,238 @@ export async function saveWorkoutTemplateExercises(workoutTemplateId, exercises)
   if (error) { console.error('[supabase] saveWorkoutTemplateExercises insert:', error.message); return false }
   return true
 }
+
+// ── Analytics helpers ─────────────────────────────────────────────────────────
+// All analytics reads are aggregations over existing tables.
+// No writes happen here — data is entered via TrainingPage/NutritionPage/CheckIn.
+
+/**
+ * Fetch workout sessions for a single athlete, newest-first.
+ * Returns: [{ id, name, scheduled_date, status, overall_rpe, completed_at }]
+ */
+export async function fetchAthleteSessions(athleteId, days = 90) {
+  if (!isSupabaseConfigured() || !athleteId) return []
+  const since = new Date()
+  since.setDate(since.getDate() - days)
+  const { data, error } = await supabase
+    .from('workout_sessions')
+    .select('id, name, scheduled_date, status, overall_rpe, completed_at, org_id')
+    .eq('athlete_id', athleteId)
+    .gte('scheduled_date', since.toISOString().slice(0, 10))
+    .order('scheduled_date', { ascending: false })
+  if (error) { console.error('[supabase] fetchAthleteSessions:', error.message); return [] }
+  return data ?? []
+}
+
+/**
+ * Fetch workout sets with exercise info for e1RM + volume calculations.
+ * Returns: [{ session_id, exercise_id, exercise_name, is_competition_lift,
+ *             performed_reps, performed_weight, performed_rpe, is_pr, is_top_set,
+ *             scheduled_date (from session join) }]
+ */
+export async function fetchAthleteWorkoutSets(athleteId, days = 180) {
+  if (!isSupabaseConfigured() || !athleteId) return []
+  const since = new Date()
+  since.setDate(since.getDate() - days)
+  const { data, error } = await supabase
+    .from('workout_sets')
+    .select(`
+      id, session_id, exercise_id, performed_reps, performed_weight,
+      performed_rpe, is_pr, is_top_set, set_number,
+      exercises ( id, name, category, is_competition_lift ),
+      workout_sessions!inner ( athlete_id, scheduled_date, status )
+    `)
+    .eq('workout_sessions.athlete_id', athleteId)
+    .eq('workout_sessions.status', 'completed')
+    .gte('workout_sessions.scheduled_date', since.toISOString().slice(0, 10))
+    .order('workout_sessions.scheduled_date', { ascending: false })
+  if (error) { console.error('[supabase] fetchAthleteWorkoutSets:', error.message); return [] }
+  return (data ?? []).map(row => ({
+    id:                row.id,
+    session_id:        row.session_id,
+    exercise_id:       row.exercise_id,
+    exercise_name:     row.exercises?.name ?? 'Unknown',
+    is_competition_lift: row.exercises?.is_competition_lift ?? false,
+    category:          row.exercises?.category ?? '',
+    performed_reps:    row.performed_reps ?? 0,
+    performed_weight:  row.performed_weight ?? 0,
+    performed_rpe:     row.performed_rpe ?? null,
+    is_pr:             row.is_pr ?? false,
+    is_top_set:        row.is_top_set ?? false,
+    scheduled_date:    row.workout_sessions?.scheduled_date ?? null,
+  }))
+}
+
+/**
+ * Fetch check-ins for a single athlete, newest-first.
+ * Returns: [{ check_date, sleep_hours, sleep_quality, stress_level, soreness_level, motivation_level, bodyweight }]
+ */
+export async function fetchAthleteCheckIns(athleteId, days = 90) {
+  if (!isSupabaseConfigured() || !athleteId) return []
+  const since = new Date()
+  since.setDate(since.getDate() - days)
+  const { data, error } = await supabase
+    .from('check_ins')
+    .select('id, check_date, sleep_hours, sleep_quality, stress_level, soreness_level, motivation_level, bodyweight, notes')
+    .eq('athlete_id', athleteId)
+    .gte('check_date', since.toISOString().slice(0, 10))
+    .order('check_date', { ascending: false })
+  if (error) { console.error('[supabase] fetchAthleteCheckIns:', error.message); return [] }
+  return data ?? []
+}
+
+/**
+ * Fetch active and historical injuries for an athlete.
+ * Returns: [{ id, body_part, severity, status, reported_at }]
+ */
+export async function fetchAthleteInjuries(athleteId) {
+  if (!isSupabaseConfigured() || !athleteId) return []
+  const { data, error } = await supabase
+    .from('injuries')
+    .select('id, body_part, severity, status, reported_at, notes')
+    .eq('athlete_id', athleteId)
+    .order('reported_at', { ascending: false })
+  if (error) { console.error('[supabase] fetchAthleteInjuries:', error.message); return [] }
+  return data ?? []
+}
+
+/**
+ * Fetch all workout sessions for an entire org in the last N days.
+ * Used for team adherence + volume analytics.
+ */
+export async function fetchOrgWorkoutSessions(orgId, days = 90) {
+  if (!isSupabaseConfigured() || !orgId) return []
+  const since = new Date()
+  since.setDate(since.getDate() - days)
+  const { data, error } = await supabase
+    .from('workout_sessions')
+    .select('id, athlete_id, name, scheduled_date, status, overall_rpe, completed_at')
+    .eq('org_id', orgId)
+    .gte('scheduled_date', since.toISOString().slice(0, 10))
+    .order('scheduled_date', { ascending: false })
+  if (error) { console.error('[supabase] fetchOrgWorkoutSessions:', error.message); return [] }
+  return data ?? []
+}
+
+/**
+ * Fetch all workout sets for an entire org (for team volume trend).
+ */
+export async function fetchOrgWorkoutSets(orgId, days = 90) {
+  if (!isSupabaseConfigured() || !orgId) return []
+  const since = new Date()
+  since.setDate(since.getDate() - days)
+  const { data, error } = await supabase
+    .from('workout_sets')
+    .select(`
+      id, session_id, performed_reps, performed_weight, is_pr,
+      workout_sessions!inner ( athlete_id, org_id, scheduled_date, status )
+    `)
+    .eq('workout_sessions.org_id', orgId)
+    .eq('workout_sessions.status', 'completed')
+    .gte('workout_sessions.scheduled_date', since.toISOString().slice(0, 10))
+  if (error) { console.error('[supabase] fetchOrgWorkoutSets:', error.message); return [] }
+  return (data ?? []).map(row => ({
+    id:               row.id,
+    session_id:       row.session_id,
+    athlete_id:       row.workout_sessions?.athlete_id ?? null,
+    performed_reps:   row.performed_reps ?? 0,
+    performed_weight: row.performed_weight ?? 0,
+    is_pr:            row.is_pr ?? false,
+    scheduled_date:   row.workout_sessions?.scheduled_date ?? null,
+  }))
+}
+
+/**
+ * Fetch all check-ins for an entire org.
+ * Used for team health + sleep/stress/soreness averages.
+ */
+export async function fetchOrgCheckIns(orgId, days = 30) {
+  if (!isSupabaseConfigured() || !orgId) return []
+  // We join through org_members to scope by org
+  const since = new Date()
+  since.setDate(since.getDate() - days)
+  const { data: members, error: mErr } = await supabase
+    .from('org_members')
+    .select('user_id')
+    .eq('org_id', orgId)
+    .eq('org_role', 'athlete')
+  if (mErr) { console.error('[supabase] fetchOrgCheckIns members:', mErr.message); return [] }
+  const ids = (members ?? []).map(m => m.user_id)
+  if (!ids.length) return []
+  const { data, error } = await supabase
+    .from('check_ins')
+    .select('id, athlete_id, check_date, sleep_hours, stress_level, soreness_level, motivation_level, bodyweight')
+    .in('athlete_id', ids)
+    .gte('check_date', since.toISOString().slice(0, 10))
+    .order('check_date', { ascending: false })
+  if (error) { console.error('[supabase] fetchOrgCheckIns:', error.message); return [] }
+  return data ?? []
+}
+
+/**
+ * Fetch all active injuries for an org.
+ */
+export async function fetchOrgInjuries(orgId) {
+  if (!isSupabaseConfigured() || !orgId) return []
+  const { data: members, error: mErr } = await supabase
+    .from('org_members')
+    .select('user_id')
+    .eq('org_id', orgId)
+  if (mErr) { console.error('[supabase] fetchOrgInjuries members:', mErr.message); return [] }
+  const ids = (members ?? []).map(m => m.user_id)
+  if (!ids.length) return []
+  const { data, error } = await supabase
+    .from('injuries')
+    .select('id, athlete_id, body_part, severity, status, reported_at')
+    .in('athlete_id', ids)
+    .order('reported_at', { ascending: false })
+  if (error) { console.error('[supabase] fetchOrgInjuries:', error.message); return [] }
+  return data ?? []
+}
+
+/**
+ * Fetch staff members of an org (coaches + admins).
+ * Returns: [{ user_id, org_role, joined_at, full_name, display_name, avatar_url }]
+ */
+export async function fetchOrgStaffMembers(orgId) {
+  if (!isSupabaseConfigured() || !orgId) return []
+  const { data, error } = await supabase
+    .from('org_members')
+    .select('user_id, org_role, joined_at, profiles ( full_name, display_name, avatar_url )')
+    .eq('org_id', orgId)
+    .in('org_role', ['owner', 'head_coach', 'coach', 'admin', 'nutritionist'])
+  if (error) { console.error('[supabase] fetchOrgStaffMembers:', error.message); return [] }
+  return (data ?? []).map(row => ({
+    user_id:      row.user_id,
+    org_role:     row.org_role,
+    joined_at:    row.joined_at,
+    full_name:    row.profiles?.full_name ?? '',
+    display_name: row.profiles?.display_name ?? row.profiles?.full_name ?? '',
+    avatar_url:   row.profiles?.avatar_url ?? null,
+  }))
+}
+
+/**
+ * Fetch nutrition logs for the entire org (for team nutrition compliance).
+ */
+export async function fetchOrgNutritionLogs(orgId, days = 30) {
+  if (!isSupabaseConfigured() || !orgId) return []
+  const { data: members, error: mErr } = await supabase
+    .from('org_members')
+    .select('user_id')
+    .eq('org_id', orgId)
+    .eq('org_role', 'athlete')
+  if (mErr) { console.error('[supabase] fetchOrgNutritionLogs members:', mErr.message); return [] }
+  const ids = (members ?? []).map(m => m.user_id)
+  if (!ids.length) return []
+  const since = new Date()
+  since.setDate(since.getDate() - days)
+  const { data, error } = await supabase
+    .from('nutrition_logs')
+    .select('id, athlete_id, log_date, calories_actual, protein_actual, compliance_score')
+    .in('athlete_id', ids)
+    .gte('log_date', since.toISOString().slice(0, 10))
+    .order('log_date', { ascending: false })
+  if (error) { console.error('[supabase] fetchOrgNutritionLogs:', error.message); return [] }
+  return data ?? []
+}
