@@ -617,3 +617,79 @@ export function subscribeToChannel(channelId, onMessage) {
     .subscribe()
   return () => supabase.removeChannel(sub)
 }
+
+// ── Roster helpers ────────────────────────────────────────────────────────────
+
+/**
+ * Fetch the full athlete roster for an org via the get_org_athlete_roster
+ * Postgres function. Returns an array of athlete objects shaped to match
+ * MOCK_ATHLETES so the UI needs zero conditional branching.
+ */
+export async function fetchOrgAthletes(orgId) {
+  if (!isSupabaseConfigured() || !orgId) return []
+  const { data, error } = await supabase.rpc('get_org_athlete_roster', { p_org_id: orgId })
+  if (error) { console.error('[supabase] fetchOrgAthletes:', error.message); return [] }
+  // Normalize nulls to sensible defaults so the UI never crashes on missing data
+  return (data ?? []).map(row => ({
+    id:                        row.id,
+    full_name:                 row.full_name ?? '',
+    display_name:              row.display_name ?? row.full_name ?? '',
+    avatar_url:                row.avatar_url ?? null,
+    weight_class:              row.weight_class ?? '—',
+    federation:                row.federation ?? '—',
+    member_id:                 row.member_id ?? '',
+    equipment_type:            row.equipment_type ?? 'raw',
+    bio:                       row.bio ?? '',
+    bodyweight_kg:             row.bodyweight_kg ?? 0,
+    sleep_avg:                 row.sleep_avg ?? 0,
+    soreness_avg:              row.soreness_avg ?? 0,
+    stress_avg:                row.stress_avg ?? 0,
+    energy_avg:                row.energy_avg ?? 0,
+    sessions_this_week:        row.sessions_this_week ?? 0,
+    sessions_planned_this_week: row.sessions_planned_this_week ?? 0,
+    rpe_avg_this_week:         row.rpe_avg_this_week ?? 0,
+    last_session:              row.last_session_date ?? null,
+    adherence:                 row.adherence ?? 0,
+    nutrition_compliance:      row.nutrition_compliance ?? 0,
+    e1rm_squat:                row.e1rm_squat ?? 0,
+    e1rm_bench:                row.e1rm_bench ?? 0,
+    e1rm_deadlift:             row.e1rm_deadlift ?? 0,
+    injury_notes:              row.injury_notes ?? '',
+    injury_log_id:             row.injury_log_id ?? null,
+    current_block_id:          row.current_block_id ?? null,
+    next_meet_id:              row.next_meet_id ?? null,
+    goal_ids:                  row.goal_ids ?? [],
+    flags:                     row.flags ?? [],
+    check_in_trend:            row.check_in_trend ?? [],
+    recent_sessions:           row.recent_sessions ?? [],
+    nutrition_macros:          row.nutrition_macros ?? { plan: {}, actual: {} },
+    coach_notes:               row.coach_notes ?? '',
+    // Fields present in MOCK_ATHLETES that come from nutrition store in the UI
+    dietary_profile:           { restrictions: [], allergens: [], intolerances: [], preferences: [], weekly_food_budget: 0, notes: '' },
+    nutrition_targets:         {
+      calories: row.nutrition_macros?.plan?.calories ?? 0,
+      protein:  row.nutrition_macros?.plan?.protein ?? 0,
+    },
+  }))
+}
+
+/**
+ * Fetch today's review queue for an org via the get_org_review_queue
+ * Postgres function. Returns an array of review-queue items.
+ */
+export async function fetchOrgReviewQueue(orgId) {
+  if (!isSupabaseConfigured() || !orgId) return []
+  const { data, error } = await supabase.rpc('get_org_review_queue', { p_org_id: orgId })
+  if (error) { console.error('[supabase] fetchOrgReviewQueue:', error.message); return [] }
+  return (data ?? []).map(row => ({
+    athlete_id:   row.athlete_id,
+    athlete:      row.athlete_name ?? '',
+    session:      row.session_name ?? '',
+    session_date: row.session_date ?? null,
+    status:       row.status ?? 'planned',
+    overall_rpe:  row.overall_rpe ?? null,
+    has_video:    row.has_video ?? false,
+    flag:         (row.flags ?? [])[0] ?? null,
+    flags:        row.flags ?? [],
+  }))
+}

@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { MOCK_USERS, MOCK_GOALS, MOCK_TRAINING_BLOCKS, MOCK_MEETS, MOCK_ORGS, MOCK_ORG_MEMBERS, MOCK_STAFF_ASSIGNMENTS, MOCK_ATHLETE_RECIPES, MOCK_ATHLETE_PREP_LOG, MOCK_ATHLETE_SHOPPING_LISTS, MOCK_ATHLETE_MEAL_PLANS, MOCK_CHANNELS, MOCK_MESSAGES, MOCK_DIRECT_MESSAGES } from './mockData'
-import { upsertProfile, isSupabaseConfigured, onAuthStateChange, fetchProfile, fetchOrgMemberships, signOut as supabaseSignOut, getSession, fetchChannels as sbFetchChannels, createChannel as sbCreateChannel, updateChannel as sbUpdateChannel, archiveChannel as sbArchiveChannel, fetchMessages as sbFetchMessages, sendMessage as sbSendMessage, editMessage as sbEditMessage, deleteMessage as sbDeleteMessage, toggleReaction as sbToggleReaction, findOrCreateDM as sbFindOrCreateDM, findOrCreateGroup as sbFindOrCreateGroup, markChannelRead as sbMarkChannelRead } from './supabase'
+import { upsertProfile, isSupabaseConfigured, onAuthStateChange, fetchProfile, fetchOrgMemberships, signOut as supabaseSignOut, getSession, fetchChannels as sbFetchChannels, createChannel as sbCreateChannel, updateChannel as sbUpdateChannel, archiveChannel as sbArchiveChannel, fetchMessages as sbFetchMessages, sendMessage as sbSendMessage, editMessage as sbEditMessage, deleteMessage as sbDeleteMessage, toggleReaction as sbToggleReaction, findOrCreateDM as sbFindOrCreateDM, findOrCreateGroup as sbFindOrCreateGroup, markChannelRead as sbMarkChannelRead, fetchOrgAthletes, fetchOrgReviewQueue } from './supabase'
 
 export const useAuthStore = create((set, get) => ({
   user: null,
@@ -57,6 +57,7 @@ export const useAuthStore = create((set, get) => ({
     useGoalsStore.setState({ goals: [] })
     useTrainingStore.setState({ blocks: [], meets: [] })
     useNutritionStore.setState({ athleteRecipes: {}, athletePrepLog: {}, athleteShoppingLists: {}, boardPlans: {} })
+    useRosterStore.setState({ athletes: [], reviewQueue: [], loading: false, error: null })
   },
 
   // ── Real auth ────────────────────────────────────────────────────────────
@@ -77,6 +78,7 @@ export const useAuthStore = create((set, get) => ({
     useGoalsStore.setState({ goals: [] })
     useTrainingStore.setState({ blocks: [], meets: [] })
     useNutritionStore.setState({ athleteRecipes: {}, athletePrepLog: {}, athleteShoppingLists: {}, boardPlans: {} })
+    useRosterStore.setState({ athletes: [], reviewQueue: [], loading: false, error: null })
     const [profile, memberships] = await Promise.all([
       fetchProfile(session.user.id),
       fetchOrgMemberships(session.user.id),
@@ -155,6 +157,7 @@ export const useAuthStore = create((set, get) => ({
     useGoalsStore.setState({ goals: [] })
     useTrainingStore.setState({ blocks: [], meets: [] })
     useNutritionStore.setState({ athleteRecipes: {}, athletePrepLog: {}, athleteShoppingLists: {}, boardPlans: {} })
+    useRosterStore.setState({ athletes: [], reviewQueue: [], loading: false, error: null })
   },
 
   setProfile: (profile) => set({ profile }),
@@ -1107,3 +1110,31 @@ function _mapReactions(rows) {
   }
   return Object.values(map)
 }
+
+// ── Roster Store ─────────────────────────────────────────────────────────────
+// Holds live athlete roster + review queue for the active org.
+// Demo mode reads directly from MOCK_ATHLETES in RosterPage — this store is
+// only populated for real (non-demo) org sessions.
+export const useRosterStore = create((set) => ({
+  athletes:    [],
+  reviewQueue: [],
+  loading:     false,
+  error:       null,
+
+  loadRoster: async (orgId) => {
+    set({ loading: true, error: null })
+    const [athletes, reviewQueue] = await Promise.all([
+      fetchOrgAthletes(orgId),
+      fetchOrgReviewQueue(orgId),
+    ])
+    set({ athletes, reviewQueue, loading: false })
+  },
+
+  setAthletes:    (athletes) => set({ athletes }),
+  setReviewQueue: (queue)    => set({ reviewQueue: queue }),
+
+  updateAthlete: (athleteId, updates) =>
+    set((s) => ({
+      athletes: s.athletes.map((a) => a.id === athleteId ? { ...a, ...updates } : a),
+    })),
+}))

@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import {
   Users, AlertTriangle, CheckCircle2, Clock, Dumbbell, Eye, MessageSquare,
   ChevronRight, BarChart3, X, Moon, Utensils, TrendingUp, Target, Layers,
@@ -20,7 +20,7 @@ import {
   MOCK_ATHLETE_MEAL_PLANS, MOCK_MEAL_PLAN_RECIPES, MOCK_MEAL_PREP_LOG,
   MOCK_MEAL_HISTORY
 } from '../lib/mockData'
-import { useSettingsStore, useAuthStore, useUIStore, useNutritionStore, useGoalsStore, useTrainingStore, resolveRole } from '../lib/store'
+import { useSettingsStore, useAuthStore, useUIStore, useNutritionStore, useGoalsStore, useTrainingStore, resolveRole, useRosterStore } from '../lib/store'
 import { cn, adherenceColor, flagLabel, formatDate, calcDotsScore, convertWeight } from '../lib/utils'
 import { saveTrainingBlock, saveGoal, saveProfile, sendDirectMessage, saveNutritionPlan, saveCoachNote, updateInjury } from '../lib/db'
 
@@ -32,28 +32,34 @@ export function RosterPage() {
   const [filterClass, setFilterClass] = useState('all')
   const [viewMode, setViewMode] = useState('list') // 'list' | 'grid'
 
-  const { isDemo } = useAuthStore()
-  const mockAthletes = isDemo ? MOCK_ATHLETES : []
-  const mockReviewQueue = isDemo ? MOCK_WEEKLY_REVIEW_QUEUE : []
+  const { isDemo, activeOrgId } = useAuthStore()
+  const { athletes: liveAthletes, reviewQueue: liveReviewQueue, loading: rosterLoading, loadRoster } = useRosterStore()
 
-  const weightClasses = [...new Set(mockAthletes.map(a => a.weight_class))].sort()
+  useEffect(() => {
+    if (!isDemo && activeOrgId) loadRoster(activeOrgId)
+  }, [isDemo, activeOrgId])
+
+  const athletes = isDemo ? MOCK_ATHLETES : liveAthletes
+  const reviewQueue = isDemo ? MOCK_WEEKLY_REVIEW_QUEUE : liveReviewQueue
+
+  const weightClasses = [...new Set(athletes.map(a => a.weight_class))].sort()
   const flagOptions = ['all', 'pain_flag', 'missed_sessions', 'low_sleep']
 
   const filteredAthletes = useMemo(() => {
-    return mockAthletes.filter(a => {
+    return athletes.filter(a => {
       const matchesSearch = !searchQuery || a.full_name.toLowerCase().includes(searchQuery.toLowerCase())
       const matchesFlag = filterFlag === 'all' || a.flags.includes(filterFlag)
       const matchesClass = filterClass === 'all' || a.weight_class === filterClass
       return matchesSearch && matchesFlag && matchesClass
     })
-  }, [mockAthletes, searchQuery, filterFlag, filterClass])
+  }, [athletes, searchQuery, filterFlag, filterClass])
 
   return (
     <div className="p-4 md:p-6 max-w-6xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-zinc-100">My Athletes</h1>
-          <p className="text-sm text-zinc-400 mt-0.5">{mockAthletes.length} athletes on your roster</p>
+          <p className="text-sm text-zinc-400 mt-0.5">{athletes.length} athletes on your roster</p>
         </div>
         <div className="flex gap-2">
           <button
@@ -67,23 +73,18 @@ export function RosterPage() {
               tab === 'queue' ? 'bg-zinc-700 text-zinc-100' : 'text-zinc-400 hover:text-zinc-200')}
           >
             Review Queue
-            {mockReviewQueue.length > 0 && <span className="text-xs bg-orange-500 text-white px-1.5 py-0.5 rounded-full font-bold">{mockReviewQueue.length}</span>}
+            {reviewQueue.length > 0 && <span className="text-xs bg-orange-500 text-white px-1.5 py-0.5 rounded-full font-bold">{reviewQueue.length}</span>}
           </button>
         </div>
       </div>
 
       {tab === 'queue' && (
         <div className="space-y-4">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <StatCard label="Trained Today" value={isDemo ? '4/6' : `0/${mockAthletes.length}`} icon={CheckCircle2} color="green" />
-            <StatCard label="Videos Pending" value={isDemo ? '2' : '0'} icon={Eye} color="purple" />
-            <StatCard label="Pain Flags" value={isDemo ? '1' : '0'} icon={AlertTriangle} color="red" />
-            <StatCard label="Missed This Week" value={isDemo ? '1' : '0'} icon={Clock} color="orange" />
-          </div>
+          <QueueStatCards isDemo={isDemo} reviewQueue={reviewQueue} athletes={athletes} />
           <Card>
             <CardHeader><CardTitle>Today's Review Queue</CardTitle></CardHeader>
             <div className="space-y-2">
-              {mockReviewQueue.map((item, i) => (
+              {reviewQueue.map((item, i) => (
                 <div key={i} className="flex items-center gap-4 p-3 bg-zinc-700/20 rounded-xl hover:bg-zinc-700/30 transition-colors">
                   <Avatar name={item.athlete} role="athlete" size="sm" />
                   <div className="flex-1 min-w-0">
@@ -139,7 +140,7 @@ export function RosterPage() {
                 {weightClasses.map(wc => <option key={wc} value={wc}>{wc}</option>)}
               </select>
             </div>
-            <p className="text-xs text-zinc-500">{filteredAthletes.length} of {mockAthletes.length}</p>
+            <p className="text-xs text-zinc-500">{filteredAthletes.length} of {athletes.length}</p>
             {/* View toggle */}
             <div className="ml-auto flex items-center gap-1 bg-zinc-800 border border-zinc-700 rounded-lg p-0.5">
               <button
@@ -154,7 +155,10 @@ export function RosterPage() {
           </div>
 
           {/* List view */}
-          {viewMode === 'list' && (
+          {viewMode === 'list' && rosterLoading && !isDemo && (
+            <div className="py-12 text-center text-zinc-500 text-sm">Loading athletes…</div>
+          )}
+          {viewMode === 'list' && (!rosterLoading || isDemo) && (
             <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
               {/* Table header */}
               <div className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr_auto] gap-x-4 px-4 py-2.5 border-b border-zinc-800 text-xs font-semibold text-zinc-500 uppercase tracking-wider">
@@ -205,6 +209,22 @@ export function RosterPage() {
           onClose={() => setSelectedAthlete(null)}
         />
       )}
+    </div>
+  )
+}
+
+function QueueStatCards({ isDemo, reviewQueue, athletes }) {
+  const trainedToday  = reviewQueue.filter(i => ['completed', 'in_progress'].includes(i.status)).length
+  const totalToday    = reviewQueue.length
+  const videosPending = reviewQueue.filter(i => i.has_video && i.status !== 'completed').length
+  const painFlagCount = athletes.filter(a => a.flags?.includes('pain_flag')).length
+  const missedCount   = athletes.filter(a => a.flags?.includes('missed_sessions')).length
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <StatCard label="Trained Today"    value={isDemo ? '4/6' : `${trainedToday}/${totalToday}`}  icon={CheckCircle2}   color="green"  />
+      <StatCard label="Videos Pending"   value={isDemo ? '2'   : String(videosPending)}            icon={Eye}            color="purple" />
+      <StatCard label="Pain Flags"       value={isDemo ? '1'   : String(painFlagCount)}            icon={AlertTriangle}  color="red"    />
+      <StatCard label="Missed This Week" value={isDemo ? '1'   : String(missedCount)}              icon={Clock}          color="orange" />
     </div>
   )
 }
