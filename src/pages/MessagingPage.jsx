@@ -90,6 +90,7 @@ export function MessagingPage() {
     channels, messagesByThread, directMessages,
     initMessaging, createChannel, updateChannel, deleteChannel,
     sendMessage, editMessage, deleteMessage, reactToMessage,
+    pinMessage, uploadFile,
     openDM, openGroupMessage, markRead, loadMessages,
   } = useMessagingStore()
 
@@ -264,6 +265,8 @@ export function MessagingPage() {
           onEdit={(msgId, c) => editMessage(activeThread, msgId, c)}
           onDelete={(msgId) => deleteMessage(activeThread, msgId)}
           onReact={(msgId, emoji) => reactToMessage(activeThread, msgId, emoji, userId)}
+          onPin={(msgId) => pinMessage(activeThread, msgId)}
+          onUploadFile={(file) => uploadFile(file, orgId, userId)}
           onOpenMembers={() => setMembersOpen(true)}
         />
       ) : (
@@ -325,7 +328,7 @@ function SidebarChannelItem({ channel, active, isAdmin, onSelect, onEdit, onDele
 }
 
 // ── Chat area ─────────────────────────────────────────────────────────────────
-function ChatArea({ threadId, threadType, channel, dm, messages, profile, isAdmin, isObserver, orgMembers, onSend, onEdit, onDelete, onReact, onOpenMembers }) {
+function ChatArea({ threadId, threadType, channel, dm, messages, profile, isAdmin, isObserver, orgMembers, onSend, onEdit, onDelete, onReact, onPin, onUploadFile, onOpenMembers }) {
   const endRef       = useRef(null)
   const fileImgRef   = useRef(null)
   const fileVidRef   = useRef(null)
@@ -337,7 +340,6 @@ function ChatArea({ threadId, threadType, channel, dm, messages, profile, isAdmi
   const [emojiFor, setEmojiFor]     = useState(null)
   const [editId, setEditId]         = useState(null)
   const [editText, setEditText]     = useState('')
-  const [pinned, setPinned]         = useState([])
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages.length])
 
@@ -364,10 +366,11 @@ function ChatArea({ threadId, threadType, channel, dm, messages, profile, isAdmi
 
   function handleGif(gif) { onSend({ content: gif.title || 'GIF', type: 'gif', gifUrl: gif.original }); setShowGiphy(false) }
 
-  function handleFile(e, type) {
+  async function handleFile(e, type) {
     const file = e.target.files?.[0]
     if (!file) return
-    onSend({ content: file.name, type, mediaUrl: URL.createObjectURL(file) })
+    const mediaUrl = await (onUploadFile ? onUploadFile(file) : Promise.resolve(URL.createObjectURL(file)))
+    onSend({ content: file.name, type, mediaUrl })
     e.target.value = ''
   }
 
@@ -382,7 +385,7 @@ function ChatArea({ threadId, threadType, channel, dm, messages, profile, isAdmi
     }
   }
 
-  const pinnedMsgs = messages.filter((m) => pinned.includes(m.id))
+  const pinnedMsgs = messages.filter((m) => m.is_pinned)
 
   return (
     <div className="flex-1 flex flex-col min-w-0 bg-zinc-950">
@@ -449,7 +452,7 @@ function ChatArea({ threadId, threadType, channel, dm, messages, profile, isAdmi
               msg={msg}
               isOwn={msg.sender.id === profile?.id}
               grouped={grouped}
-              isPinned={pinned.includes(msg.id)}
+              isPinned={!!msg.is_pinned}
               isEditing={editId === msg.id}
               editText={editText}
               onEditChange={setEditText}
@@ -457,7 +460,7 @@ function ChatArea({ threadId, threadType, channel, dm, messages, profile, isAdmi
               onCancelEdit={() => setEditId(null)}
               onEdit={() => { setEditId(msg.id); setEditText(msg.content) }}
               onDelete={() => onDelete(msg.id)}
-              onPin={() => setPinned((p) => p.includes(msg.id) ? p.filter((id) => id !== msg.id) : [...p, msg.id])}
+              onPin={() => onPin?.(msg.id)}
               onReact={(emoji) => onReact(msg.id, emoji)}
               emojiFor={emojiFor}
               setEmojiFor={setEmojiFor}

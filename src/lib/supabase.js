@@ -722,10 +722,38 @@ export async function markChannelRead(channelId, userId) {
 }
 
 /**
- * Subscribe to new messages on a channel via Supabase Realtime.
+ * Toggle the is_pinned flag on a message.
+ */
+export async function togglePinMessage(messageId, currentlyPinned) {
+  if (!isSupabaseConfigured()) return false
+  const { error } = await supabase
+    .from('messages')
+    .update({ is_pinned: !currentlyPinned })
+    .eq('id', messageId)
+  if (error) { console.error('[supabase] togglePinMessage:', error.message); return false }
+  return !currentlyPinned
+}
+
+/**
+ * Upload a file to Supabase Storage (message-attachments bucket).
+ * Returns the public URL or null on failure.
+ */
+export async function uploadMessageFile(file, orgId, userId) {
+  if (!isSupabaseConfigured()) return null
+  const ext  = file.name.split('.').pop().toLowerCase()
+  const path = `${orgId}/${userId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
+  const { error } = await supabase.storage.from('message-attachments').upload(path, file, { upsert: false })
+  if (error) { console.error('[supabase] uploadMessageFile:', error.message); return null }
+  const { data } = supabase.storage.from('message-attachments').getPublicUrl(path)
+  return data?.publicUrl ?? null
+}
+
+/**
+ * Subscribe to new, updated, and deleted messages on a channel via Supabase Realtime.
+ * callbacks: { onInsert, onUpdate, onDelete }
  * Returns an unsubscribe function.
  */
-export function subscribeToChannel(channelId, onMessage) {
+export function subscribeToChannel(channelId, { onInsert, onUpdate, onDelete } = {}) {
   if (!isSupabaseConfigured()) return () => {}
   const sub = supabase
     .channel(`messages:${channelId}`)
@@ -734,7 +762,19 @@ export function subscribeToChannel(channelId, onMessage) {
       schema: 'public',
       table: 'messages',
       filter: `channel_id=eq.${channelId}`,
-    }, (payload) => onMessage(payload.new))
+    }, (payload) => onInsert?.(payload.new))
+    .on('postgres_changes', {
+      event: 'UPDATE',
+      schema: 'public',
+      table: 'messages',
+      filter: `channel_id=eq.${channelId}`,
+    }, (payload) => onUpdate?.(payload.new))
+    .on('postgres_changes', {
+      event: 'DELETE',
+      schema: 'public',
+      table: 'messages',
+      filter: `channel_id=eq.${channelId}`,
+    }, (payload) => onDelete?.(payload.old))
     .subscribe()
   return () => supabase.removeChannel(sub)
 }

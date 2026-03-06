@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { MOCK_USERS, MOCK_GOALS, MOCK_TRAINING_BLOCKS, MOCK_MEETS, MOCK_ORGS, MOCK_ORG_MEMBERS, MOCK_STAFF_ASSIGNMENTS, MOCK_ATHLETE_RECIPES, MOCK_ATHLETE_PREP_LOG, MOCK_ATHLETE_SHOPPING_LISTS, MOCK_ATHLETE_MEAL_PLANS, MOCK_CHANNELS, MOCK_MESSAGES, MOCK_DIRECT_MESSAGES, MOCK_EXERCISES } from './mockData'
-import { upsertProfile, isSupabaseConfigured, onAuthStateChange, fetchProfile, fetchOrgMemberships, signOut as supabaseSignOut, getSession, fetchChannels as sbFetchChannels, createChannel as sbCreateChannel, updateChannel as sbUpdateChannel, archiveChannel as sbArchiveChannel, fetchMessages as sbFetchMessages, sendMessage as sbSendMessage, editMessage as sbEditMessage, deleteMessage as sbDeleteMessage, toggleReaction as sbToggleReaction, findOrCreateDM as sbFindOrCreateDM, findOrCreateGroup as sbFindOrCreateGroup, markChannelRead as sbMarkChannelRead, fetchOrgAthletes, fetchOrgReviewQueue, fetchExercises, fetchProgramTemplates, fetchOrgTrainingBlocks, fetchPrepLog, fetchShoppingLists, fetchOrgRecipes, fetchNutritionLogs, fetchOrgEvents, fetchUserEvents } from './supabase'
+import { upsertProfile, isSupabaseConfigured, onAuthStateChange, fetchProfile, fetchOrgMemberships, signOut as supabaseSignOut, getSession, fetchChannels as sbFetchChannels, createChannel as sbCreateChannel, updateChannel as sbUpdateChannel, archiveChannel as sbArchiveChannel, fetchMessages as sbFetchMessages, sendMessage as sbSendMessage, editMessage as sbEditMessage, deleteMessage as sbDeleteMessage, toggleReaction as sbToggleReaction, togglePinMessage as sbTogglePinMessage, findOrCreateDM as sbFindOrCreateDM, findOrCreateGroup as sbFindOrCreateGroup, markChannelRead as sbMarkChannelRead, subscribeToChannel as sbSubscribeToChannel, uploadMessageFile as sbUploadMessageFile, fetchOrgAthletes, fetchOrgReviewQueue, fetchExercises, fetchProgramTemplates, fetchOrgTrainingBlocks, fetchPrepLog, fetchShoppingLists, fetchOrgRecipes, fetchNutritionLogs, fetchOrgEvents, fetchUserEvents } from './supabase'
+import { saveMessageRecord, updateMessageRecord, saveChannelRecord, updateChannelRecord } from './db'
 
 export const useAuthStore = create((set, get) => ({
   user: null,
@@ -954,6 +955,8 @@ export const useMessagingStore = create((set, get) => ({
   directMessages: [],
   // track which threads have been fetched from DB to avoid refetching
   _fetchedThreads: new Set(),
+  // active realtime subscription unsubscribe functions keyed by threadId
+  _realtimeSubs: {},
 
   // ── Init (called once on app load or org change) ───────────────────────
   initMessaging: async (isDemo, orgId, currentUserId) => {
@@ -1036,7 +1039,7 @@ export const useMessagingStore = create((set, get) => ({
     const memberIds = type === 'public' ? allOrgMemberIds : (members || [])
 
     if (isSupabaseConfigured()) {
-      const ch = await sbCreateChannel({ orgId, name: slug, description: description || '', channelType: type || 'public', createdBy, memberIds })
+      const ch = await saveChannelRecord({ orgId, name: slug, description: description || '', channelType: type || 'public', createdBy, memberIds })
       if (!ch) return null
       const mapped = _mapChannel(ch)
       set((s) => ({ channels: [...s.channels, mapped] }))
@@ -1051,7 +1054,7 @@ export const useMessagingStore = create((set, get) => ({
 
   updateChannel: async (channelId, updates) => {
     set((s) => ({ channels: s.channels.map((ch) => ch.id === channelId ? { ...ch, ...updates } : ch) }))
-    if (isSupabaseConfigured()) await sbUpdateChannel(channelId, updates)
+    if (isSupabaseConfigured()) await updateChannelRecord(channelId, updates)
   },
 
   deleteChannel: async (channelId) => {
@@ -1063,18 +1066,65 @@ export const useMessagingStore = create((set, get) => ({
   },
 
   // ── Messages ──────────────────────────────────────────────────────────
-  // Load messages for a thread on first open
+  // Load messages for a thread on first open; wire realtime subscription
   loadMessages: async (threadId) => {
-    const { _fetchedThreads, messagesByThread } = get()
+    const { _fetchedThreads, messagesByThread, _realtimeSubs } = get()
     if (_fetchedThreads.has(threadId)) return
-    if (!isSupabaseConfigured()) return
 
-    const rows = await sbFetchMessages(threadId)
-    const msgs = rows.map(_mapMessage)
-    set((s) => ({
-      messagesByThread: { ...s.messagesByThread, [threadId]: msgs },
-      _fetchedThreads: new Set([...s._fetchedThreads, threadId]),
-    }))
+    if (isSupabaseConfigured()) {
+      const rows = await sbFetchMessages(threadId)
+      const msgs = rows.map(_mapMessage)
+      set((s) => ({
+        messagesByThread: { ...s.messagesByThread, [threadId]: msgs },
+        _fetchedThreads: new Set([...s._fetchedThreads, threadId]),
+      }))
+
+      // Unsubscribe from any previous subscription for this thread
+      if (_realtimeSubs[threadId]) _realtimeSubs[threadId]()
+
+      const unsub = sbSubscribeToChannel(threadId, {
+        onInsert: (row) => {
+          // Ignore if we already have it (optimistic temp was replaced)
+          set((s) => {
+            const existing = (s.messagesByThread[threadId] || []).find(m => m.id === row.id)
+            if (existing) return {}
+            // Fetch full message with sender profile by re-fetching only this row
+            sbFetchMessages(threadId, 1).then(latest => {
+              const latestRow = latest.find(r => r.id === row.id)
+              if (!latestRow) return
+              set((s2) => ({
+                messagesByThread: {
+                  ...s2.messagesByThread,
+                  [threadId]: [...(s2.messagesByThread[threadId] || []).filter(m => m.id !== row.id), _mapMessage(latestRow)],
+                },
+              }))
+            })
+            return {}
+          })
+        },
+        onUpdate: (row) => {
+          set((s) => ({
+            messagesByThread: {
+              ...s.messagesByThread,
+              [threadId]: (s.messagesByThread[threadId] || []).map(m =>
+                m.id === row.id
+                  ? { ...m, content: row.content, edited: !!row.edited_at, is_pinned: row.is_pinned }
+                  : m
+              ),
+            },
+          }))
+        },
+        onDelete: (row) => {
+          set((s) => ({
+            messagesByThread: {
+              ...s.messagesByThread,
+              [threadId]: (s.messagesByThread[threadId] || []).filter(m => m.id !== row.id),
+            },
+          }))
+        },
+      })
+      set((s) => ({ _realtimeSubs: { ...s._realtimeSubs, [threadId]: unsub } }))
+    }
   },
 
   sendMessage: async (threadId, { senderId, senderName, senderRole, content, type = 'text', mediaUrl = null, gifUrl = null, formatting = null }) => {
@@ -1084,14 +1134,14 @@ export const useMessagingStore = create((set, get) => ({
       id: tempId, thread_id: threadId,
       sender: { id: senderId, name: senderName, role: senderRole },
       content, type, mediaUrl, gifUrl, formatting,
-      timestamp: new Date().toISOString(), reactions: [], edited: false,
+      timestamp: new Date().toISOString(), reactions: [], edited: false, is_pinned: false,
     }
     set((s) => ({
       messagesByThread: { ...s.messagesByThread, [threadId]: [...(s.messagesByThread[threadId] || []), optimistic] },
     }))
 
     if (isSupabaseConfigured()) {
-      const saved = await sbSendMessage({ channelId: threadId, senderId, content, messageType: type, mediaUrl, gifUrl, formatting })
+      const saved = await saveMessageRecord({ channelId: threadId, senderId, content, messageType: type, mediaUrl, gifUrl, formatting })
       if (saved) {
         // Replace temp with real row
         const real = _mapMessage(saved)
@@ -1121,7 +1171,7 @@ export const useMessagingStore = create((set, get) => ({
         ),
       },
     }))
-    if (isSupabaseConfigured()) await sbEditMessage(msgId, newContent)
+    if (isSupabaseConfigured()) await updateMessageRecord(msgId, newContent)
   },
 
   deleteMessage: async (threadId, msgId) => {
@@ -1156,6 +1206,47 @@ export const useMessagingStore = create((set, get) => ({
       },
     }))
     if (isSupabaseConfigured()) await sbToggleReaction(msgId, userId, emoji)
+  },
+
+  // ── Pin messages ──────────────────────────────────────────────────────────
+  pinMessage: async (threadId, msgId) => {
+    const { messagesByThread } = get()
+    const msg = (messagesByThread[threadId] || []).find(m => m.id === msgId)
+    if (!msg) return
+    const wasPinned = !!msg.is_pinned
+    // Optimistic update
+    set((s) => ({
+      messagesByThread: {
+        ...s.messagesByThread,
+        [threadId]: (s.messagesByThread[threadId] || []).map(m =>
+          m.id === msgId ? { ...m, is_pinned: !wasPinned } : m
+        ),
+      },
+    }))
+    if (isSupabaseConfigured()) {
+      const result = await sbTogglePinMessage(msgId, wasPinned)
+      // If the DB call clearly returned false (error), revert
+      if (result === false) {
+        set((s) => ({
+          messagesByThread: {
+            ...s.messagesByThread,
+            [threadId]: (s.messagesByThread[threadId] || []).map(m =>
+              m.id === msgId ? { ...m, is_pinned: wasPinned } : m
+            ),
+          },
+        }))
+      }
+    }
+  },
+
+  // ── File upload ───────────────────────────────────────────────────────────
+  uploadFile: async (file, orgId, userId) => {
+    if (isSupabaseConfigured()) {
+      const url = await sbUploadMessageFile(file, orgId, userId)
+      if (url) return url
+    }
+    // Offline fallback: ephemeral blob URL
+    return URL.createObjectURL(file)
   },
 
   // ── Direct Messages ────────────────────────────────────────────────────
@@ -1268,6 +1359,7 @@ function _mapMessage(row) {
     formatting: row.formatting || null,
     timestamp:  row.created_at,
     edited:     !!row.edited_at,
+    is_pinned:  !!row.is_pinned,
     reactions:  _mapReactions(row.reactions || []),
   }
 }
