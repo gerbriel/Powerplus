@@ -449,6 +449,62 @@ export async function saveTrainingBlock(athleteId, orgId, block) {
   return data
 }
 
+/**
+ * Delete a training block by id.
+ * Used by staff on the Training Management page.
+ */
+export async function deleteTrainingBlock(blockId) {
+  if (!isSupabaseConfigured() || !blockId) return false
+  const { error } = await supabase.from('training_blocks').delete().eq('id', blockId)
+  if (error) { console.error('[db] deleteTrainingBlock:', error.message); return false }
+  return true
+}
+
+/**
+ * Create or update an org-level training block (staff side — no athlete_id required).
+ * Sanitizes all inputs before writing to Supabase.
+ */
+export async function saveOrgTrainingBlock(createdBy, orgId, block) {
+  if (!isSupabaseConfigured() || !orgId) return null
+
+  const validPhases   = ['accumulation','intensification','peak','peaking','deload','transition','offseason','hypertrophy']
+  const validStatuses = ['planned','active','completed']
+
+  const row = {
+    org_id:              orgId,
+    created_by:          createdBy ?? null,
+    name:                sanitizeText(block.name, 200),
+    phase:               validPhases.includes(block.phase) ? block.phase : null,
+    block_type:          ['accumulation','intensification','peak','deload','transition'].includes(block.phase)
+                           ? block.phase
+                           : null,
+    start_date:          sanitizeDate(block.start_date),
+    end_date:            sanitizeDate(block.end_date),
+    weeks:               sanitizeNumber(block.weeks, 1, 52),
+    status:              validStatuses.includes(block.status) ? block.status : 'planned',
+    focus:               sanitizeText(block.focus, 300),
+    avg_rpe_target:      sanitizeNumber(block.avg_rpe_target, 1, 10),
+    sessions_planned:    sanitizeNumber(block.sessions_planned, 0, 9999),
+    sessions_completed:  sanitizeNumber(block.sessions_completed, 0, 9999),
+    notes:               sanitizeText(block.notes, 1000),
+    color:               sanitizeText(block.color, 30),
+  }
+
+  if (!row.name) { console.warn('[db] saveOrgTrainingBlock: name required'); return null }
+
+  if (block.id && !block.id.startsWith('tb-')) {
+    const { data, error } = await supabase
+      .from('training_blocks').update(row).eq('id', block.id).select().single()
+    if (error) { console.error('[db] saveOrgTrainingBlock update:', error.message); return null }
+    return data
+  }
+
+  const { data, error } = await supabase
+    .from('training_blocks').insert(row).select().single()
+  if (error) { console.error('[db] saveOrgTrainingBlock insert:', error.message); return null }
+  return data
+}
+
 // ─── Calendar events ──────────────────────────────────────────────────────────
 
 /**

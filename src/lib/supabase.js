@@ -694,6 +694,61 @@ export async function fetchOrgReviewQueue(orgId) {
   }))
 }
 
+// ── Training Blocks (org-scoped, staff view) ──────────────────────────────────
+
+/**
+ * Fetch all training blocks for an org. Returns blocks ordered by start_date desc.
+ * Used by StaffTrainingPage (Training Management).
+ */
+export async function fetchOrgTrainingBlocks(orgId) {
+  if (!isSupabaseConfigured() || !orgId) return []
+  const { data, error } = await supabase
+    .from('training_blocks')
+    .select(`
+      id, org_id, athlete_id, created_by, name, block_type,
+      phase, weeks, status, focus, avg_rpe_target,
+      sessions_planned, sessions_completed, color,
+      start_date, end_date, notes, active, created_at
+    `)
+    .eq('org_id', orgId)
+    .order('start_date', { ascending: false })
+  if (error) { console.error('[supabase] fetchOrgTrainingBlocks:', error.message); return [] }
+  return data ?? []
+}
+
+/** Insert an org-level training block. Returns created row or null. */
+export async function createOrgTrainingBlock(fields) {
+  if (!isSupabaseConfigured()) return null
+  const { data, error } = await supabase
+    .from('training_blocks')
+    .insert(fields)
+    .select()
+    .single()
+  if (error) { console.error('[supabase] createOrgTrainingBlock:', error.message); return null }
+  return data
+}
+
+/** Update a training block by id. Returns updated row or null. */
+export async function updateOrgTrainingBlock(id, fields) {
+  if (!isSupabaseConfigured() || !id) return null
+  const { data, error } = await supabase
+    .from('training_blocks')
+    .update(fields)
+    .eq('id', id)
+    .select()
+    .single()
+  if (error) { console.error('[supabase] updateOrgTrainingBlock:', error.message); return null }
+  return data
+}
+
+/** Delete a training block by id. Returns true on success. */
+export async function deleteOrgTrainingBlock(id) {
+  if (!isSupabaseConfigured() || !id) return false
+  const { error } = await supabase.from('training_blocks').delete().eq('id', id)
+  if (error) { console.error('[supabase] deleteOrgTrainingBlock:', error.message); return false }
+  return true
+}
+
 // ── Programming: exercises ────────────────────────────────────────────────────
 
 /** Fetch all exercises visible to this user (global + org-private). */
