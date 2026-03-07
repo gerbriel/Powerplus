@@ -1204,16 +1204,16 @@ export async function fetchAthleteCheckIns(athleteId, days = 90) {
 }
 
 /**
- * Fetch active and historical injuries for an athlete.
- * Returns: [{ id, body_part, severity, status, reported_at }]
+ * Fetch active and historical injuries for an athlete from injury_logs.
+ * Returns rows matching the injury_logs schema.
  */
 export async function fetchAthleteInjuries(athleteId) {
   if (!isSupabaseConfigured() || !athleteId) return []
   const { data, error } = await supabase
-    .from('injuries')
-    .select('id, body_part, severity, status, reported_at, notes')
+    .from('injury_logs')
+    .select('id, athlete_id, body_area, pain_level, injury_date, description, movement_affected, resolved, resolved_date, reported_to_coach, coach_notes, created_at')
     .eq('athlete_id', athleteId)
-    .order('reported_at', { ascending: false })
+    .order('injury_date', { ascending: false })
   if (error) { console.error('[supabase] fetchAthleteInjuries:', error.message); return [] }
   return data ?? []
 }

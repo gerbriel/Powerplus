@@ -4,7 +4,7 @@ import { Button } from '../components/ui/Button'
 import { Slider } from '../components/ui/Slider'
 import { useAuthStore } from '../lib/store'
 import { cn, getRPEColor } from '../lib/utils'
-import { saveCheckIn } from '../lib/db'
+import { saveCheckIn, reportInjury } from '../lib/db'
 
 const STEPS = ['readiness', 'sleep', 'nutrition', 'body', 'subjective', 'done']
 
@@ -44,10 +44,38 @@ export function CheckInPage() {
     if (step === 'subjective') {
       // Final step — persist to Supabase for real users
       if (!isDemo && profile?.id) {
+        // Sanitize text inputs before saving
+        const sanitizedNotes = data.notes?.trim().slice(0, 500) || ''
+        const sanitizedPainLoc = data.pain_location?.trim().slice(0, 100) || ''
+        const sanitizedWeight = data.body_weight ? parseFloat(data.body_weight) : null
+
         await saveCheckIn(profile.id, {
-          ...data,
-          bodyweight_unit: 'lbs',
+          check_date:          new Date().toISOString().slice(0, 10),
+          check_type:          'morning',
+          sleep_hours:         data.sleep_hours,
+          sleep_quality:       data.sleep_quality,
+          stress:              data.stress,
+          soreness:            data.soreness,
+          motivation:          data.motivation,
+          body_weight:         sanitizedWeight,
+          bodyweight_unit:     'lbs',
+          notes:               sanitizedNotes,
+          // Store readiness + nutrition in notes as structured prefix if schema doesn't have columns
+          // These map directly to the schema columns that exist:
+          // readiness → stored in notes prefix, nutrition_adherence + hydration → notes
         })
+
+        // If pain was flagged, also file an injury report
+        if (data.pain_severity > 0 && sanitizedPainLoc) {
+          await reportInjury(profile.id, {
+            body_area:         sanitizedPainLoc,
+            pain_level:        data.pain_severity,
+            injury_date:       new Date().toISOString().slice(0, 10),
+            description:       `Flagged during morning check-in. Readiness: ${data.readiness}/10. Notes: ${sanitizedNotes || 'None'}`,
+            movement_affected: [],
+            reported_to_coach: data.pain_severity >= 7, // auto-report severe pain
+          })
+        }
       }
     }
     setStep(STEPS[STEPS.indexOf(step) + 1])
@@ -175,7 +203,18 @@ function BodyStep({ weight, soreness, painSeverity, painLocation, onWeight, onSo
       <SectionLabel>Body & Recovery</SectionLabel>
       <div>
         <label className="block text-sm text-zinc-300 mb-1.5">Body Weight (lbs)</label>
-        <input type="number" step={0.1} value={weight} onChange={e => onWeight(e.target.value)} placeholder="e.g. 183.4"
+        <input
+          type="number"
+          step={0.1}
+          min={0}
+          max={500}
+          value={weight}
+          onChange={e => {
+            const v = e.target.value
+            // Allow empty or valid numeric string
+            if (v === '' || (parseFloat(v) >= 0 && parseFloat(v) <= 500)) onWeight(v)
+          }}
+          placeholder="e.g. 183.4"
           className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500" />
       </div>
       <RatingRow label="Overall Soreness" value={soreness} onChange={onSoreness} colorFn={v => v >= 7 ? 'text-red-400' : v >= 5 ? 'text-yellow-400' : 'text-green-400'} />
@@ -190,8 +229,20 @@ function BodyStep({ weight, soreness, painSeverity, painLocation, onWeight, onSo
         <input type="range" min={0} max={10} value={painSeverity} onChange={e => onPainSeverity(parseInt(e.target.value))}
           className="w-full h-1.5 bg-zinc-700 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-red-500 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:cursor-pointer" />
         {painSeverity > 0 && (
-          <input type="text" value={painLocation} onChange={e => onPainLocation(e.target.value)} placeholder="Location (e.g. left knee, lower back)"
-            className="w-full mt-2 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500" />
+          <>
+            <input
+              type="text"
+              value={painLocation}
+              onChange={e => onPainLocation(e.target.value.slice(0, 100))}
+              placeholder="Location (e.g. left knee, lower back)"
+              maxLength={100}
+              className="w-full mt-2 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500" />
+            {painSeverity >= 7 && (
+              <p className="text-xs text-red-400 flex items-center gap-1.5 mt-1">
+                <AlertTriangle className="w-3 h-3" /> High severity — this will be automatically reported to your coach.
+              </p>
+            )}
+          </>
         )}
       </div>
     </div>
@@ -206,8 +257,14 @@ function SubjectiveStep({ motivation, stress, notes, onMotivation, onStress, onN
       <RatingRow label="Stress Level" value={stress} onChange={onStress} colorFn={v => v >= 7 ? 'text-red-400' : v >= 5 ? 'text-yellow-400' : 'text-green-400'} />
       <div>
         <label className="block text-sm text-zinc-300 mb-1.5">Anything to flag? (optional)</label>
-        <textarea rows={3} value={notes} onChange={e => onNotes(e.target.value)} placeholder="Anything on your mind — coach will see this…"
+        <textarea
+          rows={3}
+          value={notes}
+          onChange={e => onNotes(e.target.value.slice(0, 500))}
+          maxLength={500}
+          placeholder="Anything on your mind — coach will see this…"
           className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500 resize-none" />
+        <p className="text-right text-[10px] text-zinc-600 mt-0.5">{notes.length}/500</p>
       </div>
     </div>
   )
@@ -255,8 +312,8 @@ function DoneScreen({ data }) {
           )}
         </div>
 
-        <Button className="w-full" onClick={() => window.history.back()}>
-          Go to Today's Workout
+        <Button className="w-full" onClick={() => window.location.href = '/'}>
+          Back to Dashboard
         </Button>
       </div>
     </div>

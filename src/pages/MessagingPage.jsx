@@ -166,12 +166,49 @@ export function MessagingPage() {
     setNewGroupOpen(false); if (id) { setActiveThread(id); setThreadType('dm'); loadMessages(id) }
   }
 
+  const [sidebarSearch, setSidebarSearch] = useState('')
+
+  const filteredChannels = useMemo(() =>
+    sidebarSearch
+      ? visibleChannels.filter((ch) => ch.name?.toLowerCase().includes(sidebarSearch.toLowerCase()))
+      : visibleChannels
+  , [visibleChannels, sidebarSearch])
+
+  const filteredDMs = useMemo(() =>
+    sidebarSearch
+      ? visibleDMs.filter((dm) => dm.display_name?.toLowerCase().includes(sidebarSearch.toLowerCase()))
+      : visibleDMs
+  , [visibleDMs, sidebarSearch])
+
+  const filteredGroups = useMemo(() =>
+    sidebarSearch
+      ? visibleGroups.filter((gm) => gm.display_name?.toLowerCase().includes(sidebarSearch.toLowerCase()))
+      : visibleGroups
+  , [visibleGroups, sidebarSearch])
+
   return (
     <div className="flex h-[calc(100vh-4rem)] overflow-hidden bg-zinc-950">
       {/* ── Sidebar ─────────────────────────────────────────────────────── */}
       <aside className="w-64 flex-shrink-0 bg-zinc-900 border-r border-zinc-800 flex flex-col hidden md:flex">
         <div className="h-14 px-4 flex items-center border-b border-zinc-800 flex-shrink-0">
           <span className="text-sm font-bold text-zinc-100 truncate">{org?.name || 'Messages'}</span>
+        </div>
+        {/* Sidebar search */}
+        <div className="px-3 py-2 border-b border-zinc-800/60 flex-shrink-0">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500 pointer-events-none" />
+            <input
+              value={sidebarSearch}
+              onChange={(e) => setSidebarSearch(e.target.value)}
+              placeholder="Search channels & DMs…"
+              className="w-full bg-zinc-800/60 border border-zinc-700/50 rounded-lg pl-8 pr-3 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-purple-500/60 focus:border-purple-500/60"
+            />
+            {sidebarSearch && (
+              <button onClick={() => setSidebarSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300">
+                <X className="w-3 h-3" />
+              </button>
+            )}
+          </div>
         </div>
         <div className="flex-1 overflow-y-auto py-3 space-y-4">
           {/* Channels */}
@@ -182,8 +219,8 @@ export function MessagingPage() {
                 <Plus className="w-3.5 h-3.5" />
               </button>
             </div>
-            {visibleChannels.length === 0 && <p className="px-3 text-xs text-zinc-600 italic">No channels yet</p>}
-            {visibleChannels.map((ch) => (
+            {filteredChannels.length === 0 && <p className="px-3 text-xs text-zinc-600 italic">{sidebarSearch ? 'No matches' : 'No channels yet'}</p>}
+            {filteredChannels.map((ch) => (
               <SidebarChannelItem
                 key={ch.id}
                 channel={ch}
@@ -203,8 +240,8 @@ export function MessagingPage() {
                 <Plus className="w-3.5 h-3.5" />
               </button>
             </div>
-            {visibleDMs.length === 0 && <p className="px-3 text-xs text-zinc-600 italic">No DMs yet</p>}
-            {visibleDMs.map((dm) => {
+            {filteredDMs.length === 0 && <p className="px-3 text-xs text-zinc-600 italic">{sidebarSearch ? 'No matches' : 'No DMs yet'}</p>}
+            {filteredDMs.map((dm) => {
               const unread    = dm.unread?.[userId] || 0
               const isObs     = isAdmin && !dm.participants.includes(userId)
               return (
@@ -229,8 +266,8 @@ export function MessagingPage() {
                 <Plus className="w-3.5 h-3.5" />
               </button>
             </div>
-            {visibleGroups.length === 0 && <p className="px-3 text-xs text-zinc-600 italic">No groups yet</p>}
-            {visibleGroups.map((gm) => {
+            {filteredGroups.length === 0 && <p className="px-3 text-xs text-zinc-600 italic">{sidebarSearch ? 'No matches' : 'No groups yet'}</p>}
+            {filteredGroups.map((gm) => {
               const unread = gm.unread?.[userId] || 0
               const isObs  = isAdmin && !gm.participants.includes(userId)
               return (
@@ -340,6 +377,8 @@ function ChatArea({ threadId, threadType, channel, dm, messages, profile, isAdmi
   const [emojiFor, setEmojiFor]     = useState(null)
   const [editId, setEditId]         = useState(null)
   const [editText, setEditText]     = useState('')
+  const [msgSearch, setMsgSearch]   = useState('')
+  const [showMsgSearch, setShowMsgSearch] = useState(false)
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages.length])
 
@@ -423,9 +462,38 @@ function ChatArea({ threadId, threadType, channel, dm, messages, profile, isAdmi
               <Eye className="w-3.5 h-3.5" /> Admin view
             </span>
           )}
+          <button
+            onClick={() => { setShowMsgSearch((p) => !p); setMsgSearch('') }}
+            className={cn('p-1.5 rounded-lg transition-colors', showMsgSearch ? 'text-purple-400 bg-purple-500/15' : 'text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800')}
+            title="Search messages"
+          >
+            <Search className="w-4 h-4" />
+          </button>
           {channel && <button onClick={onOpenMembers} className="p-1.5 text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 rounded-lg transition-colors" title="Members"><UserPlus className="w-4 h-4" /></button>}
         </div>
       </div>
+
+      {/* Message search bar */}
+      {showMsgSearch && (
+        <div className="px-4 py-2 bg-zinc-900/80 border-b border-zinc-800 flex items-center gap-2 flex-shrink-0">
+          <Search className="w-4 h-4 text-zinc-500 flex-shrink-0" />
+          <input
+            autoFocus
+            value={msgSearch}
+            onChange={(e) => setMsgSearch(e.target.value)}
+            placeholder="Search messages…"
+            className="flex-1 bg-transparent text-sm text-zinc-200 placeholder:text-zinc-500 focus:outline-none"
+          />
+          {msgSearch && (
+            <span className="text-xs text-zinc-500">
+              {messages.filter((m) => m.content?.toLowerCase().includes(msgSearch.toLowerCase())).length} result(s)
+            </span>
+          )}
+          <button onClick={() => { setShowMsgSearch(false); setMsgSearch('') }} className="text-zinc-500 hover:text-zinc-300 transition-colors">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {/* Observer notice bar */}
       {isObserver && (
@@ -443,9 +511,13 @@ function ChatArea({ threadId, threadType, channel, dm, messages, profile, isAdmi
             <p className="text-sm">Start of {displayName}</p>
           </div>
         )}
-        {messages.map((msg, i) => {
-          const prev    = messages[i - 1]
-          const grouped = prev?.sender?.id === msg.sender.id && (new Date(msg.timestamp) - new Date(prev.timestamp)) < 300000
+        {(msgSearch
+          ? messages.filter((m) => m.content?.toLowerCase().includes(msgSearch.toLowerCase()))
+          : messages
+        ).map((msg, i) => {
+          const allMsgs = msgSearch ? messages.filter((m) => m.content?.toLowerCase().includes(msgSearch.toLowerCase())) : messages
+          const prev    = allMsgs[i - 1]
+          const grouped = !msgSearch && prev?.sender?.id === msg.sender.id && (new Date(msg.timestamp) - new Date(prev.timestamp)) < 300000
           return (
             <MessageBubble
               key={msg.id}
@@ -466,9 +538,16 @@ function ChatArea({ threadId, threadType, channel, dm, messages, profile, isAdmi
               setEmojiFor={setEmojiFor}
               userId={profile?.id}
               isObserver={isObserver}
+              highlight={msgSearch || ''}
             />
           )
         })}
+        {msgSearch && messages.filter((m) => m.content?.toLowerCase().includes(msgSearch.toLowerCase())).length === 0 && (
+          <div className="flex flex-col items-center justify-center h-32 text-zinc-600 gap-2">
+            <Search className="w-6 h-6 opacity-40" />
+            <p className="text-sm">No messages match "{msgSearch}"</p>
+          </div>
+        )}
         <div ref={endRef} />
       </div>
 

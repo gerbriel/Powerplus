@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Plus, Save, X, Check, ChevronDown, ChevronUp, Activity,
   Shield, Archive, CheckCircle2, AlertCircle, Heart, TrendingUp,
-  MessageSquare, Stethoscope, Edit2, Trash2, User, Calendar,
+  MessageSquare, Stethoscope, Edit2, Trash2, User, Calendar, Search,
 } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardSubtitle, CardBody } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
@@ -10,9 +10,10 @@ import { Modal } from '../components/ui/Modal'
 import { Avatar } from '../components/ui/Avatar'
 import { Badge } from '../components/ui/Badge'
 import { MOCK_INJURY_LOGS, MOCK_ATHLETES } from '../lib/mockData'
-import { useAuthStore, isStaffRole } from '../lib/store'
+import { useAuthStore, useRosterStore, isStaffRole } from '../lib/store'
 import { cn } from '../lib/utils'
 import { reportInjury, updateInjury } from '../lib/db'
+import { fetchAthleteInjuries } from '../lib/supabase'
 
 // Pain level helpers
 function painColor(level) {
@@ -33,25 +34,58 @@ function painLabel(level) {
 // ─── Staff Injury Overview (sees all athletes) ───────────────────────────────
 function StaffInjuryView() {
   const [selectedAthlete, setSelectedAthlete] = useState(null)
-  const { isDemo } = useAuthStore()
-  const mockAthletes    = isDemo ? MOCK_ATHLETES : []
-  const mockInjuryLogs  = isDemo ? MOCK_INJURY_LOGS : []
-  const athletesWithInjuries = mockAthletes.map((a) => ({
+  const [search, setSearch] = useState('')
+  const [injuryMap, setInjuryMap] = useState({})
+  const { isDemo, activeOrgId } = useAuthStore()
+  const { athletes: liveAthletes, loadRoster } = useRosterStore()
+
+  useEffect(() => {
+    if (isDemo) return
+    if (activeOrgId && liveAthletes.length === 0) loadRoster(activeOrgId)
+  }, [isDemo, activeOrgId])
+
+  useEffect(() => {
+    if (isDemo || liveAthletes.length === 0) return
+    Promise.all(liveAthletes.map((a) => fetchAthleteInjuries(a.id).then((injs) => [a.id, injs])))
+      .then((entries) => setInjuryMap(Object.fromEntries(entries)))
+  }, [isDemo, liveAthletes.length])
+
+  const allAthletes = isDemo ? MOCK_ATHLETES : liveAthletes
+  const allInjuryLogs = isDemo ? MOCK_INJURY_LOGS : Object.values(injuryMap).flat()
+
+  const athletesWithInjuries = allAthletes.map((a) => ({
     ...a,
-    injuries: mockInjuryLogs.filter((inj) => inj.athlete_id === a.id),
+    injuries: isDemo
+      ? MOCK_INJURY_LOGS.filter((i) => i.athlete_id === a.id)
+      : (injuryMap[a.id] ?? []),
   }))
-  const flagged = athletesWithInjuries.filter((a) => a.injuries.some((i) => !i.resolved))
+
+  const filtered = search
+    ? athletesWithInjuries.filter((a) => a.full_name?.toLowerCase().includes(search.toLowerCase()))
+    : athletesWithInjuries
+
+  const flagged = filtered.filter((a) => a.injuries.some((i) => !i.resolved))
 
   if (selectedAthlete) {
-    const athlete = mockAthletes.find((a) => a.id === selectedAthlete)
-    const injuries = mockInjuryLogs.filter((i) => i.athlete_id === selectedAthlete)
+    const athlete = allAthletes.find((a) => a.id === selectedAthlete)
+    const injuries = isDemo
+      ? MOCK_INJURY_LOGS.filter((i) => i.athlete_id === selectedAthlete)
+      : (injuryMap[selectedAthlete] ?? [])
     return (
       <div className="space-y-4">
         <button onClick={() => setSelectedAthlete(null)}
           className="flex items-center gap-2 text-sm text-zinc-400 hover:text-zinc-200 transition-colors">
           <ChevronUp className="w-4 h-4 rotate-270" />← Back to All Athletes
         </button>
-        <AthleteInjuryDetail athlete={athlete} injuries={injuries} staffView />
+        <AthleteInjuryDetail
+          key={selectedAthlete}
+          athlete={athlete}
+          injuries={injuries}
+          staffView
+          onInjuryUpdated={(updatedInjuries) =>
+            setInjuryMap((prev) => ({ ...prev, [selectedAthlete]: updatedInjuries }))
+          }
+        />
       </div>
     )
   }
@@ -66,16 +100,27 @@ function StaffInjuryView() {
         </CardBody></Card>
         <Card><CardBody className="text-center py-3">
           <p className="text-2xl font-black text-zinc-100">
-            {mockInjuryLogs.filter((i) => !i.resolved).length}
+            {allInjuryLogs.filter((i) => !i.resolved).length}
           </p>
           <p className="text-xs text-zinc-500 mt-0.5">Active injury reports</p>
         </CardBody></Card>
         <Card><CardBody className="text-center py-3">
           <p className="text-2xl font-black text-zinc-100">
-            {mockInjuryLogs.filter((i) => !i.resolved && i.reported_to_coach).length}
+            {allInjuryLogs.filter((i) => !i.resolved && i.reported_to_coach).length}
           </p>
           <p className="text-xs text-zinc-500 mt-0.5">Reported to coaching staff</p>
         </CardBody></Card>
+      </div>
+
+      {/* Search */}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500 pointer-events-none" />
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search athletes…"
+          className="w-full bg-zinc-800/60 border border-zinc-700/60 rounded-xl pl-9 pr-4 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500"
+        />
       </div>
 
       {/* Active flags */}
@@ -95,7 +140,6 @@ function StaffInjuryView() {
           ) : (
             flagged.map((a) => {
               const activeInj = a.injuries.filter((i) => !i.resolved)
-              const maxPain = Math.max(...activeInj.map((i) => i.pain_level))
               return (
                 <button key={a.id} onClick={() => setSelectedAthlete(a.id)}
                   className="w-full flex items-center gap-3 p-3 bg-zinc-800/40 hover:bg-zinc-800/70 border border-zinc-700/50 rounded-xl transition-colors text-left group">
@@ -114,12 +158,8 @@ function StaffInjuryView() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
-                    {activeInj.some((i) => i.pain_level >= 7) && (
-                      <Badge color="red">High Pain</Badge>
-                    )}
-                    {activeInj.some((i) => !i.reported_to_coach) && (
-                      <Badge color="yellow">Unreported</Badge>
-                    )}
+                    {activeInj.some((i) => i.pain_level >= 7) && <Badge color="red">High Pain</Badge>}
+                    {activeInj.some((i) => !i.reported_to_coach) && <Badge color="yellow">Unreported</Badge>}
                     <ChevronDown className="w-4 h-4 text-zinc-600 group-hover:text-zinc-300 -rotate-90 transition-colors" />
                   </div>
                 </button>
@@ -134,30 +174,35 @@ function StaffInjuryView() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <User className="w-4 h-4 text-zinc-400" />All Athletes
+            {search && <span className="text-xs font-normal text-zinc-500">({filtered.length} result{filtered.length !== 1 ? 's' : ''})</span>}
           </CardTitle>
         </CardHeader>
         <CardBody className="space-y-2">
-          {athletesWithInjuries.map((a) => {
-            const active = a.injuries.filter((i) => !i.resolved)
-            const resolved = a.injuries.filter((i) => i.resolved)
-            return (
-              <button key={a.id} onClick={() => setSelectedAthlete(a.id)}
-                className="w-full flex items-center gap-3 p-3 bg-zinc-800/30 hover:bg-zinc-800/60 border border-zinc-700/40 rounded-xl transition-colors text-left group">
-                <Avatar name={a.full_name} size="sm" />
-                <div className="flex-1 min-w-0">
-                  <span className="text-sm font-semibold text-zinc-200">{a.full_name}</span>
-                  <p className="text-xs text-zinc-500 mt-0.5">
-                    {active.length > 0 ? `${active.length} active` : 'No active injuries'}
-                    {resolved.length > 0 && ` · ${resolved.length} resolved`}
-                  </p>
-                </div>
-                {active.length > 0
-                  ? <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
-                  : <CheckCircle2 className="w-4 h-4 text-green-500/50 flex-shrink-0" />
-                }
-              </button>
-            )
-          })}
+          {filtered.length === 0 ? (
+            <p className="text-sm text-zinc-500 text-center py-4">No athletes match "{search}"</p>
+          ) : (
+            filtered.map((a) => {
+              const active = a.injuries.filter((i) => !i.resolved)
+              const resolvedCount = a.injuries.filter((i) => i.resolved).length
+              return (
+                <button key={a.id} onClick={() => setSelectedAthlete(a.id)}
+                  className="w-full flex items-center gap-3 p-3 bg-zinc-800/30 hover:bg-zinc-800/60 border border-zinc-700/40 rounded-xl transition-colors text-left group">
+                  <Avatar name={a.full_name} size="sm" />
+                  <div className="flex-1 min-w-0">
+                    <span className="text-sm font-semibold text-zinc-200">{a.full_name}</span>
+                    <p className="text-xs text-zinc-500 mt-0.5">
+                      {active.length > 0 ? `${active.length} active` : 'No active injuries'}
+                      {resolvedCount > 0 && ` · ${resolvedCount} resolved`}
+                    </p>
+                  </div>
+                  {active.length > 0
+                    ? <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
+                    : <CheckCircle2 className="w-4 h-4 text-green-500/50 flex-shrink-0" />
+                  }
+                </button>
+              )
+            })
+          )}
         </CardBody>
       </Card>
     </div>
@@ -165,10 +210,11 @@ function StaffInjuryView() {
 }
 
 // ─── Athlete Injury Detail (shared by both athlete self-view and staff drill-down) ─
-function AthleteInjuryDetail({ athlete, injuries: initialInjuries, staffView = false }) {
+function AthleteInjuryDetail({ athlete, injuries: initialInjuries, staffView = false, onInjuryUpdated }) {
   const { isDemo, profile } = useAuthStore()
   const athleteId = athlete?.id ?? profile?.id
   const [injuries, setInjuries] = useState(initialInjuries ?? [])
+  const [loading, setLoading] = useState(false)
   const [logModal, setLogModal] = useState(null)
   const [addModal, setAddModal] = useState(false)
   const [resolveConfirm, setResolveConfirm] = useState(null)
@@ -183,35 +229,75 @@ function AthleteInjuryDetail({ athlete, injuries: initialInjuries, staffView = f
   })
   const [coachNoteForm, setCoachNoteForm] = useState('')
 
+  // Load from DB on mount for real users
+  useEffect(() => {
+    if (isDemo || !athleteId) return
+    setLoading(true)
+    fetchAthleteInjuries(athleteId).then((rows) => {
+      if (rows.length > 0) {
+        const mapped = rows.map((r) => ({
+          id: r.id,
+          athlete_id: r.athlete_id,
+          body_area: r.body_area,
+          pain_level: r.pain_level ?? 5,
+          injury_date: r.injury_date ?? r.created_at?.slice(0, 10),
+          description: r.description ?? '',
+          movement_affected: r.movement_affected ?? [],
+          resolved: r.resolved ?? false,
+          resolved_date: r.resolved_date ?? null,
+          reported_to_coach: r.reported_to_coach ?? false,
+          coach_notes: r.coach_notes ?? '',
+          log_history: [{ date: r.injury_date ?? r.created_at?.slice(0, 10), pain_level: r.pain_level ?? 5, note: 'Initial report.', reporter: 'athlete' }],
+        }))
+        setInjuries(mapped)
+      }
+      setLoading(false)
+    })
+  }, [isDemo, athleteId])
+
+  // Sync injuries up to parent StaffInjuryView when changed
+  const updateAndSync = (updater) => {
+    setInjuries((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater
+      onInjuryUpdated?.(next)
+      return next
+    })
+  }
+
   const active = injuries.filter((i) => !i.resolved)
   const resolved = injuries.filter((i) => i.resolved)
 
-  const submitLog = () => {
+  const submitLog = async () => {
     if (!logForm.date || !logForm.note.trim()) return
-    setInjuries((prev) => prev.map((inj) => {
+    const note = logForm.note.trim().slice(0, 1000)
+    updateAndSync((prev) => prev.map((inj) => {
       if (inj.id !== logModal) return inj
       return {
         ...inj,
         pain_level: logForm.pain_level,
         log_history: [...inj.log_history, {
           date: logForm.date, pain_level: logForm.pain_level,
-          note: logForm.note, reporter: staffView ? 'coach' : 'athlete',
+          note, reporter: staffView ? 'coach' : 'athlete',
         }],
       }
     }))
+    if (!isDemo && typeof logModal === 'string' && !logModal.startsWith('inj-')) {
+      await updateInjury(logModal, { pain_level: logForm.pain_level, coach_notes: note })
+    }
     setLogModal(null)
     setLogForm({ date: '', pain_level: 5, note: '' })
   }
 
   const submitAdd = async () => {
     if (!addForm.body_area.trim() || !addForm.description.trim()) return
+    const tempId = `inj-${Date.now()}`
     const newInj = {
-      id: `inj-${Date.now()}`,
-      athlete_id: athleteId ?? 'u-ath-001',
-      body_area: addForm.body_area,
+      id: tempId,
+      athlete_id: athleteId ?? 'unknown',
+      body_area: addForm.body_area.trim().slice(0, 100),
       pain_level: addForm.pain_level,
       injury_date: addForm.injury_date,
-      description: addForm.description,
+      description: addForm.description.trim().slice(0, 1000),
       movement_affected: addForm.movement_affected.split(',').map((s) => s.trim()).filter(Boolean),
       resolved: false, resolved_date: null,
       reported_to_coach: staffView,
@@ -221,9 +307,19 @@ function AthleteInjuryDetail({ athlete, injuries: initialInjuries, staffView = f
         note: 'Initial report.', reporter: staffView ? 'coach' : 'athlete',
       }],
     }
-    setInjuries((prev) => [...prev, newInj])
+    updateAndSync((prev) => [...prev, newInj])
     if (!isDemo && athleteId) {
-      await reportInjury(athleteId, { ...addForm, reported_to_coach: staffView })
+      const saved = await reportInjury(athleteId, {
+        body_area: newInj.body_area,
+        pain_level: newInj.pain_level,
+        injury_date: newInj.injury_date,
+        description: newInj.description,
+        movement_affected: newInj.movement_affected,
+        reported_to_coach: staffView,
+      })
+      if (saved?.id) {
+        updateAndSync((prev) => prev.map((inj) => inj.id === tempId ? { ...inj, id: saved.id } : inj))
+      }
     }
     setAddModal(false)
     setAddForm({ body_area: '', pain_level: 5, description: '', movement_affected: '', injury_date: new Date().toISOString().slice(0, 10) })
@@ -231,30 +327,36 @@ function AthleteInjuryDetail({ athlete, injuries: initialInjuries, staffView = f
 
   const markResolved = async (id) => {
     const resolvedDate = new Date().toISOString().slice(0, 10)
-    setInjuries((prev) => prev.map((inj) => inj.id !== id ? inj : {
+    updateAndSync((prev) => prev.map((inj) => inj.id !== id ? inj : {
       ...inj, resolved: true, resolved_date: resolvedDate,
       log_history: [...inj.log_history, {
         date: resolvedDate, pain_level: 0,
         note: 'Marked as resolved.', reporter: staffView ? 'coach' : 'athlete',
       }],
     }))
-    if (!isDemo && !id.startsWith('inj-')) {
+    if (!isDemo && !String(id).startsWith('inj-')) {
       await updateInjury(id, { resolved: true, resolved_date: resolvedDate })
     }
     setResolveConfirm(null)
   }
 
   const saveCoachNote = async (id) => {
-    setInjuries((prev) => prev.map((inj) => inj.id !== id ? inj : { ...inj, coach_notes: coachNoteForm }))
-    if (!isDemo && !id.startsWith('inj-')) {
-      await updateInjury(id, { coach_notes: coachNoteForm })
+    const note = coachNoteForm.trim().slice(0, 2000)
+    updateAndSync((prev) => prev.map((inj) => inj.id !== id ? inj : { ...inj, coach_notes: note }))
+    if (!isDemo && !String(id).startsWith('inj-')) {
+      await updateInjury(id, { coach_notes: note })
     }
     setCoachNoteModal(null)
   }
 
-  const toggleCoach = (id) => setInjuries((prev) => prev.map((inj) =>
-    inj.id !== id ? inj : { ...inj, reported_to_coach: !inj.reported_to_coach }
-  ))
+  const toggleCoach = async (id) => {
+    const inj = injuries.find((i) => i.id === id)
+    const newVal = !inj?.reported_to_coach
+    updateAndSync((prev) => prev.map((i) => i.id !== id ? i : { ...i, reported_to_coach: newVal }))
+    if (!isDemo && !String(id).startsWith('inj-')) {
+      await updateInjury(id, { reported_to_coach: newVal })
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -583,8 +685,12 @@ export function InjuryPage() {
   const membership = orgMemberships?.find((m) => m.org_id === activeOrgId)
   const isStaff = isStaffRole(profile, membership) && !viewAsAthlete
 
-  const demoAthlete  = isDemo ? MOCK_ATHLETES[0] : null
-  const demoInjuries = isDemo ? MOCK_INJURY_LOGS : []
+  // For athlete self-view: real profile or demo stand-in
+  const athlete = isDemo
+    ? MOCK_ATHLETES[0]
+    : profile
+      ? { id: profile.id, full_name: profile.full_name ?? profile.name ?? 'You', weight_class: profile.weight_class ?? '', federation: profile.federation ?? '' }
+      : null
 
   return (
     <div className="p-4 md:p-6 max-w-5xl mx-auto space-y-6">
@@ -604,7 +710,10 @@ export function InjuryPage() {
       {isStaff ? (
         <StaffInjuryView />
       ) : (
-        <AthleteInjuryDetail athlete={demoAthlete} injuries={demoInjuries} />
+        <AthleteInjuryDetail
+          athlete={athlete}
+          injuries={isDemo ? MOCK_INJURY_LOGS : []}
+        />
       )}
     </div>
   )
