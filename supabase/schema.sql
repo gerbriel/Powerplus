@@ -933,14 +933,17 @@ create or replace function get_my_org_ids()
 -- ── profiles ──────────────────────────────────────────────────
 drop policy if exists "profiles: any org member can read" on profiles;
 -- Allow reading profiles of users who share at least one org, plus your own profile.
--- Uses a security-definer function to avoid RLS recursion on org_members.
+-- Uses get_my_org_ids() (security-definer) to avoid RLS recursion:
+--   profiles SELECT → org_members (direct join) → get_my_org_ids() → org_members = infinite loop.
+-- Instead we look up our org list once via the helper, then check if the target profile
+-- is a member of any of those orgs.
 create policy "profiles: any org member can read" on profiles for select
   using (
     id = auth.uid()
     or exists (
-      select 1 from org_members a
-      join org_members b on b.org_id = a.org_id
-      where a.user_id = auth.uid() and b.user_id = profiles.id
+      select 1 from org_members
+      where user_id = profiles.id
+        and org_id = any(get_my_org_ids())
     )
   );
 
@@ -1001,12 +1004,12 @@ create policy "Users can read own join requests" on org_join_requests for select
 drop policy if exists "Org staff can read join requests" on org_join_requests;
 create policy "Org staff can read join requests" on org_join_requests for select
   using (exists (select 1 from org_members om where om.org_id = org_join_requests.org_id
-    and om.user_id = auth.uid() and om.org_role in ('owner','head_coach','admin') and om.status = 'active'));
+    and om.user_id = auth.uid() and om.org_role in ('owner','head_coach','coach') and om.status = 'active'));
 
 drop policy if exists "Org staff can update join requests" on org_join_requests;
 create policy "Org staff can update join requests" on org_join_requests for update
   using (exists (select 1 from org_members om where om.org_id = org_join_requests.org_id
-    and om.user_id = auth.uid() and om.org_role in ('owner','head_coach','admin') and om.status = 'active'));
+    and om.user_id = auth.uid() and om.org_role in ('owner','head_coach','coach') and om.status = 'active'));
 
 drop policy if exists "Users can retract own pending requests" on org_join_requests;
 create policy "Users can retract own pending requests" on org_join_requests for delete
@@ -1851,7 +1854,7 @@ begin
   select * into v_request from org_join_requests where id = p_request_id;
   if not found then raise exception 'Join request not found'; end if;
   if not exists (select 1 from org_members where org_id = v_request.org_id and user_id = auth.uid()
-    and org_role in ('owner','head_coach','admin') and status = 'active')
+    and org_role in ('owner','head_coach','coach') and status = 'active')
   then raise exception 'Not authorized'; end if;
   insert into org_members (org_id, user_id, org_role, status, invited_by, joined_at)
   values (v_request.org_id, v_request.user_id, v_request.requested_role, 'active', auth.uid(), now())
@@ -1867,7 +1870,7 @@ begin
   select org_id into v_org_id from org_join_requests where id = p_request_id;
   if not found then raise exception 'Join request not found'; end if;
   if not exists (select 1 from org_members where org_id = v_org_id and user_id = auth.uid()
-    and org_role in ('owner','head_coach','admin') and status = 'active')
+    and org_role in ('owner','head_coach','coach') and status = 'active')
   then raise exception 'Not authorized'; end if;
   update org_join_requests set status = 'denied', reviewed_by = auth.uid(), reviewed_at = now() where id = p_request_id;
 end;
