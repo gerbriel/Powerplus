@@ -15,8 +15,9 @@ import { Avatar } from '../components/ui/Avatar'
 import { ProgressBar } from '../components/ui/ProgressBar'
 import { MOCK_TODAY_WORKOUT, MOCK_PAST_WORKOUTS, MOCK_GOALS, MOCK_WEEK_SCHEDULE, MOCK_TRAINING_BLOCKS, MOCK_MEETS, MOCK_ATHLETES, MOCK_STAFF_ASSIGNMENTS } from '../lib/mockData'
 import { cn, calcE1RM, calcDotsScore, convertWeight, toKg, kgToLbs } from '../lib/utils'
-import { useSettingsStore, useGoalsStore, useAuthStore, useUIStore, resolveRole, isStaffRole, useTrainingStore, useRosterStore } from '../lib/store'
-import { saveWorkoutSession, saveWorkoutSet, saveOrgTrainingBlock, deleteTrainingBlock } from '../lib/db'
+import { useSettingsStore, useGoalsStore, useAuthStore, useUIStore, resolveRole, isStaffRole, useTrainingStore, useRosterStore, useMeetsStore, useAnalyticsStore } from '../lib/store'
+import { saveWorkoutSession, saveWorkoutSet, saveOrgTrainingBlock, deleteTrainingBlock, reportInjury } from '../lib/db'
+import { fetchAthleteSessions } from '../lib/supabase'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 function convertIntensity(intensity, weightUnit) {
@@ -64,11 +65,43 @@ function AthleteWorkoutPage() {
   const [customModal, setCustomModal] = useState(false)
   const { weightUnit, toggleWeightUnit, gymLocations, preferredLocation, preferredWorkoutTime, preferredDuration } = useSettingsStore()
   const { goals, pushPRToGoals } = useGoalsStore()
-  const { isDemo, profile } = useAuthStore()
+  const { isDemo, profile, activeOrgId } = useAuthStore()
+  const { blocks: meetsBlocks, meets, load: loadMeets } = useMeetsStore()
+  const { personal, loadPersonalAnalytics } = useAnalyticsStore()
   const currentSessionIdRef = useRef(null)
   const activeGym = gymLocations?.find(l => l.id === preferredLocation) || gymLocations?.[0]
 
-  const pastWorkouts = isDemo ? MOCK_PAST_WORKOUTS : []
+  const [dbSessions, setDbSessions] = useState([])
+  const [sessionsLoading, setSessionsLoading] = useState(false)
+
+  useEffect(() => {
+    if (!isDemo && profile?.id) {
+      const orgId = activeOrgId ?? profile.org_id ?? null
+      // Load meets/blocks/goals
+      loadMeets(profile.id, orgId)
+      // Load personal analytics for e1RM / DOTS
+      loadPersonalAnalytics(profile.id, orgId)
+      // Load workout history
+      setSessionsLoading(true)
+      fetchAthleteSessions(profile.id, 365).then(sessions => {
+        setDbSessions(sessions.map(s => ({
+          id: s.id,
+          name: s.name ?? 'Workout',
+          date: s.scheduled_date,
+          avg_rpe: s.overall_rpe ?? null,
+          total_sets: null,
+          total_volume_kg: null,
+          notes: s.notes ?? '',
+          status: s.status,
+          blocks: [],
+          is_custom: false,
+        })))
+        setSessionsLoading(false)
+      })
+    }
+  }, [isDemo, profile?.id])
+
+  const pastWorkouts = isDemo ? MOCK_PAST_WORKOUTS : dbSessions
 
   const handleStartWorkout = async (workout) => {
     setActiveWorkout(workout)
@@ -173,7 +206,7 @@ function AthleteWorkoutPage() {
   // ── History filtering ────────────────────────────────────────────────────
   const allHistory = [
     ...customWorkouts,
-    ...pastWorkouts,
+    ...pastWorkouts.filter(p => !customWorkouts.some(c => c.id === p.id)),
   ]
   const filteredHistory = allHistory.filter((s) => {
     const q = historySearch.toLowerCase()
@@ -313,9 +346,12 @@ function AthleteWorkoutPage() {
               <div className="grid grid-cols-3 gap-3 mb-4">
                 {(isDemo
                   ? [{ lift: 'Squat', e1rm_kg: 220 }, { lift: 'Bench', e1rm_kg: 155 }, { lift: 'Deadlift', e1rm_kg: 280 }]
-                  : [{ lift: 'Squat', e1rm_kg: null }, { lift: 'Bench', e1rm_kg: null }, { lift: 'Deadlift', e1rm_kg: null }]
+                  : ['Squat', 'Bench', 'Deadlift'].map(lift => ({
+                      lift,
+                      e1rm_kg: personal?.prRows?.find(r => r.lift === lift)?.e1rm ?? null,
+                    }))
                 ).map((l) => {
-                  const display = l.e1rm_kg != null ? (weightUnit === 'lbs' ? kgToLbs(l.e1rm_kg) : l.e1rm_kg) : '—'
+                  const display = l.e1rm_kg != null ? (weightUnit === 'lbs' ? Math.round(kgToLbs(l.e1rm_kg)) : l.e1rm_kg) : '—'
                   return (
                     <div key={l.lift} className="text-center p-3 bg-zinc-700/30 rounded-xl">
                       <p className="text-xs text-zinc-400 font-medium">{l.lift}</p>
@@ -326,7 +362,7 @@ function AthleteWorkoutPage() {
                 })}
               </div>
               {/* DOTS score */}
-              <DotsScoreRow weightUnit={weightUnit} />
+              <DotsScoreRow weightUnit={weightUnit} personal={personal} />
             </CardBody>
           </Card>
         </>
@@ -337,6 +373,9 @@ function AthleteWorkoutPage() {
           weightUnit={weightUnit}
           selectedBlock={selectedBlock}
           setSelectedBlock={setSelectedBlock}
+          meetsBlocks={meetsBlocks}
+          meets={meets}
+          dbSessions={dbSessions}
         />
       )}
 
@@ -384,7 +423,12 @@ function AthleteWorkoutPage() {
           </div>
         </CardHeader>
         <CardBody>
-          {filteredHistory.length === 0 ? (
+          {sessionsLoading ? (
+            <div className="flex items-center justify-center py-10 gap-2 text-zinc-500">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span className="text-sm">Loading sessions…</span>
+            </div>
+          ) : filteredHistory.length === 0 ? (
             <div className="text-center py-8 text-zinc-500 text-sm">No sessions match your search.</div>
           ) : (
           <div className="space-y-1">
@@ -396,7 +440,7 @@ function AthleteWorkoutPage() {
               const mediaCount = blocks.flatMap(b => b.exercises ?? []).flatMap(e => e.sets_logged ?? []).flatMap(sl => sl.media ?? []).length
               const hasPR = blocks.flatMap(b => b.exercises ?? []).flatMap(e => e.sets_logged ?? []).some(sl => sl.is_top_set)
               const mainExercises = [...new Set(blocks.filter(b => b.type === 'main').flatMap(b => b.exercises ?? []).map(e => e.name))]
-              const block = s.linked_block_id ? (isDemo ? MOCK_TRAINING_BLOCKS : []).find(b => b.id === s.linked_block_id) : null
+              const blockRef = s.linked_block_id ? (isDemo ? MOCK_TRAINING_BLOCKS : meetsBlocks).find(b => b.id === s.linked_block_id) : null
               return (
                 <button
                   key={s.id}
@@ -423,9 +467,9 @@ function AthleteWorkoutPage() {
                           <><span className="text-zinc-700">·</span>
                           <span className="text-xs text-zinc-500">{s.exercise_count} exercise{s.exercise_count !== 1 ? 's' : ''}</span></>
                         )}
-                        {block && (
+                        {blockRef && (
                           <><span className="text-zinc-700">·</span>
-                          <span className="text-xs text-zinc-500 flex items-center gap-0.5"><Layers className="w-2.5 h-2.5" />{block.name.split('–')[0].trim()}</span></>
+                          <span className="text-xs text-zinc-500 flex items-center gap-0.5"><Layers className="w-2.5 h-2.5" />{blockRef.name.split('–')[0].trim()}</span></>
                         )}
                         {mediaCount > 0 && (
                           <><span className="text-zinc-700">·</span>
@@ -596,11 +640,12 @@ function CustomWorkoutModal({ open, onClose, onSave }) {
 }
 
 // ─── Training Blocks View ────────────────────────────────────────────────────
-function TrainingBlocksView({ weightUnit, selectedBlock, setSelectedBlock }) {
+function TrainingBlocksView({ weightUnit, selectedBlock, setSelectedBlock, meetsBlocks = [], meets = [], dbSessions = [] }) {
   const { isDemo } = useAuthStore()
-  const trainingBlocks = isDemo ? MOCK_TRAINING_BLOCKS : []
-  const mockGoals      = isDemo ? MOCK_GOALS : []
-  const mockMeets      = isDemo ? MOCK_MEETS : []
+  const { goals: liveGoals } = useGoalsStore()
+  const trainingBlocks = isDemo ? MOCK_TRAINING_BLOCKS : meetsBlocks
+  const allGoals       = isDemo ? MOCK_GOALS : liveGoals
+  const allMeets       = isDemo ? MOCK_MEETS : meets
 
   const phaseMeta = {
     accumulation: { color: 'text-blue-300 bg-blue-500/10 border-blue-500/20', label: 'Accumulation' },
@@ -615,7 +660,26 @@ function TrainingBlocksView({ weightUnit, selectedBlock, setSelectedBlock }) {
   }
 
   if (selectedBlock) {
-    return <BlockDetailModal block={selectedBlock} weightUnit={weightUnit} onBack={() => setSelectedBlock(null)} />
+    return (
+      <BlockDetailModal
+        block={selectedBlock}
+        weightUnit={weightUnit}
+        onBack={() => setSelectedBlock(null)}
+        allGoals={allGoals}
+        allMeets={allMeets}
+        dbSessions={dbSessions}
+      />
+    )
+  }
+
+  if (!isDemo && trainingBlocks.length === 0) {
+    return (
+      <div className="text-center py-12 text-zinc-500 text-sm">
+        <Layers className="w-8 h-8 mx-auto mb-3 text-zinc-700" />
+        <p className="font-medium text-zinc-400 mb-1">No training blocks yet</p>
+        <p className="text-xs">Your coach will assign training blocks here.</p>
+      </div>
+    )
   }
 
   return (
@@ -628,9 +692,11 @@ function TrainingBlocksView({ weightUnit, selectedBlock, setSelectedBlock }) {
       {trainingBlocks.map((block) => {
         const phase = phaseMeta[block.phase] || phaseMeta.accumulation
         const status = statusMeta[block.status] || statusMeta.planned
-        const pct = Math.round((block.sessions_completed / block.sessions_planned) * 100)
-        const linkedGoal = mockGoals.find(g => block.linked_goal_ids?.includes(g.id))
-        const linkedMeet = block.linked_meet_id ? mockMeets.find(m => m.id === block.linked_meet_id) : null
+        const sessComp = block.sessions_completed ?? 0
+        const sessPlan = block.sessions_planned ?? 1
+        const pct = Math.round((sessComp / sessPlan) * 100)
+        const linkedGoal = allGoals.find(g => block.linked_goal_ids?.includes(g.id))
+        const linkedMeet = block.linked_meet_id ? allMeets.find(m => m.id === block.linked_meet_id) : null
         return (
           <button
             key={block.id}
@@ -661,7 +727,7 @@ function TrainingBlocksView({ weightUnit, selectedBlock, setSelectedBlock }) {
               </div>
               <div className="flex-shrink-0 text-right">
                 <p className="text-lg font-black text-zinc-100">{pct}%</p>
-                <p className="text-xs text-zinc-500">{block.sessions_completed}/{block.sessions_planned} sessions</p>
+                <p className="text-xs text-zinc-500">{sessComp}/{sessPlan} sessions</p>
               </div>
             </div>
 
@@ -701,12 +767,13 @@ function TrainingBlocksView({ weightUnit, selectedBlock, setSelectedBlock }) {
 }
 
 // ─── Block Detail Modal ───────────────────────────────────────────────────────
-function BlockDetailModal({ block, weightUnit, onBack }) {
+function BlockDetailModal({ block, weightUnit, onBack, allGoals = [], allMeets = [], dbSessions = [] }) {
   const [detailTab, setDetailTab] = useState('overview')
-  const { goals } = useGoalsStore()
   const { isDemo } = useAuthStore()
 
-  const pct = Math.round((block.sessions_completed / block.sessions_planned) * 100)
+  const sessComp = block.sessions_completed ?? 0
+  const sessPlan = block.sessions_planned ?? 1
+  const pct = Math.round((sessComp / sessPlan) * 100)
   const phaseMeta = {
     accumulation: { color: 'text-blue-300 bg-blue-500/10 border-blue-500/20', label: 'Accumulation' },
     intensification: { color: 'text-purple-300 bg-purple-500/10 border-purple-500/20', label: 'Intensification' },
@@ -715,9 +782,11 @@ function BlockDetailModal({ block, weightUnit, onBack }) {
   }
   const phase = phaseMeta[block.phase] || phaseMeta.accumulation
 
-  const linkedGoals  = isDemo ? MOCK_GOALS.filter(g => block.linked_goal_ids?.includes(g.id)) : []
-  const linkedMeet   = isDemo && block.linked_meet_id ? MOCK_MEETS.find(m => m.id === block.linked_meet_id) : null
-  const blockSessions = isDemo ? MOCK_PAST_WORKOUTS.filter(s => s.linked_block_id === block.id) : []
+  const linkedGoals   = (isDemo ? MOCK_GOALS : allGoals).filter(g => block.linked_goal_ids?.includes(g.id))
+  const linkedMeet    = block.linked_meet_id ? (isDemo ? MOCK_MEETS : allMeets).find(m => m.id === block.linked_meet_id) : null
+  const blockSessions = isDemo
+    ? MOCK_PAST_WORKOUTS.filter(s => s.linked_block_id === block.id)
+    : dbSessions.filter(s => s.linked_block_id === block.id)
 
   const sessionsByWeek = blockSessions.reduce((acc, s) => {
     const week = s.week_label || s.date?.slice(0, 7) || 'Week'
@@ -766,7 +835,7 @@ function BlockDetailModal({ block, weightUnit, onBack }) {
                 </svg>
                 <span className="absolute inset-0 flex items-center justify-center text-sm font-bold text-zinc-100">{pct}%</span>
               </div>
-              <p className="text-xs text-zinc-500 mt-1">{block.sessions_completed}/{block.sessions_planned}</p>
+              <p className="text-xs text-zinc-500 mt-1">{sessComp}/{sessPlan}</p>
             </div>
           </div>
 
@@ -947,14 +1016,65 @@ function BlockDetailModal({ block, weightUnit, onBack }) {
 
 // ─── Week Schedule Card ──────────────────────────────────────────────────────
 function WeekScheduleCard({ weightUnit, onStartWorkout, onViewWorkout }) {
-  const { gymLocations, preferredLocation, preferredWorkoutTime, preferredDuration } = useSettingsStore()
-  const { isDemo } = useAuthStore()
+  const { gymLocations, preferredLocation } = useSettingsStore()
+  const { isDemo, profile } = useAuthStore()
+  const { blocks: meetsBlocks } = useMeetsStore()
   const activeGym = gymLocations?.find(l => l.id === preferredLocation) || gymLocations?.[0]
   const [previewSession, setPreviewSession] = useState(null)
+  const [liveWeekSessions, setLiveWeekSessions] = useState([])
+  const [weekLoading, setWeekLoading] = useState(false)
 
-  const weekSchedule   = isDemo ? MOCK_WEEK_SCHEDULE : []
-  const trainingBlocks = isDemo ? MOCK_TRAINING_BLOCKS : []
-  const todayWorkout   = isDemo ? MOCK_TODAY_WORKOUT : null
+  useEffect(() => {
+    if (!isDemo && profile?.id) {
+      setWeekLoading(true)
+      fetchAthleteSessions(profile.id, 14).then(sessions => {
+        const today = new Date()
+        // Get Monday of current week
+        const monday = new Date(today)
+        monday.setDate(today.getDate() - ((today.getDay() + 6) % 7))
+        monday.setHours(0, 0, 0, 0)
+        const sunday = new Date(monday)
+        sunday.setDate(monday.getDate() + 6)
+        sunday.setHours(23, 59, 59, 999)
+
+        const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+        const todayStr = today.toISOString().slice(0, 10)
+
+        const weekSessions = sessions
+          .filter(s => {
+            const d = new Date(s.scheduled_date)
+            return d >= monday && d <= sunday
+          })
+          .map(s => {
+            const d = new Date(s.scheduled_date)
+            const dayIdx = (d.getDay() + 6) % 7 // Mon=0 .. Sun=6
+            const dateStr = s.scheduled_date
+            const isToday = dateStr === todayStr
+            const isCompleted = s.status === 'completed'
+            return {
+              id: s.id,
+              day: DAY_NAMES[dayIdx],
+              date: dateStr,
+              name: s.name ?? 'Workout',
+              status: isCompleted ? 'completed' : isToday ? 'today' : 'scheduled',
+              estimated_duration: 60,
+              blocks: [],
+              linked_block_id: null,
+              overall_rpe: s.overall_rpe,
+              notes: s.notes ?? '',
+            }
+          })
+          .sort((a, b) => a.date.localeCompare(b.date))
+
+        setLiveWeekSessions(weekSessions)
+        setWeekLoading(false)
+      })
+    }
+  }, [isDemo, profile?.id])
+
+  const weekSchedule   = isDemo ? MOCK_WEEK_SCHEDULE : liveWeekSessions
+  const trainingBlocks = isDemo ? MOCK_TRAINING_BLOCKS : meetsBlocks
+  const todayWorkout   = isDemo ? MOCK_TODAY_WORKOUT : (liveWeekSessions.find(s => s.status === 'today') ?? null)
 
   const statusConfig = {
     completed: { dot: 'bg-green-400', badge: 'text-green-300 bg-green-500/10 border-green-500/20', label: 'Done' },
@@ -976,7 +1096,7 @@ function WeekScheduleCard({ weightUnit, onStartWorkout, onViewWorkout }) {
                 <Calendar className="w-4 h-4 text-purple-400" /> This Week
               </CardTitle>
               <p className="text-xs text-zinc-500 mt-0.5">
-                {completedCount}/{totalCount} sessions complete · Week 8 of Block 2
+                {weekLoading ? 'Loading…' : `${completedCount}/${totalCount} sessions complete`}
               </p>
             </div>
             {/* Week progress mini-bar */}
@@ -990,6 +1110,18 @@ function WeekScheduleCard({ weightUnit, onStartWorkout, onViewWorkout }) {
           </div>
         </CardHeader>
         <CardBody>
+          {weekLoading ? (
+            <div className="flex items-center justify-center py-8 gap-2 text-zinc-500">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span className="text-sm">Loading schedule…</span>
+            </div>
+          ) : weekSchedule.length === 0 ? (
+            <div className="text-center py-8 text-zinc-500 text-sm">
+              <Calendar className="w-8 h-8 mx-auto mb-2 text-zinc-700" />
+              <p className="font-medium text-zinc-400 mb-1">No sessions this week</p>
+              <p className="text-xs">Your coach hasn't scheduled workouts for this week yet.</p>
+            </div>
+          ) : (
           <div className="space-y-1.5">
             {weekSchedule.map((s) => {
               const cfg = statusConfig[s.status] || statusConfig.scheduled
@@ -1076,6 +1208,7 @@ function WeekScheduleCard({ weightUnit, onStartWorkout, onViewWorkout }) {
               )
             })}
           </div>
+          )}
         </CardBody>
       </Card>
 
@@ -1092,8 +1225,9 @@ function WeekScheduleCard({ weightUnit, onStartWorkout, onViewWorkout }) {
 // ─── Scheduled Workout Preview Modal ────────────────────────────────────────
 function ScheduledWorkoutModal({ session, weightUnit, onClose }) {
   const { isDemo } = useAuthStore()
+  const { blocks: meetsBlocks } = useMeetsStore()
   if (!session) return null
-  const block = session.linked_block_id ? (isDemo ? MOCK_TRAINING_BLOCKS : []).find(b => b.id === session.linked_block_id) : null
+  const block = session.linked_block_id ? (isDemo ? MOCK_TRAINING_BLOCKS : meetsBlocks).find(b => b.id === session.linked_block_id) : null
   const conv = (kg) => weightUnit === 'lbs' ? `${Math.round(kgToLbs(kg))} lbs` : `${kg} kg`
 
   // For completed sessions, gather top sets
@@ -1200,12 +1334,13 @@ function ScheduledWorkoutModal({ session, weightUnit, onClose }) {
 }
 
 // ─── DOTS score widget ───────────────────────────────────────────────────────
-function DotsScoreRow({ weightUnit }) {
+function DotsScoreRow({ weightUnit, personal }) {
   const { isDemo } = useAuthStore()
   const [bw, setBw] = useState(83)
-  const squat = isDemo ? 220 : null
-  const bench = isDemo ? 155 : null
-  const deadlift = isDemo ? 280 : null
+  const prRows = personal?.prRows ?? []
+  const squat    = isDemo ? 220 : (prRows.find(r => r.lift === 'Squat')?.e1rm ?? null)
+  const bench    = isDemo ? 155 : (prRows.find(r => r.lift === 'Bench')?.e1rm ?? null)
+  const deadlift = isDemo ? 280 : (prRows.find(r => r.lift === 'Deadlift')?.e1rm ?? null)
   const total = (squat != null && bench != null && deadlift != null) ? squat + bench + deadlift : null
   const dots = total != null ? calcDotsScore(total, bw, true) : null
 
@@ -1666,29 +1801,84 @@ function CardioLogModal({ open, onClose, exercise, cardioData, setCardioData, on
 
 // ─── Pain Flag Modal ─────────────────────────────────────────────────────────
 function PainFlagModal({ open, onClose }) {
+  const { isDemo, profile } = useAuthStore()
+  const [area, setArea] = useState('Lower Back')
+  const [severity, setSeverity] = useState(5)
+  const [description, setDescription] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+
+  const handleReport = async () => {
+    const descTrimmed = description.trim()
+    if (!descTrimmed) return
+    if (!isDemo && profile?.id) {
+      setSaving(true)
+      await reportInjury(profile.id, {
+        body_area: area,
+        pain_level: severity,
+        description: descTrimmed,
+        injury_date: new Date().toISOString().slice(0, 10),
+        reported_to_coach: true,
+      })
+      setSaving(false)
+    }
+    setSaved(true)
+    setTimeout(() => {
+      setSaved(false)
+      setDescription('')
+      setSeverity(5)
+      onClose()
+    }, 1200)
+  }
+
   return (
     <Modal open={open} onClose={onClose} title="Report Pain / Discomfort" size="sm">
       <div className="p-6 space-y-4">
         <div>
           <label className="block text-xs font-medium text-zinc-400 mb-1.5">Body Area</label>
-          <select className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500">
+          <select
+            value={area}
+            onChange={e => setArea(e.target.value)}
+            className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500"
+          >
             {['Lower Back','Left Knee','Right Knee','Left Hip','Right Hip','Left Shoulder','Right Shoulder','Wrist / Elbow','Other'].map(o => <option key={o}>{o}</option>)}
           </select>
         </div>
         <div>
-          <label className="block text-xs font-medium text-zinc-400 mb-1.5">Severity (0–10)</label>
-          <input type="range" min="0" max="10" className="w-full accent-red-500" />
+          <label className="block text-xs font-medium text-zinc-400 mb-1.5">Severity: {severity}/10</label>
+          <input
+            type="range"
+            min="0"
+            max="10"
+            value={severity}
+            onChange={e => setSeverity(Number(e.target.value))}
+            className="w-full accent-red-500"
+          />
         </div>
         <div>
-          <label className="block text-xs font-medium text-zinc-400 mb-1.5">Description</label>
-          <textarea rows={3} placeholder="Describe what happened…"
-            className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-red-500/50 focus:border-red-500 resize-none" />
+          <label className="block text-xs font-medium text-zinc-400 mb-1.5">
+            Description <span className="text-red-400">*</span>
+          </label>
+          <textarea
+            rows={3}
+            value={description}
+            onChange={e => setDescription(e.target.value)}
+            placeholder="Describe what happened…"
+            maxLength={1000}
+            className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-red-500/50 focus:border-red-500 resize-none"
+          />
         </div>
         <div className="p-3 bg-red-500/5 border border-red-500/20 rounded-lg text-xs text-red-300">
           Your coach will be notified immediately.
         </div>
-        <Button variant="danger" className="w-full" onClick={onClose}>
-          <AlertTriangle className="w-4 h-4" /> Report Pain
+        <Button
+          variant="danger"
+          className="w-full"
+          onClick={handleReport}
+          disabled={saving || !description.trim()}
+        >
+          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : saved ? <Check className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />}
+          {saved ? 'Reported!' : saving ? 'Saving…' : 'Report Pain'}
         </Button>
       </div>
     </Modal>
@@ -1697,24 +1887,41 @@ function PainFlagModal({ open, onClose }) {
 
 // ─── History Detail View ─────────────────────────────────────────────────────
 function HistoryDetailView({ session, weightUnit, onBack, onEdit, editModal, onCloseEdit }) {
-  const { isDemo } = useAuthStore()
-  const allMedia = session.blocks
+  const { isDemo, profile } = useAuthStore()
+  const { blocks: meetsBlocks } = useMeetsStore()
+  const [editNotes, setEditNotes] = useState(session.notes ?? '')
+  const [notesSaving, setNotesSaving] = useState(false)
+  const [notesSaved, setNotesSaved] = useState(false)
+
+  useEffect(() => { setEditNotes(session.notes ?? '') }, [session.id])
+
+  const allMedia = (session.blocks ?? [])
     .flatMap(b => b.exercises)
     .flatMap(e => (e.sets_logged || []).flatMap(s => (s.media || []).map(m => ({ ...m, exercise: e.name, set: s.set }))))
 
-  const totalVolKg = session.blocks
+  const totalVolKg = (session.blocks ?? [])
     .flatMap(b => b.exercises)
     .flatMap(e => e.sets_logged || [])
     .reduce((sum, s) => sum + (s.weight_kg || 0) * (s.reps || 0), 0)
 
-  const topSets = session.blocks
+  const topSets = (session.blocks ?? [])
     .flatMap(b => b.exercises)
     .flatMap(e => (e.sets_logged || []).filter(s => s.is_top_set).map(s => ({ ...s, exercise: e.name })))
 
   const convertW = (kg) => weightUnit === 'lbs' ? kgToLbs(kg) : kg
 
-  const block = session.linked_block_id ? (isDemo ? MOCK_TRAINING_BLOCKS : []).find(b => b.id === session.linked_block_id) : null
-  const totalSets = session.total_sets || session.blocks.flatMap(b => b.exercises).flatMap(e => e.sets_logged || []).length
+  const block = session.linked_block_id ? (isDemo ? MOCK_TRAINING_BLOCKS : meetsBlocks).find(b => b.id === session.linked_block_id) : null
+  const totalSets = session.total_sets || (session.blocks ?? []).flatMap(b => b.exercises).flatMap(e => e.sets_logged || []).length
+
+  const handleSaveNotes = async () => {
+    if (!isDemo && profile?.id && session.id && !String(session.id).startsWith('local-')) {
+      setNotesSaving(true)
+      await saveWorkoutSession(profile.id, { id: session.id, notes: editNotes.slice(0, 1000) })
+      setNotesSaving(false)
+    }
+    setNotesSaved(true)
+    setTimeout(() => { setNotesSaved(false); onCloseEdit() }, 1000)
+  }
 
   return (
     <div className="p-4 md:p-6 max-w-3xl mx-auto space-y-5">
@@ -1795,7 +2002,7 @@ function HistoryDetailView({ session, weightUnit, onBack, onEdit, editModal, onC
       )}
 
       {/* Full exercise log */}
-      {session.blocks.map((block) => (
+      {(session.blocks ?? []).length > 0 && (session.blocks ?? []).map((block) => (
         <Card key={block.type}>
           <CardHeader>
             <div className="flex items-center gap-2">
@@ -1871,10 +2078,18 @@ function HistoryDetailView({ session, weightUnit, onBack, onEdit, editModal, onC
         <div className="p-5 space-y-4">
           <div>
             <label className="block text-xs font-medium text-zinc-400 mb-1.5">Session Notes</label>
-            <textarea rows={5} defaultValue={session.notes}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500 resize-none" />
+            <textarea
+              rows={5}
+              value={editNotes}
+              onChange={e => setEditNotes(e.target.value)}
+              maxLength={1000}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500 resize-none"
+            />
           </div>
-          <Button className="w-full" onClick={onCloseEdit}>Save Notes</Button>
+          <Button className="w-full" onClick={handleSaveNotes} disabled={notesSaving}>
+            {notesSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : notesSaved ? <Check className="w-4 h-4" /> : <Save className="w-4 h-4" />}
+            {notesSaved ? 'Saved!' : notesSaving ? 'Saving…' : 'Save Notes'}
+          </Button>
         </div>
       </Modal>
     </div>
