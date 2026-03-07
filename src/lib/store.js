@@ -97,19 +97,27 @@ export const useAuthStore = create((set, get) => ({
       fetchOrgMemberships(session.user.id),
     ])
     const activeOrgId = memberships[0]?.org_id ?? null
-    // Derive role: prefer DB profile, then user_metadata (set at signup), then infer from membership
-    const membershipRole = memberships[0]?.org_role  // e.g. 'owner', 'head_coach', 'athlete'
+    // Derive role: platform_role takes highest priority (super_admin),
+    // then DB profile.role, then user_metadata, then org membership role
+    const membershipRole = memberships[0]?.org_role
     const metaRole = session.user.user_metadata?.role
+    const dbPlatformRole = profile?.platform_role
+    const dbRole = profile?.role
+    // Resolved role used throughout the app for nav/permission checks
+    const resolvedRole = dbPlatformRole === 'super_admin' ? 'super_admin'
+      : dbRole || metaRole || membershipRole || 'athlete'
     set({
       user: session.user,
-      profile: profile ?? {
-        id: session.user.id,
-        email: session.user.email,
-        full_name: session.user.user_metadata?.full_name ?? '',
-        display_name: session.user.user_metadata?.display_name ?? session.user.email,
-        platform_role: 'user',
-        role: metaRole || membershipRole || 'athlete',
-      },
+      profile: profile
+        ? { ...profile, role: resolvedRole }
+        : {
+            id: session.user.id,
+            email: session.user.email,
+            full_name: session.user.user_metadata?.full_name ?? '',
+            display_name: session.user.user_metadata?.display_name ?? session.user.email,
+            platform_role: 'user',
+            role: resolvedRole,
+          },
       orgMemberships: memberships,
       activeOrgId,
       isDemo: false,

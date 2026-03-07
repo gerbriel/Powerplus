@@ -83,14 +83,15 @@ export function Sidebar() {
   const { profile, viewAsAthlete, toggleViewAsAthlete, orgMemberships, activeOrgId } = useAuthStore()
   const { orgs } = useOrgStore()
 
-  // Derive role — prefer profile.role, fall back to the org membership's org_role,
-  // then fall back to 'athlete'. This ensures staff see their correct nav even if
-  // profile.role wasn't set (e.g. loaded before the loginAsDemo fix).
+  // Derive role — check platform_role first (super_admin), then profile.role,
+  // then fall back to the org membership's org_role, then 'athlete'.
   const membership = orgMemberships.find((m) => m.org_id === activeOrgId)
   const orgRole = membership?.org_role   // 'head_coach' | 'coach' | 'nutritionist' | 'athlete'
 
   // Map org_role to app role key (head_coach → admin)
   const resolvedRole = (() => {
+    // platform_role takes highest precedence
+    if (profile?.platform_role === 'super_admin') return 'super_admin'
     const r = profile?.role || orgRole
     if (!r) return 'athlete'
     if (r === 'head_coach' || r === 'owner') return 'admin'

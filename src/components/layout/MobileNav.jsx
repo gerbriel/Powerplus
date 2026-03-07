@@ -80,8 +80,9 @@ export function MobileNav() {
   const membership = orgMemberships.find((m) => m.org_id === activeOrgId)
   const orgRole = membership?.org_role
 
-  // Same role resolution as Sidebar — org_role is ground truth, profile.role is preferred
+  // Same role resolution as Sidebar — platform_role takes highest priority
   const role = (() => {
+    if (profile?.platform_role === 'super_admin') return 'super_admin'
     const r = profile?.role || orgRole
     if (!r) return 'athlete'
     if (r === 'head_coach' || r === 'owner') return 'admin'
