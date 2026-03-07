@@ -63,6 +63,8 @@ create table if not exists profiles (
   created_at          timestamptz default now(),
   updated_at          timestamptz default now()
 );
+-- Idempotent column guards (for databases that predate these additions)
+alter table profiles add column if not exists member_id text;
 
 -- ── organizations ─────────────────────────────────────────────
 create table if not exists organizations (
@@ -541,6 +543,17 @@ create table if not exists training_blocks (
   linked_goal_ids     uuid[] default '{}',
   created_at          timestamptz default now()
 );
+-- Idempotent column guards (added via migrations; CREATE TABLE IF NOT EXISTS won't add these to existing tables)
+alter table training_blocks add column if not exists phase               text;
+alter table training_blocks add column if not exists weeks               integer;
+alter table training_blocks add column if not exists status              text default 'planned';
+alter table training_blocks add column if not exists focus               text;
+alter table training_blocks add column if not exists avg_rpe_target      numeric(4,1);
+alter table training_blocks add column if not exists sessions_planned    integer default 0;
+alter table training_blocks add column if not exists sessions_completed  integer default 0;
+alter table training_blocks add column if not exists color               text;
+alter table training_blocks add column if not exists linked_meet_id      uuid;
+alter table training_blocks add column if not exists linked_goal_ids     uuid[] default '{}';
 
 -- ── goals ─────────────────────────────────────────────────────
 create table if not exists goals (
@@ -563,6 +576,8 @@ create table if not exists goals (
   created_at               timestamptz default now(),
   updated_at               timestamptz default now()
 );
+-- Idempotent column guard
+alter table goals add column if not exists linked_meet_id uuid;
 
 -- ── meets ─────────────────────────────────────────────────────
 create table if not exists meets (
@@ -586,6 +601,13 @@ create table if not exists meets (
   linked_block_ids      uuid[] default '{}',
   created_at            timestamptz default now()
 );
+-- Idempotent column guards (added via migrations)
+alter table meets add column if not exists equipment           text default 'raw';
+alter table meets add column if not exists athletes_registered integer default 0;
+alter table meets add column if not exists athletes_confirmed  integer default 0;
+alter table meets add column if not exists attempts            jsonb;
+alter table meets add column if not exists linked_goal_ids     uuid[] default '{}';
+alter table meets add column if not exists linked_block_ids    uuid[] default '{}';
 
 -- Deferred FKs (idempotent)
 do $$ begin
@@ -621,6 +643,8 @@ create table if not exists athlete_meet_entries (
   updated_at        timestamptz default now(),
   created_at        timestamptz default now()
 );
+-- Idempotent column guard
+alter table athlete_meet_entries add column if not exists updated_at timestamptz default now();
 
 -- ── messaging ─────────────────────────────────────────────────
 create table if not exists channels (
@@ -737,6 +761,10 @@ create table if not exists injury_logs (
   log_history       jsonb default '[]',          -- array of {date, pain_level, note, reporter}
   created_at        timestamptz default now()
 );
+-- Idempotent column guards (added via migrations)
+alter table injury_logs add column if not exists reported_date date;
+alter table injury_logs add column if not exists status        text default 'active';
+alter table injury_logs add column if not exists log_history   jsonb default '[]';
 
 -- ── notifications ─────────────────────────────────────────────
 create table if not exists notifications (
