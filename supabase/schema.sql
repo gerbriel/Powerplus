@@ -726,12 +726,15 @@ create table if not exists injury_logs (
   body_area         text not null,
   pain_level        integer check (pain_level between 0 and 10),
   injury_date       date not null,
+  reported_date     date,                        -- date first reported (used by roster function)
+  status            text default 'active',       -- 'active' | 'monitoring' | 'resolved'
   description       text,
   movement_affected text[],
   resolved          boolean default false,
   resolved_date     date,
   reported_to_coach boolean default false,
   coach_notes       text,
+  log_history       jsonb default '[]',          -- array of {date, pain_level, note, reporter}
   created_at        timestamptz default now()
 );
 
@@ -1151,6 +1154,43 @@ create policy "workout_template_exercises_delete" on workout_template_exercises 
       and om.org_role in ('owner','head_coach','coach') and om.status = 'active'
     where wt.id = workout_template_exercises.workout_template_id));
 
+-- ── program_instances ─────────────────────────────────────────
+drop policy if exists "program_instances: athlete reads own" on program_instances;
+create policy "program_instances: athlete reads own" on program_instances for select
+  using (auth.uid() = athlete_id);
+
+drop policy if exists "program_instances: coaches can read assigned" on program_instances;
+create policy "program_instances: coaches can read assigned" on program_instances for select
+  using (exists (select 1 from staff_athlete_assignments saa
+    where saa.athlete_id = program_instances.athlete_id and saa.staff_id = auth.uid() and saa.can_edit_workouts = true));
+
+drop policy if exists "program_instances: coaches can insert" on program_instances;
+create policy "program_instances: coaches can insert" on program_instances for insert
+  with check (exists (select 1 from staff_athlete_assignments saa
+    where saa.athlete_id = program_instances.athlete_id and saa.staff_id = auth.uid() and saa.can_edit_workouts = true)
+  or exists (select 1 from org_members om
+    join program_templates pt on pt.org_id = om.org_id
+    where pt.id = program_instances.template_id and om.user_id = auth.uid()
+      and om.org_role in ('owner','head_coach','coach') and om.status = 'active'));
+
+drop policy if exists "program_instances: coaches can update" on program_instances;
+create policy "program_instances: coaches can update" on program_instances for update
+  using (exists (select 1 from staff_athlete_assignments saa
+    where saa.athlete_id = program_instances.athlete_id and saa.staff_id = auth.uid() and saa.can_edit_workouts = true)
+  or exists (select 1 from org_members om
+    join program_templates pt on pt.org_id = om.org_id
+    where pt.id = program_instances.template_id and om.user_id = auth.uid()
+      and om.org_role in ('owner','head_coach','coach') and om.status = 'active'));
+
+drop policy if exists "program_instances: coaches can delete" on program_instances;
+create policy "program_instances: coaches can delete" on program_instances for delete
+  using (exists (select 1 from staff_athlete_assignments saa
+    where saa.athlete_id = program_instances.athlete_id and saa.staff_id = auth.uid() and saa.can_edit_workouts = true)
+  or exists (select 1 from org_members om
+    join program_templates pt on pt.org_id = om.org_id
+    where pt.id = program_instances.template_id and om.user_id = auth.uid()
+      and om.org_role in ('owner','head_coach','coach') and om.status = 'active'));
+
 -- ── workout_sessions ──────────────────────────────────────────
 drop policy if exists "workout_sessions: athlete sees own" on workout_sessions;
 create policy "workout_sessions: athlete sees own" on workout_sessions for select
@@ -1180,6 +1220,18 @@ create policy "workout_sets: assigned staff can read" on workout_sets for select
     join staff_athlete_assignments saa on saa.athlete_id = ws.athlete_id
     where ws.id = workout_sets.session_id and saa.staff_id = auth.uid() and saa.can_view_workouts = true));
 
+drop policy if exists "workout_sets: athlete can insert own" on workout_sets;
+create policy "workout_sets: athlete can insert own" on workout_sets for insert
+  with check (exists (select 1 from workout_sessions ws where ws.id = workout_sets.session_id and ws.athlete_id = auth.uid()));
+
+drop policy if exists "workout_sets: athlete can update own" on workout_sets;
+create policy "workout_sets: athlete can update own" on workout_sets for update
+  using (exists (select 1 from workout_sessions ws where ws.id = workout_sets.session_id and ws.athlete_id = auth.uid()));
+
+drop policy if exists "workout_sets: athlete can delete own" on workout_sets;
+create policy "workout_sets: athlete can delete own" on workout_sets for delete
+  using (exists (select 1 from workout_sessions ws where ws.id = workout_sets.session_id and ws.athlete_id = auth.uid()));
+
 -- ── personal_records ──────────────────────────────────────────
 drop policy if exists "prs: athlete sees own" on personal_records;
 create policy "prs: athlete sees own" on personal_records for select using (auth.uid() = athlete_id);
@@ -1189,6 +1241,15 @@ create policy "prs: assigned staff can read" on personal_records for select
   using (exists (select 1 from staff_athlete_assignments saa
     where saa.athlete_id = personal_records.athlete_id and saa.staff_id = auth.uid() and saa.can_view_workouts = true));
 
+drop policy if exists "prs: athlete can insert own" on personal_records;
+create policy "prs: athlete can insert own" on personal_records for insert with check (auth.uid() = athlete_id);
+
+drop policy if exists "prs: athlete can update own" on personal_records;
+create policy "prs: athlete can update own" on personal_records for update using (auth.uid() = athlete_id);
+
+drop policy if exists "prs: athlete can delete own" on personal_records;
+create policy "prs: athlete can delete own" on personal_records for delete using (auth.uid() = athlete_id);
+
 -- ── daily_checkins ────────────────────────────────────────────
 drop policy if exists "checkins: athlete sees own" on daily_checkins;
 create policy "checkins: athlete sees own" on daily_checkins for select using (auth.uid() = athlete_id);
@@ -1197,6 +1258,15 @@ drop policy if exists "checkins: assigned staff can read" on daily_checkins;
 create policy "checkins: assigned staff can read" on daily_checkins for select
   using (exists (select 1 from staff_athlete_assignments saa
     where saa.athlete_id = daily_checkins.athlete_id and saa.staff_id = auth.uid() and saa.can_view_checkins = true));
+
+drop policy if exists "checkins: athlete can insert own" on daily_checkins;
+create policy "checkins: athlete can insert own" on daily_checkins for insert with check (auth.uid() = athlete_id);
+
+drop policy if exists "checkins: athlete can update own" on daily_checkins;
+create policy "checkins: athlete can update own" on daily_checkins for update using (auth.uid() = athlete_id);
+
+drop policy if exists "checkins: athlete can delete own" on daily_checkins;
+create policy "checkins: athlete can delete own" on daily_checkins for delete using (auth.uid() = athlete_id);
 
 -- ── training_blocks ───────────────────────────────────────────
 drop policy if exists "training_blocks: org members read org templates" on training_blocks;
@@ -1216,6 +1286,11 @@ create policy "training_blocks: org members read" on training_blocks for select
 create policy "training_blocks: athlete reads own" on training_blocks for select
   using (athlete_id = auth.uid());
 
+drop policy if exists "training_blocks: athlete manages own personal" on training_blocks;
+create policy "training_blocks: athlete manages own personal" on training_blocks for all
+  using (org_id is null and athlete_id = auth.uid())
+  with check (org_id is null and athlete_id = auth.uid());
+
 -- ── goals ─────────────────────────────────────────────────────
 drop policy if exists "goals: athlete sees own" on goals;
 create policy "goals: athlete sees own" on goals for select using (auth.uid() = athlete_id);
@@ -1224,6 +1299,17 @@ drop policy if exists "goals: assigned staff can read" on goals;
 create policy "goals: assigned staff can read" on goals for select
   using (exists (select 1 from staff_athlete_assignments saa
     where saa.athlete_id = goals.athlete_id and saa.staff_id = auth.uid()));
+
+drop policy if exists "goals: athlete can insert own" on goals;
+create policy "goals: athlete can insert own" on goals for insert with check (auth.uid() = athlete_id);
+
+drop policy if exists "goals: athlete or staff can update" on goals;
+create policy "goals: athlete or staff can update" on goals for update
+  using (auth.uid() = athlete_id
+    or exists (select 1 from staff_athlete_assignments saa where saa.athlete_id = goals.athlete_id and saa.staff_id = auth.uid()));
+
+drop policy if exists "goals: athlete can delete own" on goals;
+create policy "goals: athlete can delete own" on goals for delete using (auth.uid() = athlete_id);
 
 -- ── meets ─────────────────────────────────────────────────────
 drop policy if exists "meets: org members can read" on meets;
@@ -1290,6 +1376,12 @@ drop policy if exists "nutrition_logs: athlete can insert own" on nutrition_logs
 create policy "nutrition_logs: athlete can insert own" on nutrition_logs for insert
   with check (auth.uid() = athlete_id);
 
+drop policy if exists "nutrition_logs: athlete can update own" on nutrition_logs;
+create policy "nutrition_logs: athlete can update own" on nutrition_logs for update using (auth.uid() = athlete_id);
+
+drop policy if exists "nutrition_logs: athlete can delete own" on nutrition_logs;
+create policy "nutrition_logs: athlete can delete own" on nutrition_logs for delete using (auth.uid() = athlete_id);
+
 -- ── supplement_stacks / items / logs ──────────────────────────
 drop policy if exists "supplement_stacks: athlete sees own" on supplement_stacks;
 create policy "supplement_stacks: athlete sees own" on supplement_stacks for select using (auth.uid() = athlete_id);
@@ -1299,12 +1391,25 @@ create policy "supplement_stacks: staff with view supplement" on supplement_stac
   using (exists (select 1 from staff_athlete_assignments saa
     where saa.athlete_id = supplement_stacks.athlete_id and saa.staff_id = auth.uid() and saa.can_view_nutrition = true));
 
+drop policy if exists "supplement_stacks: athlete can insert own" on supplement_stacks;
+create policy "supplement_stacks: athlete can insert own" on supplement_stacks for insert with check (auth.uid() = athlete_id);
+
+drop policy if exists "supplement_stacks: athlete can update own" on supplement_stacks;
+create policy "supplement_stacks: athlete can update own" on supplement_stacks for update using (auth.uid() = athlete_id);
+
+drop policy if exists "supplement_stacks: athlete can delete own" on supplement_stacks;
+create policy "supplement_stacks: athlete can delete own" on supplement_stacks for delete using (auth.uid() = athlete_id);
+
 drop policy if exists "supplement_stack_items: readable via stack owner" on supplement_stack_items;
 create policy "supplement_stack_items: readable via stack owner" on supplement_stack_items for select
   using (exists (select 1 from supplement_stacks ss where ss.id = supplement_stack_items.stack_id
     and (ss.athlete_id = auth.uid()
       or exists (select 1 from staff_athlete_assignments saa where saa.athlete_id = ss.athlete_id
         and saa.staff_id = auth.uid() and saa.can_view_nutrition = true))));
+
+drop policy if exists "supplement_stack_items: athlete can manage own" on supplement_stack_items;
+create policy "supplement_stack_items: athlete can manage own" on supplement_stack_items for all
+  using (exists (select 1 from supplement_stacks ss where ss.id = supplement_stack_items.stack_id and ss.athlete_id = auth.uid()));
 
 drop policy if exists "supplement_logs: athlete sees own" on supplement_logs;
 create policy "supplement_logs: athlete sees own" on supplement_logs for select using (auth.uid() = athlete_id);
@@ -1313,6 +1418,15 @@ drop policy if exists "supplement_logs: staff with view nutrition" on supplement
 create policy "supplement_logs: staff with view nutrition" on supplement_logs for select
   using (exists (select 1 from staff_athlete_assignments saa
     where saa.athlete_id = supplement_logs.athlete_id and saa.staff_id = auth.uid() and saa.can_view_nutrition = true));
+
+drop policy if exists "supplement_logs: athlete can insert own" on supplement_logs;
+create policy "supplement_logs: athlete can insert own" on supplement_logs for insert with check (auth.uid() = athlete_id);
+
+drop policy if exists "supplement_logs: athlete can update own" on supplement_logs;
+create policy "supplement_logs: athlete can update own" on supplement_logs for update using (auth.uid() = athlete_id);
+
+drop policy if exists "supplement_logs: athlete can delete own" on supplement_logs;
+create policy "supplement_logs: athlete can delete own" on supplement_logs for delete using (auth.uid() = athlete_id);
 
 -- ── meal_prep_recipes ─────────────────────────────────────────
 drop policy if exists "meal_prep_recipes: org template readable by members" on meal_prep_recipes;
