@@ -26,7 +26,7 @@ import {
 } from '../lib/mockData'
 import { useAuthStore, useUIStore, useNutritionStore, useGoalsStore, useTrainingStore, useRosterStore, resolveRole, isStaffRole } from '../lib/store'
 import { cn, macroPercent } from '../lib/utils'
-import { saveNutritionLog, saveMealPrepRecipe, saveShoppingList, toggleShoppingItem, deleteMealPrepRecipe, deleteShoppingListItem, savePrepSessionFull } from '../lib/db'
+import { saveNutritionLog, saveMealPrepRecipe, saveShoppingList, toggleShoppingItem, deleteMealPrepRecipe, deleteShoppingListItem, savePrepSessionFull, saveBodyWeight, saveNutritionPlan, reportInjury, updateInjury } from '../lib/db'
 
 const TABS = [
   { id: 'dashboard', label: 'Dashboard' },
@@ -125,9 +125,9 @@ function recipeConflicts(recipe, athlete) {
 
 // ─── Log Meal Modal ──────────────────────────────────────────────────────────
 function LogMealModal({ open, onClose }) {
-  const { athletePrepLog, setAthletePrepLog, boardPlans } = useNutritionStore()
-  const { isDemo } = useAuthStore()
-  const MY_ATHLETE_ID = 'u-ath-001'
+  const { athletePrepLog, setAthletePrepLog, boardPlans, orgRecipes } = useNutritionStore()
+  const { isDemo, profile } = useAuthStore()
+  const MY_ATHLETE_ID = isDemo ? 'u-ath-001' : (profile?.id ?? null)
   const TODAY_DAY = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][new Date().getDay()]
 
   const [method, setMethod]   = useState('macros') // 'macros' | 'pantry' | 'plan' | 'quick'
@@ -284,21 +284,21 @@ function LogMealModal({ open, onClose }) {
     }
 
     // Persist to Supabase
-    if (!isDemo) {
+    if (!isDemo && MY_ATHLETE_ID) {
       const totalMacros =
         method === 'macros' ? { calories: Number(macros.calories) || 0, protein: Number(macros.protein) || 0, carbs: Number(macros.carbs) || 0, fat: Number(macros.fat) || 0 }
         : method === 'pantry' ? totalFromPantry
         : method === 'plan'   ? totalFromPlan
         : {}
       await saveNutritionLog(MY_ATHLETE_ID, {
-        log_date: new Date().toISOString().slice(0, 10),
-        meal_type: mealType,
-        meal_name: mealTitle || method,
-        calories: totalMacros.calories,
-        protein_g: totalMacros.protein,
-        carbs_g: totalMacros.carbs,
-        fat_g: totalMacros.fat,
-        energy_level: energy,
+        log_date:         new Date().toISOString().slice(0, 10),
+        meal_type:        mealType,
+        meal_name:        mealTitle || method,
+        calories_actual:  totalMacros.calories,
+        protein_actual:   totalMacros.protein,
+        carbs_actual:     totalMacros.carbs,
+        fat_actual:       totalMacros.fat,
+        energy_level:     energy,
         notes,
       })
     }
@@ -562,19 +562,27 @@ function LogMealModal({ open, onClose }) {
         {/* ── QUICK ADD METHOD ── */}
         {method === 'quick' && (
           <div className="grid grid-cols-2 gap-2">
-            {(isDemo ? MOCK_MEAL_PLAN_RECIPES : []).map(r => (
+            {(isDemo ? MOCK_MEAL_PLAN_RECIPES : orgRecipes).slice(0, 12).map(r => (
               <button key={r.id}
                 onClick={() => {
+                  const macroSrc = r.macros ?? r.macros_per_serving ?? {}
                   setMealTitle(r.name)
-                  setMacros({ calories: String(r.macros.calories), protein: String(r.macros.protein), carbs: String(r.macros.carbs), fat: String(r.macros.fat) })
+                  setMacros({ calories: String(macroSrc.calories ?? 0), protein: String(macroSrc.protein ?? 0), carbs: String(macroSrc.carbs ?? 0), fat: String(macroSrc.fat ?? 0) })
                   setMethod('macros')
                 }}
                 className="text-left p-3 bg-zinc-800/50 hover:bg-zinc-700/50 rounded-xl border border-zinc-700/50 hover:border-purple-500/30 transition-colors">
                 <p className="text-sm font-medium text-zinc-200 leading-snug">{r.name}</p>
-                <p className="text-xs text-zinc-500 mt-1">{r.macros.calories} kcal · {r.macros.protein}g P</p>
+                <p className="text-xs text-zinc-500 mt-1">{(r.macros ?? r.macros_per_serving)?.calories ?? 0} kcal · {(r.macros ?? r.macros_per_serving)?.protein ?? 0}g P</p>
                 <p className="text-xs text-zinc-600 mt-0.5 capitalize">{r.meal_type}</p>
               </button>
             ))}
+            {!isDemo && orgRecipes.length === 0 && (
+              <div className="col-span-2 text-center py-6 space-y-1">
+                <Sparkles className="w-8 h-8 text-zinc-700 mx-auto" />
+                <p className="text-sm text-zinc-500">No org recipes yet</p>
+                <p className="text-xs text-zinc-600">Your nutritionist can add recipes in the Meal Prep tab</p>
+              </div>
+            )}
           </div>
         )}
 
@@ -694,9 +702,9 @@ export function NutritionPage() {
 
 // ─── Athlete Dashboard Tab ────────────────────────────────────────────────────
 function AthleteDashboardTab({ nutrition, suppChecked, setSuppChecked }) {
-  const { boardPlans, athletePrepLog } = useNutritionStore()
-  const { isDemo } = useAuthStore()
-  const MY_ATHLETE_ID = 'u-ath-001'
+  const { boardPlans, athletePrepLog, nutritionLogs } = useNutritionStore()
+  const { isDemo, profile } = useAuthStore()
+  const MY_ATHLETE_ID = isDemo ? 'u-ath-001' : (profile?.id ?? null)
   const TODAY_DAY = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][new Date().getDay()]
   // Compute current week's Monday → Sunday for subtitle labels
   const _wNow = new Date(); _wNow.setHours(0,0,0,0)
@@ -707,34 +715,51 @@ function AthleteDashboardTab({ nutrition, suppChecked, setSuppChecked }) {
   const currentWeekLabel = `${_fmtW(_wMon)} – ${_fmtW(_wSun)}, ${_wSun.getFullYear()}`
   const mockMealHistory = isDemo ? MOCK_MEAL_HISTORY : []
 
-  // Body weight log — starts empty for real users, uses demo data for demo session
-  const [bodyWeightLog, setBodyWeightLog] = useState(isDemo ? [
+  // ── Live nutrition logs for real users ──
+  const myLogs = isDemo ? [] : (nutritionLogs?.[MY_ATHLETE_ID] ?? [])
+  // Today's actual macros from nutrition_logs
+  const todayStr = new Date().toISOString().slice(0, 10)
+  const todayLogs = myLogs.filter(l => l.log_date === todayStr)
+  const liveActual = {
+    calories: todayLogs.reduce((s, l) => s + (l.calories_actual ?? 0), 0),
+    protein:  todayLogs.reduce((s, l) => s + (l.protein_actual  ?? 0), 0),
+    carbs:    todayLogs.reduce((s, l) => s + (l.carbs_actual    ?? 0), 0),
+    fat:      todayLogs.reduce((s, l) => s + (l.fat_actual      ?? 0), 0),
+  }
+
+  // Body weight log — for real users, derive from nutrition_logs body_weight field
+  const liveWeightLog = isDemo ? [
     { date: '2025-12-08', weight: 93.2 }, { date: '2025-12-15', weight: 93.0 },
     { date: '2025-12-22', weight: 92.8 }, { date: '2026-01-05', weight: 92.5 },
     { date: '2026-01-12', weight: 92.1 }, { date: '2026-01-19', weight: 91.8 },
     { date: '2026-01-26', weight: 91.5 }, { date: '2026-02-02', weight: 91.2 },
     { date: '2026-02-09', weight: 91.0 }, { date: '2026-02-16', weight: 90.8 },
     { date: '2026-02-23', weight: 90.5 }, { date: '2026-03-01', weight: 90.2 },
-  ] : [])
+  ] : myLogs.filter(l => l.body_weight != null).map(l => ({ date: l.log_date, weight: l.body_weight })).reverse()
+
+  const [bodyWeightLog, setBodyWeightLog] = useState(liveWeightLog)
   const [newWeight, setNewWeight] = useState('')
   const [logWeightOpen, setLogWeightOpen] = useState(false)
   const latestWeight = bodyWeightLog[bodyWeightLog.length - 1]?.weight ?? 0
   const firstWeight  = bodyWeightLog[0]?.weight ?? 0
   const weightChange = (latestWeight - firstWeight).toFixed(1)
 
-  // Weekly compliance from history
-  const weekHistory = mockMealHistory.filter(h => h.athlete_id === MY_ATHLETE_ID && h.date >= '2026-02-23')
-  const avgCompliance = weekHistory.length
-    ? Math.round(weekHistory.reduce((s, h) => s + h.compliance_pct, 0) / weekHistory.length)
+  // ── Weekly compliance from live logs or mock history ──
+  const weekStartStr = _wMon.toISOString().slice(0, 10)
+  const weekLogs = isDemo
+    ? mockMealHistory.filter(h => h.athlete_id === MY_ATHLETE_ID && h.date >= '2026-02-23')
+    : myLogs.filter(l => l.log_date >= weekStartStr)
+  const avgCompliance = weekLogs.length
+    ? Math.round(weekLogs.reduce((s, h) => s + (h.compliance_score ?? h.compliance_pct ?? 0), 0) / weekLogs.length)
     : isDemo ? 84 : 0
 
-  // Supplement streak
-  const suppStreak = isDemo ? 8 : 0 // real value would come from DB
+  // Supplement streak — real users start at 0 (no supp table yet)
+  const suppStreak = isDemo ? 8 : 0
 
   // Today's macros vs targets
-  const todayHistory = mockMealHistory.find(h => h.athlete_id === MY_ATHLETE_ID && h.date === '2026-03-01')
-  const todayActual  = todayHistory?.totals ?? nutrition.actual
-  const todayTargets = todayHistory?.targets ?? nutrition.plan
+  const todayHistory = isDemo ? mockMealHistory.find(h => h.athlete_id === MY_ATHLETE_ID && h.date === '2026-03-01') : null
+  const todayActual  = isDemo ? (todayHistory?.totals ?? nutrition.actual) : liveActual
+  const todayTargets = isDemo ? (todayHistory?.targets ?? nutrition.plan) : nutrition.plan
 
   // Live today's plan from board
   const liveDayPlan = boardPlans?.[MY_ATHLETE_ID]?.[TODAY_DAY]
@@ -749,17 +774,22 @@ function AthleteDashboardTab({ nutrition, suppChecked, setSuppChecked }) {
   const totalServingsLeft = myPrepSessions.flatMap(s => s.items || [])
     .reduce((sum, i) => sum + Math.max(0, (i.servings_made || 0) - (i.servings_consumed || 0)), 0)
 
-  // Macro trend data (last 7 days from history)
-  const macroTrend = mockMealHistory
-    .filter(h => h.athlete_id === MY_ATHLETE_ID)
-    .slice(-7)
-    .map(h => ({
-      date: new Date(h.date).toLocaleDateString('en-US', { weekday: 'short' }),
-      calories: h.totals.calories,
-      target:   h.targets.calories,
-      protein:  h.totals.protein,
-      compliance: h.compliance_pct,
-    }))
+  // Macro trend data (last 7 days from history or live logs)
+  const macroTrend = isDemo
+    ? mockMealHistory.filter(h => h.athlete_id === MY_ATHLETE_ID).slice(-7).map(h => ({
+        date: new Date(h.date).toLocaleDateString('en-US', { weekday: 'short' }),
+        calories: h.totals.calories,
+        target:   h.targets.calories,
+        protein:  h.totals.protein,
+        compliance: h.compliance_pct,
+      }))
+    : myLogs.slice(0, 7).map(l => ({
+        date:       new Date(l.log_date).toLocaleDateString('en-US', { weekday: 'short' }),
+        calories:   l.calories_actual ?? 0,
+        target:     nutrition.plan.calories,
+        protein:    l.protein_actual  ?? 0,
+        compliance: l.compliance_score ?? null,
+      }))
 
   const maxCal = Math.max(...macroTrend.map(d => d.target), 1)
 
@@ -881,7 +911,10 @@ function AthleteDashboardTab({ nutrition, suppChecked, setSuppChecked }) {
                   className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-purple-500" />
                 <Button size="sm" onClick={() => {
                   if (!newWeight) return
-                  setBodyWeightLog(prev => [...prev, { date: new Date().toISOString().slice(0, 10), weight: Number(newWeight) }])
+                  const w = Number(newWeight)
+                  const today = new Date().toISOString().slice(0, 10)
+                  setBodyWeightLog(prev => [...prev, { date: today, weight: w }])
+                  if (!isDemo && MY_ATHLETE_ID) saveBodyWeight(MY_ATHLETE_ID, w, today)
                   setNewWeight(''); setLogWeightOpen(false)
                 }}><Check className="w-3.5 h-3.5" /></Button>
                 <Button size="sm" variant="ghost" onClick={() => setLogWeightOpen(false)}><X className="w-3.5 h-3.5" /></Button>
@@ -998,7 +1031,8 @@ function AthleteDashboardTab({ nutrition, suppChecked, setSuppChecked }) {
 // ─── Athlete Weekly Planner Tab ───────────────────────────────────────────────
 function AthleteWeeklyPlannerTab({ nutrition }) {
   const { boardPlans, athletePrepLog } = useNutritionStore()
-  const MY_ATHLETE_ID = 'u-ath-001'
+  const { isDemo, profile } = useAuthStore()
+  const MY_ATHLETE_ID = isDemo ? 'u-ath-001' : (profile?.id ?? null)
 
   const BOARD_DAY_KEYS = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday']
   const SLOT_LABELS    = { breakfast:'Breakfast', lunch:'Lunch', dinner:'Dinner', snack:'Snack', 'pre-workout':'Pre-Workout', 'post-workout':'Post-Workout', supplements:'Supplements' }
@@ -1017,7 +1051,10 @@ function AthleteWeeklyPlannerTab({ nutrition }) {
   const TODAY_DAY_KEY = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][today.getDay()]
 
   // Use live board plan if available, else fall back to mock
-  const { isDemo } = useAuthStore()
+  const { blocks: storeBlocks } = useTrainingStore()
+  // Compute current block badge dynamically
+  const activeBlock = storeBlocks.find(b => b.status === 'active') ?? (isDemo ? MOCK_TRAINING_BLOCKS?.find(b => b.status === 'active') : null)
+  const blockBadge = activeBlock ? `${activeBlock.name}` : null
   const liveWeekPlan   = boardPlans?.[MY_ATHLETE_ID] ?? (isDemo ? MOCK_ATHLETE_MEAL_PLANS?.[MY_ATHLETE_ID] : undefined) ?? {}
   const [expandedDay, setExpandedDay] = useState(TODAY_DAY_KEY)
   // Track which items the athlete has marked eaten
@@ -1065,9 +1102,11 @@ function AthleteWeeklyPlannerTab({ nutrition }) {
               <CardTitle className="flex items-center gap-2"><CalendarDays className="w-4 h-4 text-purple-400" />My Meal Plan</CardTitle>
               <CardSubtitle>Week of {weekLabel} · Set by your nutritionist</CardSubtitle>
             </div>
-            <span className="text-xs px-2 py-1 rounded-lg border bg-purple-500/10 border-purple-500/20 text-purple-300 font-medium">
-              Week 8 — Intensification
-            </span>
+            {blockBadge && (
+              <span className="text-xs px-2 py-1 rounded-lg border bg-purple-500/10 border-purple-500/20 text-purple-300 font-medium">
+                {blockBadge}
+              </span>
+            )}
           </div>
         </CardHeader>
         <CardBody>
@@ -1199,11 +1238,11 @@ function AthleteWeeklyPlannerTab({ nutrition }) {
 function CombinedMyPlan({ nutrition }) {
   // Pull live data from the shared nutrition store (same data the nutritionist manages)
   const { boardPlans, athleteRecipes, athletePrepLog } = useNutritionStore()
-  const { isDemo } = useAuthStore()
+  const { isDemo, profile, activeOrgId } = useAuthStore()
   const { goals } = useGoalsStore()
   const { blocks, meets } = useTrainingStore()
-  // Demo athlete id — in a real app this would come from auth
-  const MY_ATHLETE_ID = 'u-ath-001'
+  // Real athlete id for real users
+  const MY_ATHLETE_ID = isDemo ? 'u-ath-001' : (profile?.id ?? null)
 
   // Live plan from the nutritionist's board (today = Sunday Mar 1 = 'sunday')
   const TODAY_DAY = 'sunday'
@@ -1348,7 +1387,10 @@ function CombinedMyPlan({ nutrition }) {
   // ── Context data ──
   const activeBlock = blocks.find(b => b.status === 'active') ?? (isDemo ? MOCK_TRAINING_BLOCKS.find(b => b.status === 'active') : null)
   const upcomingMeet = meets.find(m => m.id === 'meet-1') ?? (isDemo ? MOCK_MEETS.find(m => m.id === 'meet-1') : null)
-  const linkedGoals = goals.length ? goals.filter(g => ['g1','g3','g4'].includes(g.id)) : (isDemo ? MOCK_GOALS.filter(g => ['g1','g3','g4'].includes(g.id)) : [])
+  // Use real goals for real users (first 3 goals), fall back to mock for demo
+  const linkedGoals = isDemo
+    ? (goals.length ? goals.filter(g => ['g1','g3','g4'].includes(g.id)) : MOCK_GOALS.filter(g => ['g1','g3','g4'].includes(g.id)))
+    : goals.slice(0, 3)
   const daysToMeet = upcomingMeet
     ? Math.ceil((new Date(upcomingMeet.date) - new Date()) / (1000 * 60 * 60 * 24))
     : null
@@ -1445,7 +1487,22 @@ function CombinedMyPlan({ nutrition }) {
             {editing ? (
               <div className="flex gap-2">
                 <Button size="xs" variant="ghost" onClick={() => setEditing(false)}><X className="w-3.5 h-3.5" /> Cancel</Button>
-                <Button size="xs" onClick={() => setEditing(false)}><Save className="w-3.5 h-3.5" /> Save</Button>
+                <Button size="xs" onClick={async () => {
+                  setEditing(false)
+                  if (!isDemo && MY_ATHLETE_ID && activeOrgId) {
+                    await saveNutritionPlan(MY_ATHLETE_ID, MY_ATHLETE_ID, activeOrgId, {
+                      name: 'My Nutrition Plan',
+                      calories_training: Number(trainingDay.calories) || 0,
+                      calories_rest: Number(restDay.calories) || 0,
+                      protein_g: Number(trainingDay.protein) || 0,
+                      carbs_g: Number(trainingDay.carbs) || 0,
+                      fat_g: Number(trainingDay.fat) || 0,
+                      fiber_g: Number(trainingDay.fiber) || 0,
+                      water_ml: Number(trainingDay.water) * 1000 || 0,
+                      coach_notes: coachNotes,
+                    })
+                  }
+                }}><Save className="w-3.5 h-3.5" /> Save</Button>
               </div>
             ) : (
               <Button size="xs" variant="outline" onClick={() => setEditing(true)}><Edit2 className="w-3.5 h-3.5" /> Edit</Button>
@@ -1851,7 +1908,8 @@ function CombinedMyPlan({ nutrition }) {
 
 // ─── Injury Tracker ──────────────────────────────────────────────────────────
 function InjuryTracker() {
-  const { isDemo } = useAuthStore()
+  const { isDemo, profile } = useAuthStore()
+  const MY_ATHLETE_ID = isDemo ? 'u-ath-001' : (profile?.id ?? null)
   const [injuries, setInjuries] = useState(isDemo ? MOCK_INJURY_LOGS : [])
   const [logModal, setLogModal] = useState(null)      // injury id to log update for
   const [addModal, setAddModal] = useState(false)
@@ -1863,6 +1921,20 @@ function InjuryTracker() {
   const [logForm, setLogForm] = useState({ date: '', pain_level: 5, note: '' })
   // add injury form
   const [addForm, setAddForm] = useState({ body_area: '', pain_level: 5, description: '', movement_affected: '', injury_date: new Date().toISOString().slice(0,10) })
+
+  // Load injuries from Supabase for real users on mount
+  useEffect(() => {
+    if (isDemo || !MY_ATHLETE_ID) return
+    import('../lib/supabase').then(({ fetchAthleteInjuries }) => {
+      fetchAthleteInjuries(MY_ATHLETE_ID).then(data => {
+        if (data?.length) setInjuries(data.map(inj => ({
+          ...inj,
+          movement_affected: inj.movement_affected ?? [],
+          log_history: inj.log_history ?? [],
+        })))
+      })
+    })
+  }, [isDemo, MY_ATHLETE_ID]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const active = injuries.filter(i => !i.resolved)
   const resolved = injuries.filter(i => i.resolved)
@@ -1880,25 +1952,28 @@ function InjuryTracker() {
     return 'Severe'
   }
 
-  const submitLog = () => {
+  const submitLog = async () => {
     if (!logForm.date || !logForm.note.trim()) return
     setInjuries(prev => prev.map(inj => {
       if (inj.id !== logModal) return inj
       return {
         ...inj,
         pain_level: logForm.pain_level,
-        log_history: [...inj.log_history, { date: logForm.date, pain_level: logForm.pain_level, note: logForm.note, reporter: 'athlete' }],
+        log_history: [...(inj.log_history ?? []), { date: logForm.date, pain_level: logForm.pain_level, note: logForm.note, reporter: 'athlete' }],
       }
     }))
+    if (!isDemo && logModal && !String(logModal).startsWith('inj-')) {
+      await updateInjury(logModal, { pain_level: logForm.pain_level, coach_notes: logForm.note })
+    }
     setLogModal(null)
     setLogForm({ date: '', pain_level: 5, note: '' })
   }
 
-  const submitAdd = () => {
+  const submitAdd = async () => {
     if (!addForm.body_area.trim() || !addForm.description.trim()) return
     const newInj = {
       id: `inj-${Date.now()}`,
-      athlete_id: 'u-ath-001',
+      athlete_id: MY_ATHLETE_ID,
       body_area: addForm.body_area,
       pain_level: addForm.pain_level,
       injury_date: addForm.injury_date,
@@ -1909,19 +1984,45 @@ function InjuryTracker() {
       log_history: [{ date: addForm.injury_date, pain_level: addForm.pain_level, note: 'Initial report.', reporter: 'athlete' }],
     }
     setInjuries(prev => [...prev, newInj])
+    if (!isDemo && MY_ATHLETE_ID) {
+      const saved = await reportInjury(MY_ATHLETE_ID, {
+        body_area: addForm.body_area,
+        pain_level: addForm.pain_level,
+        injury_date: addForm.injury_date,
+        description: addForm.description,
+        movement_affected: addForm.movement_affected,
+        reported_to_coach: false,
+      })
+      // Replace temp id with real DB id
+      if (saved?.id) {
+        setInjuries(prev => prev.map(inj => inj.id === newInj.id ? { ...inj, id: saved.id } : inj))
+      }
+    }
     setAddModal(false)
     setAddForm({ body_area: '', pain_level: 5, description: '', movement_affected: '', injury_date: new Date().toISOString().slice(0,10) })
   }
 
-  const markResolved = (id) => {
+  const markResolved = async (id) => {
+    const resolvedDate = new Date().toISOString().slice(0,10)
     setInjuries(prev => prev.map(inj => inj.id !== id ? inj : {
-      ...inj, resolved: true, resolved_date: new Date().toISOString().slice(0,10),
-      log_history: [...inj.log_history, { date: new Date().toISOString().slice(0,10), pain_level: 0, note: 'Marked as resolved.', reporter: 'athlete' }],
+      ...inj, resolved: true, resolved_date: resolvedDate,
+      log_history: [...(inj.log_history ?? []), { date: resolvedDate, pain_level: 0, note: 'Marked as resolved.', reporter: 'athlete' }],
     }))
+    if (!isDemo && !String(id).startsWith('inj-')) {
+      await updateInjury(id, { resolved: true, resolved_date: resolvedDate })
+    }
     setResolveConfirm(null)
   }
 
-  const toggleCoach = (id) => setInjuries(prev => prev.map(inj => inj.id !== id ? inj : { ...inj, reported_to_coach: !inj.reported_to_coach }))
+  const toggleCoach = async (id) => {
+    const inj = injuries.find(i => i.id === id)
+    if (!inj) return
+    const newVal = !inj.reported_to_coach
+    setInjuries(prev => prev.map(i => i.id !== id ? i : { ...i, reported_to_coach: newVal }))
+    if (!isDemo && !String(id).startsWith('inj-')) {
+      await updateInjury(id, { reported_to_coach: newVal })
+    }
+  }
 
   return (
     <Card>
@@ -3059,6 +3160,7 @@ const genSliId  = () => `sli-n${_nextSliId++}`
 function AthleteShoppingView({ athleteRecipes, athleteShoppingLists, setAthleteShoppingLists, selectedAthleteId, setSelectedAthleteId, athletePrepLog, boardPlans }) {
   const { isDemo, profile, activeOrgId } = useAuthStore()
   const { athletes: liveAthletes } = useRosterStore()
+  const { orgRecipes } = useNutritionStore()
   const mockAthletes = isDemo ? MOCK_ATHLETES : liveAthletes
   const athlete    = mockAthletes.find(a => a.id === selectedAthleteId)
   const myLists    = athleteShoppingLists?.[selectedAthleteId] ?? []
@@ -3098,8 +3200,8 @@ function AthleteShoppingView({ athleteRecipes, athleteShoppingLists, setAthleteS
     const map = {}
     // Athlete-specific recipes
     myRecipes.forEach(r => { map[r.id] = r.name })
-    // Global meal plan recipes
-    ;(isDemo ? MOCK_MEAL_PLAN_RECIPES : []).forEach(r => { map[r.id] = r.name })
+    // Org / global meal plan recipes
+    ;(isDemo ? MOCK_MEAL_PLAN_RECIPES : orgRecipes).forEach(r => { map[r.id] = r.name })
     // Athlete prep log items (recipe_id → recipe_name)
     ;(athletePrepLog?.[selectedAthleteId] ?? []).forEach(session => {
       ;(session.items ?? []).forEach(item => {
@@ -3115,7 +3217,7 @@ function AthleteShoppingView({ athleteRecipes, athleteShoppingLists, setAthleteS
       })
     })
     return map
-  }, [myRecipes, athletePrepLog, boardPlans, selectedAthleteId])
+  }, [myRecipes, orgRecipes, athletePrepLog, boardPlans, selectedAthleteId])
 
   // Ingredient category mapping for auto-grouping
   const INGREDIENT_CATEGORY_MAP = useMemo(() => ({
@@ -4055,7 +4157,7 @@ const STORAGE_BADGE = {
 }
 
 function PantryTab({ isAdmin, athletePrepLog, setAthletePrepLog, athleteRecipes }) {
-  const { profile, isDemo } = useAuthStore()
+  const { profile, isDemo, activeOrgId } = useAuthStore()
   const { athletes: liveAthletes } = useRosterStore()
   const mockAthletes = isDemo ? MOCK_ATHLETES : liveAthletes
   const mockStaffAssignments = isDemo ? MOCK_STAFF_ASSIGNMENTS : []
@@ -4158,6 +4260,21 @@ function PantryTab({ isAdmin, athletePrepLog, setAthletePrepLog, athleteRecipes 
       ...prev,
       [selectedAthleteId]: [newSession, ...(prev[selectedAthleteId] ?? [])]
     }))
+    // Persist to Supabase for real users
+    if (!isDemo && selectedAthleteId && activeOrgId) {
+      savePrepSessionFull(selectedAthleteId, activeOrgId, profile?.id, newSession, newSession.items)
+        .then(saved => {
+          if (saved?.id) {
+            setAthletePrepLog(prev => ({
+              ...prev,
+              [selectedAthleteId]: (prev[selectedAthleteId] ?? []).map(s =>
+                s.id === sessionId ? { ...s, id: saved.id } : s
+              )
+            }))
+          }
+        })
+        .catch(err => console.error('[PantryTab] savePrepSessionFull error:', err))
+    }
     setAddModal(false)
     setAddForm({ recipe_name: '', servings_made: 1, storage: 'fridge', notes: '', date: new Date().toISOString().slice(0,10), macros_per_serving: { calories: 0, protein: 0, carbs: 0, fat: 0 } })
   }
@@ -5722,40 +5839,74 @@ function AthleteHistory() {
   const grouped = useMemo(() => {
     if (dailyData.length === 0) return []
     if (cadence === 'weekly') {
-      const weeks = [
-        { label: 'Week 8 — Feb 23–Mar 1', days: dailyData.slice(0, 7) },
-        { label: 'Week 7 — Feb 16–22',    days: dailyData.slice(7, 14) },
-      ]
-      return weeks.filter(w => w.days.length > 0).map(w => ({
-        ...w,
-        avgCompliance: Math.round(w.days.reduce((s, d) => s + d.compliance, 0) / w.days.length),
-        avgProtein:    Math.round(w.days.reduce((s, d) => s + d.protein, 0) / w.days.length),
-        avgCalories:   Math.round(w.days.reduce((s, d) => s + d.calories, 0) / w.days.length),
-        startBw: w.days[w.days.length - 1].bw,
-        endBw:   w.days[0].bw,
-      }))
+      // Dynamically group by calendar week (Mon–Sun)
+      const weekMap = {}
+      dailyData.forEach(d => {
+        if (!d.date) return
+        const dt = new Date(d.date)
+        if (isNaN(dt.getTime())) return
+        const dow = dt.getDay() // 0=Sun
+        const mon = new Date(dt); mon.setDate(dt.getDate() - (dow === 0 ? 6 : dow - 1))
+        const sun = new Date(mon); sun.setDate(mon.getDate() + 6)
+        const key = mon.toISOString().slice(0, 10)
+        const fmtShort = d => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+        if (!weekMap[key]) weekMap[key] = { label: `${fmtShort(mon)} – ${fmtShort(sun)}`, days: [], _monDate: mon }
+        weekMap[key].days.push(d)
+      })
+      return Object.values(weekMap)
+        .sort((a, b) => new Date(b._monDate) - new Date(a._monDate))
+        .filter(w => w.days.length > 0)
+        .map(w => ({
+          label: w.label,
+          days: w.days,
+          avgCompliance: Math.round(w.days.reduce((s, d) => s + (d.compliance || 0), 0) / w.days.length),
+          avgProtein:    Math.round(w.days.reduce((s, d) => s + (d.protein || 0), 0) / w.days.length),
+          avgCalories:   Math.round(w.days.reduce((s, d) => s + (d.calories || 0), 0) / w.days.length),
+          startBw: w.days[w.days.length - 1]?.bw ?? null,
+          endBw:   w.days[0]?.bw ?? null,
+        }))
     }
     if (cadence === 'biweekly') {
-      return [{
-        label: 'Feb 16 – Mar 1 (2 Weeks)',
-        days: dailyData,
-        avgCompliance: Math.round(dailyData.reduce((s, d) => s + d.compliance, 0) / dailyData.length),
-        avgProtein:    Math.round(dailyData.reduce((s, d) => s + d.protein, 0) / dailyData.length),
-        avgCalories:   Math.round(dailyData.reduce((s, d) => s + d.calories, 0) / dailyData.length),
-        startBw: dailyData[dailyData.length - 1].bw,
-        endBw:   dailyData[0].bw,
-      }]
+      const mid = Math.floor(dailyData.length / 2)
+      const half1 = dailyData.slice(0, mid)
+      const half2 = dailyData.slice(mid)
+      const mkGroup = (days, label) => ({
+        label,
+        days,
+        avgCompliance: days.length ? Math.round(days.reduce((s, d) => s + (d.compliance || 0), 0) / days.length) : 0,
+        avgProtein:    days.length ? Math.round(days.reduce((s, d) => s + (d.protein || 0), 0) / days.length) : 0,
+        avgCalories:   days.length ? Math.round(days.reduce((s, d) => s + (d.calories || 0), 0) / days.length) : 0,
+        startBw: days[days.length - 1]?.bw ?? null,
+        endBw:   days[0]?.bw ?? null,
+      })
+      const groups = []
+      if (half1.length) groups.push(mkGroup(half1, half1[0]?.date ? `${half1[0].date} – ${half1[half1.length - 1]?.date}` : 'Recent 2 weeks'))
+      if (half2.length) groups.push(mkGroup(half2, half2[0]?.date ? `${half2[0].date} – ${half2[half2.length - 1]?.date}` : 'Previous 2 weeks'))
+      return groups
     }
-    // monthly
-    return [{
-      label: 'February 2026',
-      days: dailyData,
-      avgCompliance: Math.round(dailyData.reduce((s, d) => s + d.compliance, 0) / dailyData.length),
-      avgProtein:    Math.round(dailyData.reduce((s, d) => s + d.protein, 0) / dailyData.length),
-      avgCalories:   Math.round(dailyData.reduce((s, d) => s + d.calories, 0) / dailyData.length),
-      startBw: dailyData[dailyData.length - 1].bw,
-      endBw:   dailyData[0].bw,
-    }]
+    // monthly — group by month
+    const monthMap = {}
+    dailyData.forEach(d => {
+      if (!d.date) return
+      const dt = new Date(d.date)
+      if (isNaN(dt.getTime())) return
+      const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`
+      const label = dt.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+      if (!monthMap[key]) monthMap[key] = { label, days: [], _key: key }
+      monthMap[key].days.push(d)
+    })
+    return Object.values(monthMap)
+      .sort((a, b) => b._key.localeCompare(a._key))
+      .filter(m => m.days.length > 0)
+      .map(m => ({
+        label: m.label,
+        days: m.days,
+        avgCompliance: Math.round(m.days.reduce((s, d) => s + (d.compliance || 0), 0) / m.days.length),
+        avgProtein:    Math.round(m.days.reduce((s, d) => s + (d.protein || 0), 0) / m.days.length),
+        avgCalories:   Math.round(m.days.reduce((s, d) => s + (d.calories || 0), 0) / m.days.length),
+        startBw: m.days[m.days.length - 1]?.bw ?? null,
+        endBw:   m.days[0]?.bw ?? null,
+      }))
   }, [cadence, dailyData])
 
   const { athletePrepLog } = useNutritionStore()
@@ -5883,16 +6034,17 @@ function AthleteHistory() {
 // ─── Staff Roster ─────────────────────────────────────────────────────────────
 // ─── Athlete Nutrition Profile Modal ─────────────────────────────────────────
 function AthleteNutritionProfile({ athlete, onClose, isAdmin, canEdit: canEditProp }) {
-  const { profile, isDemo } = useAuthStore()
+  const { profile, isDemo, activeOrgId } = useAuthStore()
   const { goals: storeGoals } = useGoalsStore()
   const { blocks: storeBlocks } = useTrainingStore()
+  const { orgRecipes, athletePrepLog: storePrepLog } = useNutritionStore()
   const mockStaffAssignments = isDemo ? MOCK_STAFF_ASSIGNMENTS : []
   const mockMealHistory = isDemo ? MOCK_MEAL_HISTORY : []
   const mockMealPlans = isDemo ? MOCK_ATHLETE_MEAL_PLANS : {}
   const mockTrainingBlocks = storeBlocks.length ? storeBlocks : (isDemo ? MOCK_TRAINING_BLOCKS : [])
   const mockGoals = storeGoals.length ? storeGoals : (isDemo ? MOCK_GOALS : [])
-  const mockRecipes = isDemo ? MOCK_MEAL_PLAN_RECIPES : []
-  const mockPrepLog = isDemo ? MOCK_MEAL_PREP_LOG : []
+  const mockRecipes = isDemo ? MOCK_MEAL_PLAN_RECIPES : orgRecipes
+  const mockPrepLog = isDemo ? MOCK_MEAL_PREP_LOG : (storePrepLog?.[athlete.id] ?? [])
   const assignment = mockStaffAssignments.find(a => a.staff_id === profile?.id && a.athlete_id === athlete.id)
   const canEdit = isAdmin || (canEditProp ?? assignment?.can_edit_nutrition ?? false)
 
@@ -6206,7 +6358,25 @@ function AthleteNutritionProfile({ athlete, onClose, isAdmin, canEdit: canEditPr
               </div>
 
               {canEdit && (
-                <Button className="w-full" onClick={() => setPlanSaved(true)} disabled={planSaved}>
+                <Button className="w-full" onClick={async () => {
+                  if (!isDemo && athlete?.id && activeOrgId) {
+                    try {
+                      await saveNutritionPlan(athlete.id, profile?.id, activeOrgId, {
+                        name: 'Nutrition Plan',
+                        calories_training: plan.training.calories,
+                        calories_rest:     plan.rest.calories,
+                        protein_g:         plan.training.protein,
+                        carbs_g:           plan.training.carbs,
+                        fat_g:             plan.training.fat,
+                        coach_notes:       plan.notes,
+                      })
+                    } catch (err) {
+                      console.error('[AthleteNutritionProfile] saveNutritionPlan error:', err)
+                    }
+                  }
+                  setPlanSaved(true)
+                  setTimeout(() => setPlanSaved(false), 2500)
+                }} disabled={planSaved}>
                   {planSaved ? <><Check className="w-4 h-4" />Saved</> : <><Save className="w-4 h-4" />Save Targets</>}
                 </Button>
               )}
@@ -7403,7 +7573,30 @@ function MealPlannerBoard({ isAdmin, athleteRecipes, setAthleteRecipes, athleteP
               <Button
                 size="xs"
                 className={cn(saved ? 'bg-green-700 hover:bg-green-700' : 'bg-zinc-700 hover:bg-zinc-600')}
-                onClick={() => { setSaved(true); setTimeout(() => setSaved(false), 1800) }}
+                onClick={async () => {
+                  if (!isDemo && selectedAthleteId && activeOrgId) {
+                    try {
+                      const dp = boardPlan[selectedAthleteId] ?? {}
+                      const dayCount = Object.keys(dp).length || 1
+                      const allBoardItems = Object.values(dp).flatMap(daySlots =>
+                        Object.values(daySlots).flat()
+                      )
+                      const avgCals = Math.round(
+                        allBoardItems.reduce((s, i) => s + (i?.calories || 0), 0) / dayCount
+                      )
+                      const weekNote = weekNotes[selectedAthleteId] ?? ''
+                      await saveNutritionPlan(selectedAthleteId, profile?.id, activeOrgId, {
+                        name: `Week ${weekNum} Meal Plan`,
+                        calories_training: avgCals,
+                        coach_notes: weekNote,
+                      })
+                    } catch (err) {
+                      console.error('[MealPlannerBoard] saveNutritionPlan error:', err)
+                    }
+                  }
+                  setSaved(true)
+                  setTimeout(() => setSaved(false), 1800)
+                }}
               >
                 {saved
                   ? <><Check className="w-3 h-3" /> Saved</>
@@ -7967,11 +8160,12 @@ function StaffRoster({ isAdmin }) {
 
 // ─── Staff Plans ──────────────────────────────────────────────────────────────
 function StaffPlans({ isAdmin }) {
-  const { profile, isDemo } = useAuthStore()
+  const { profile, isDemo, activeOrgId } = useAuthStore()
   const { athletes: liveAthletes } = useRosterStore()
+  const { orgRecipes } = useNutritionStore()
   const mockAthletes = isDemo ? MOCK_ATHLETES : liveAthletes
   const mockStaffAssignments = isDemo ? MOCK_STAFF_ASSIGNMENTS : []
-  const mockRecipes = isDemo ? MOCK_MEAL_PLAN_RECIPES : []
+  const mockRecipes = isDemo ? MOCK_MEAL_PLAN_RECIPES : orgRecipes
   const [editingAthleteId, setEditingAthleteId] = useState(null)
   const [planFilter, setPlanFilter] = useState('all') // 'all' | 'low_compliance' | 'no_plan'
   const [plans, setPlans] = useState(() =>
@@ -7989,6 +8183,31 @@ function StaffPlans({ isAdmin }) {
       }]
     }))
   )
+
+  // For real users: reinitialize plans when roster finishes loading
+  useEffect(() => {
+    if (!isDemo && liveAthletes.length > 0) {
+      setPlans(prev => {
+        const next = { ...prev }
+        liveAthletes.forEach(a => {
+          if (!next[a.id]) {
+            const mp = a.nutrition_macros?.plan ?? { calories: 0, protein: 0, carbs: 0, fat: 0 }
+            next[a.id] = {
+              training: { ...mp },
+              rest: {
+                calories: Math.round((mp.calories || 0) * 0.88),
+                protein:  mp.protein || 0,
+                carbs:    Math.round((mp.carbs || 0) * 0.79),
+                fat:      mp.fat || 0,
+              },
+              notes: a.coach_notes ?? '',
+            }
+          }
+        })
+        return next
+      })
+    }
+  }, [liveAthletes, isDemo])
 
   // Admin sees ALL athletes; other staff see only their assignments
   const myAssignments = mockStaffAssignments.filter(a => a.staff_id === profile?.id)
@@ -8204,7 +8423,24 @@ function StaffPlans({ isAdmin }) {
 
             <div className="flex gap-3 pt-2">
               <Button variant="ghost" className="flex-1" onClick={() => setEditingAthleteId(null)}>Cancel</Button>
-              <Button className="flex-1" onClick={() => setEditingAthleteId(null)}>
+              <Button className="flex-1" onClick={async () => {
+                if (!isDemo && editingAthleteId && activeOrgId) {
+                  try {
+                    await saveNutritionPlan(editingAthleteId, profile?.id, activeOrgId, {
+                      name: 'Nutrition Plan',
+                      calories_training: editingPlan.training.calories,
+                      calories_rest:     editingPlan.rest.calories,
+                      protein_g:         editingPlan.training.protein,
+                      carbs_g:           editingPlan.training.carbs,
+                      fat_g:             editingPlan.training.fat,
+                      coach_notes:       editingPlan.notes,
+                    })
+                  } catch (err) {
+                    console.error('[StaffPlans] saveNutritionPlan error:', err)
+                  }
+                }
+                setEditingAthleteId(null)
+              }}>
                 <Save className="w-4 h-4" /> Save Plan
               </Button>
             </div>
