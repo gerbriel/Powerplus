@@ -920,13 +920,29 @@ create or replace function staff_can_view_athlete(p_org_id uuid, p_staff_id uuid
       where org_id = p_org_id and staff_id = p_staff_id and athlete_id = p_athlete_id)
   $$ language sql security definer stable;
 
+-- Returns the list of org_ids the caller belongs to — used to break RLS recursion on org_members.
+create or replace function get_my_org_ids()
+  returns uuid[] as $$
+    select coalesce(array_agg(org_id), '{}') from org_members where user_id = auth.uid()
+  $$ language sql security definer stable;
+
 -- ============================================================
 -- RLS POLICIES (all idempotent via DROP IF EXISTS before CREATE)
 -- ============================================================
 
 -- ── profiles ──────────────────────────────────────────────────
 drop policy if exists "profiles: any org member can read" on profiles;
-create policy "profiles: any org member can read" on profiles for select using (true);
+-- Allow reading profiles of users who share at least one org, plus your own profile.
+-- Uses a security-definer function to avoid RLS recursion on org_members.
+create policy "profiles: any org member can read" on profiles for select
+  using (
+    id = auth.uid()
+    or exists (
+      select 1 from org_members a
+      join org_members b on b.org_id = a.org_id
+      where a.user_id = auth.uid() and b.user_id = profiles.id
+    )
+  );
 
 drop policy if exists "profiles: owner can update" on profiles;
 create policy "profiles: owner can update" on profiles for update using (auth.uid() = id);
@@ -943,11 +959,17 @@ drop policy if exists "orgs: owner can update" on organizations;
 create policy "orgs: owner can update" on organizations for update
   using (get_user_org_role(id, auth.uid()) = 'owner');
 
+-- INSERT is handled by the create_org_with_owner() security-definer RPC.
+-- This policy allows the trigger/function pathway; direct client inserts remain blocked.
+drop policy if exists "orgs: authenticated can insert via rpc" on organizations;
+create policy "orgs: authenticated can insert via rpc" on organizations for insert
+  with check (auth.uid() is not null);
+
 -- ── org_members ───────────────────────────────────────────────
 drop policy if exists "org_members: member can view own org" on org_members;
--- Members can see all members of orgs they belong to (needed to render rosters, DMs, etc.)
+-- Uses security-definer helper to avoid infinite recursion (can't query org_members from inside itself).
 create policy "org_members: member can view own org" on org_members for select
-  using (exists (select 1 from org_members om2 where om2.org_id = org_members.org_id and om2.user_id = auth.uid()));
+  using (org_id = any(get_my_org_ids()));
 
 drop policy if exists "org_members: owner/head_coach can manage" on org_members;
 create policy "org_members: owner/head_coach can manage" on org_members for all
@@ -1005,6 +1027,12 @@ drop policy if exists "group_members: org members can read" on group_members;
 create policy "group_members: org members can read" on group_members for select
   using (exists (select 1 from training_groups tg join org_members om on om.org_id = tg.org_id
     where tg.id = group_members.group_id and om.user_id = auth.uid()));
+
+drop policy if exists "group_members: coaches can manage" on group_members;
+create policy "group_members: coaches can manage" on group_members for all
+  using (exists (select 1 from training_groups tg
+    where tg.id = group_members.group_id
+      and get_user_org_role(tg.org_id, auth.uid()) in ('owner','head_coach','coach')));
 
 -- ── exercises ─────────────────────────────────────────────────
 drop policy if exists "exercises: global or org member can read" on exercises;
@@ -1535,21 +1563,17 @@ create policy "shopping_list_categories: athlete or staff can manage" on shoppin
 
 drop policy if exists "shopping_list_items: readable via list access" on shopping_list_items;
 create policy "shopping_list_items: readable via list access" on shopping_list_items for select
-  using (exists (select 1 from shopping_list_categories slc
-    join shopping_lists sl on sl.id = slc.list_id
-    where slc.id = shopping_list_items.category_id
-      and (sl.athlete_id = auth.uid() or sl.created_by = auth.uid()
-        or exists (select 1 from staff_athlete_assignments saa where saa.athlete_id = sl.athlete_id
-          and saa.staff_id = auth.uid() and saa.can_edit_shopping_list = true))));
+  using (exists (select 1 from shopping_lists sl where sl.id = shopping_list_items.list_id
+    and (sl.athlete_id = auth.uid() or sl.created_by = auth.uid()
+      or exists (select 1 from staff_athlete_assignments saa where saa.athlete_id = sl.athlete_id
+        and saa.staff_id = auth.uid() and saa.can_edit_shopping_list = true))));
 
 drop policy if exists "shopping_list_items: athlete or staff can manage" on shopping_list_items;
 create policy "shopping_list_items: athlete or staff can manage" on shopping_list_items for all
-  using (exists (select 1 from shopping_list_categories slc
-    join shopping_lists sl on sl.id = slc.list_id
-    where slc.id = shopping_list_items.category_id
-      and (sl.athlete_id = auth.uid() or sl.created_by = auth.uid()
-        or exists (select 1 from staff_athlete_assignments saa where saa.athlete_id = sl.athlete_id
-          and saa.staff_id = auth.uid() and saa.can_edit_shopping_list = true))));
+  using (exists (select 1 from shopping_lists sl where sl.id = shopping_list_items.list_id
+    and (sl.athlete_id = auth.uid() or sl.created_by = auth.uid()
+      or exists (select 1 from staff_athlete_assignments saa where saa.athlete_id = sl.athlete_id
+        and saa.staff_id = auth.uid() and saa.can_edit_shopping_list = true))));
 
 -- ── channels ──────────────────────────────────────────────────
 drop policy if exists "channels: org members can read" on channels;
@@ -1691,6 +1715,11 @@ create policy "notifications: user can delete own" on notifications for delete u
 drop policy if exists "audit_logs: super_admin only" on audit_logs;
 create policy "audit_logs: super_admin only" on audit_logs for select
   using (exists (select 1 from profiles where id = auth.uid() and platform_role = 'super_admin'));
+
+-- Any authenticated user can write audit log entries (server-side logging).
+drop policy if exists "audit_logs: authenticated can insert" on audit_logs;
+create policy "audit_logs: authenticated can insert" on audit_logs for insert
+  with check (auth.uid() is not null);
 
 -- ── org_public_pages ──────────────────────────────────────────
 drop policy if exists "Public can read published pages" on org_public_pages;
