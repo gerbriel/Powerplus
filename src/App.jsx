@@ -95,12 +95,10 @@ function AppShell() {
 }
 
 /** Guards the /app route — redirects to /login if not authenticated,
- *  or to /onboarding if the user is real (non-demo) and has no org yet. */
+ *  or to /onboarding if the user is real (non-demo) and has no org yet.
+ *  Super admins bypass onboarding entirely — they manage the platform, not an org. */
 function ProtectedApp() {
   const { profile, orgMemberships, authReady } = useAuthStore()
-  // Wait for the initial session check to finish before making any routing decision.
-  // Without this, Zustand resets to null on refresh and we'd redirect before the
-  // async getSession() comes back.
   if (!authReady) {
     return (
       <div className="flex items-center justify-center h-screen bg-[#0d1117]">
@@ -109,9 +107,12 @@ function ProtectedApp() {
     )
   }
   if (!profile) return <Navigate to="/login" replace />
-  // Demo users (identified by a mock id prefix or role field) skip onboarding
+  // Super admins skip onboarding — they have no org and don't need one
+  const isSuperAdmin = profile.platform_role === 'super_admin' || profile.role === 'super_admin'
+  if (isSuperAdmin) return <AppShell />
+  // Demo users skip onboarding
   const isDemo = profile.id?.startsWith('mock-') || profile.id?.startsWith('demo-') || profile.isDemo
-  // Real users with no org memberships and onboarding not yet complete
+  // Real non-super-admin users with no org and onboarding not complete → onboarding
   if (!isDemo && !profile.onboarding_complete && orgMemberships.length === 0) {
     return <Navigate to="/onboarding" replace />
   }
