@@ -950,6 +950,9 @@ create policy "profiles: owner can update" on profiles for update using (auth.ui
 drop policy if exists "profiles: owner can insert" on profiles;
 create policy "profiles: owner can insert" on profiles for insert with check (auth.uid() = id);
 
+drop policy if exists "profiles: owner can delete" on profiles;
+create policy "profiles: owner can delete" on profiles for delete using (auth.uid() = id);
+
 -- ── organizations ─────────────────────────────────────────────
 drop policy if exists "orgs: members can read" on organizations;
 create policy "orgs: members can read" on organizations for select
@@ -964,6 +967,10 @@ create policy "orgs: owner can update" on organizations for update
 drop policy if exists "orgs: authenticated can insert via rpc" on organizations;
 create policy "orgs: authenticated can insert via rpc" on organizations for insert
   with check (auth.uid() is not null);
+
+drop policy if exists "orgs: owner can delete" on organizations;
+create policy "orgs: owner can delete" on organizations for delete
+  using (get_user_org_role(id, auth.uid()) = 'owner');
 
 -- ── org_members ───────────────────────────────────────────────
 drop policy if exists "org_members: member can view own org" on org_members;
@@ -1612,6 +1619,10 @@ create policy "channel_members: org members can insert" on channel_members for i
   with check (exists (select 1 from channels ch join org_members om on om.org_id = ch.org_id
     where ch.id = channel_members.channel_id and om.user_id = auth.uid()));
 
+drop policy if exists "channel_members: can update own last_read_at" on channel_members;
+create policy "channel_members: can update own last_read_at" on channel_members for update
+  using (user_id = auth.uid());
+
 drop policy if exists "channel_members: can delete" on channel_members;
 create policy "channel_members: can delete" on channel_members for delete
   using (user_id = auth.uid()
@@ -1663,6 +1674,11 @@ drop policy if exists "events: athlete can update own" on events;
 create policy "events: athlete can update own" on events for update
   using (created_by = auth.uid());
 
+drop policy if exists "events: creator or admin can delete" on events;
+create policy "events: creator or admin can delete" on events for delete
+  using (created_by = auth.uid()
+    or get_user_org_role(org_id, auth.uid()) in ('owner','head_coach','coach'));
+
 -- ── resources ─────────────────────────────────────────────────
 drop policy if exists "resources: org members can read published" on resources;
 create policy "resources: org members can read published" on resources for select
@@ -1704,6 +1720,10 @@ create policy "injury_logs: athlete can delete own" on injury_logs for delete us
 -- ── notifications ─────────────────────────────────────────────
 drop policy if exists "notifications: user sees own" on notifications;
 create policy "notifications: user sees own" on notifications for select using (auth.uid() = user_id);
+
+drop policy if exists "notifications: system can insert" on notifications;
+create policy "notifications: system can insert" on notifications for insert
+  with check (auth.uid() is not null);
 
 drop policy if exists "notifications: user can update own (mark read)" on notifications;
 create policy "notifications: user can update own (mark read)" on notifications for update using (auth.uid() = user_id);
