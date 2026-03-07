@@ -64,7 +64,17 @@ create table if not exists profiles (
   updated_at          timestamptz default now()
 );
 -- Idempotent column guards (for databases that predate these additions)
+alter table profiles add column if not exists role text default 'athlete';
 alter table profiles add column if not exists member_id text;
+alter table profiles add column if not exists phone text;
+alter table profiles add column if not exists date_of_birth date;
+alter table profiles add column if not exists weight_class text;
+alter table profiles add column if not exists federation text;
+alter table profiles add column if not exists equipment_type text default 'raw';
+alter table profiles add column if not exists bio text;
+alter table profiles add column if not exists timezone text default 'UTC';
+alter table profiles add column if not exists self_coach boolean default false;
+alter table profiles add column if not exists onboarding_complete boolean default false;
 
 -- ── organizations ─────────────────────────────────────────────
 create table if not exists organizations (
