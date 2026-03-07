@@ -234,7 +234,7 @@ function StaffDashboard({ profile, membership }) {
   const { athletes: liveAthletes, loadRoster } = useRosterStore()
   const { blocks: liveBlocks, loadOrgTrainingBlocks } = useTrainingStore()
   const { meets: liveMeets, load: loadMeets } = useMeetsStore()
-  const { channels, messagesByThread, initMessaging } = useMessagingStore()
+  const { channels, messagesByThread, initMessaging, _isDemo: messagingIsDemo } = useMessagingStore()
 
   // Load live data on mount for real users
   useEffect(() => {
@@ -246,7 +246,7 @@ function StaffDashboard({ profile, membership }) {
       loadMeets(profile.id, activeOrgId)
     }
     if (!isDemo && activeOrgId) {
-      initMessaging({ id: profile?.id }, activeOrgId, isAdmin)
+      initMessaging(false, activeOrgId, profile?.id)
     }
   }, [isDemo, activeOrgId, profile?.id]) // eslint-disable-line
 
@@ -268,6 +268,8 @@ function StaffDashboard({ profile, membership }) {
   // Recent messages from messaging store (newest first, limit 5)
   const recentMessages = useMemo(() => {
     if (isDemo) return null // use hardcoded demo array below
+    // Don't show anything if the store is still holding demo-seeded data
+    if (messagingIsDemo) return []
     // Gather the last message from each channel thread
     const msgs = []
     for (const ch of channels.slice(0, 10)) {
