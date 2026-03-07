@@ -274,10 +274,20 @@ function StaffDashboard({ profile, membership }) {
       const thread = messagesByThread[ch.id]
       if (thread?.length) {
         const last = thread[thread.length - 1]
-        msgs.push({ from: last.sender_name || last.sender_id || 'Unknown', msg: last.content || last.text || '', time: last.created_at ? new Date(last.created_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '', unread: false, role: 'staff', channelName: ch.name })
+        const senderName = last.sender?.name || last.sender?.display_name || last.sender?.full_name || last.sender_name || last.sender_id || 'Unknown'
+        const time = last.timestamp || last.created_at
+        msgs.push({
+          from: senderName,
+          msg: last.content || last.text || '',
+          time: time ? new Date(time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '',
+          rawTime: time || '',
+          unread: false,
+          role: last.sender?.role || 'staff',
+          channelName: ch.name,
+        })
       }
     }
-    return msgs.sort((a, b) => new Date(b.time) - new Date(a.time)).slice(0, 5)
+    return msgs.sort((a, b) => new Date(b.rawTime) - new Date(a.rawTime)).slice(0, 5)
   }, [isDemo, channels, messagesByThread])
 
   const activeBlock = trainingBlocks.find(b => b.status === 'active')

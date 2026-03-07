@@ -45,6 +45,8 @@ export const useAuthStore = create((set, get) => ({
       athleteShoppingLists: JSON.parse(JSON.stringify(MOCK_ATHLETE_SHOPPING_LISTS)),
       boardPlans: JSON.parse(JSON.stringify(MOCK_ATHLETE_MEAL_PLANS)),
     })
+    // Reset messaging store so any prior real-user channels don't block demo seeding
+    useMessagingStore.setState({ channels: [], messagesByThread: {}, directMessages: [], _fetchedThreads: new Set(), _realtimeSubs: {}, _isDemo: false, _demoSeeded: false })
     // Fire-and-forget: persist the mock profile to Supabase if configured
     if (isSupabaseConfigured()) {
       upsertProfile(profile).then((result) => {
@@ -62,6 +64,7 @@ export const useAuthStore = create((set, get) => ({
     useNutritionStore.setState({ athleteRecipes: {}, athletePrepLog: {}, athleteShoppingLists: {}, boardPlans: {}, orgRecipes: [], orgRecipesLoaded: false, nutritionLogs: {} })
     useRosterStore.setState({ athletes: [], reviewQueue: [], loading: false, error: null })
     useProgrammingStore.setState({ templates: [], exercises: [], loading: false })
+    useMessagingStore.setState({ channels: [], messagesByThread: {}, directMessages: [], _fetchedThreads: new Set(), _realtimeSubs: {}, _isDemo: false, _demoSeeded: false })
     useCalendarStore.getState().reset()
     useAnalyticsStore.getState().reset()
     useMeetsStore.getState().reset()
@@ -1232,11 +1235,19 @@ export const useMessagingStore = create((set, get) => ({
   _fetchedThreads: new Set(),
   // active realtime subscription unsubscribe functions keyed by threadId
   _realtimeSubs: {},
+  // whether the store is currently in demo mode (set during initMessaging)
+  _isDemo: false,
+  // whether demo data has been seeded (prevents re-seeding on re-render)
+  _demoSeeded: false,
 
   // ── Init (called once on app load or org change) ───────────────────────
   initMessaging: async (isDemo, orgId, currentUserId) => {
     const existing = get()
-    if (existing.channels.length > 0) return
+    // Guard: skip if already initialised for the same context.
+    // Always re-init when switching into demo mode so mock data isn't blocked
+    // by a previous real-user channel load.
+    if (!isDemo && existing.channels.length > 0) return
+    if (isDemo && existing._demoSeeded) return
 
     if (isDemo) {
       const channels = MOCK_CHANNELS.map((ch) => ({
@@ -1258,7 +1269,7 @@ export const useMessagingStore = create((set, get) => ({
         last_at: '2026-02-28T12:00:00Z',
         unread: { [currentUserId]: dm.unread },
       }))
-      set({ channels, messagesByThread: mockMsgsByChannel, directMessages: dms })
+      set({ channels, messagesByThread: mockMsgsByChannel, directMessages: dms, _demoSeeded: true, _isDemo: true })
       return
     }
 
@@ -1343,8 +1354,13 @@ export const useMessagingStore = create((set, get) => ({
   // ── Messages ──────────────────────────────────────────────────────────
   // Load messages for a thread on first open; wire realtime subscription
   loadMessages: async (threadId) => {
-    const { _fetchedThreads, messagesByThread, _realtimeSubs } = get()
+    const { _fetchedThreads, _isDemo, _realtimeSubs } = get()
     if (_fetchedThreads.has(threadId)) return
+    // In demo mode, messages are pre-seeded — never hit Supabase
+    if (_isDemo) {
+      set((s) => ({ _fetchedThreads: new Set([...s._fetchedThreads, threadId]) }))
+      return
+    }
 
     if (isSupabaseConfigured()) {
       const rows = await sbFetchMessages(threadId)
@@ -1624,15 +1640,15 @@ function _mapMessage(row) {
     thread_id:  row.channel_id,
     sender: {
       id:   row.sender?.id   || row.sender_id,
-      name: row.sender?.display_name || row.sender?.full_name || 'Unknown',
+      name: row.sender?.display_name || row.sender?.full_name || row.sender?.name || 'Unknown',
       role: row.sender?.role || 'athlete',
     },
     content:    row.content,
-    type:       row.message_type || 'text',
-    mediaUrl:   row.media_url  || null,
-    gifUrl:     row.gif_url    || null,
+    type:       row.message_type || row.type || 'text',
+    mediaUrl:   row.media_url  || row.mediaUrl  || null,
+    gifUrl:     row.gif_url    || row.gifUrl    || null,
     formatting: row.formatting || null,
-    timestamp:  row.created_at,
+    timestamp:  row.created_at || row.timestamp,
     edited:     !!row.edited_at,
     is_pinned:  !!row.is_pinned,
     reactions:  _mapReactions(row.reactions || []),
