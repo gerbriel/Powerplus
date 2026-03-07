@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { MOCK_USERS, MOCK_GOALS, MOCK_TRAINING_BLOCKS, MOCK_MEETS, MOCK_ORGS, MOCK_ORG_MEMBERS, MOCK_STAFF_ASSIGNMENTS, MOCK_ATHLETE_RECIPES, MOCK_ATHLETE_PREP_LOG, MOCK_ATHLETE_SHOPPING_LISTS, MOCK_ATHLETE_MEAL_PLANS, MOCK_CHANNELS, MOCK_MESSAGES, MOCK_DIRECT_MESSAGES, MOCK_EXERCISES } from './mockData'
-import { upsertProfile, isSupabaseConfigured, onAuthStateChange, fetchProfile, fetchOrgMemberships, signOut as supabaseSignOut, getSession, fetchChannels as sbFetchChannels, createChannel as sbCreateChannel, updateChannel as sbUpdateChannel, archiveChannel as sbArchiveChannel, fetchMessages as sbFetchMessages, sendMessage as sbSendMessage, editMessage as sbEditMessage, deleteMessage as sbDeleteMessage, toggleReaction as sbToggleReaction, togglePinMessage as sbTogglePinMessage, findOrCreateDM as sbFindOrCreateDM, findOrCreateGroup as sbFindOrCreateGroup, markChannelRead as sbMarkChannelRead, subscribeToChannel as sbSubscribeToChannel, uploadMessageFile as sbUploadMessageFile, subscribeToOrgEvents as sbSubscribeToOrgEvents, fetchOrgAthletes, fetchOrgReviewQueue, fetchExercises, fetchProgramTemplates, fetchOrgTrainingBlocks, fetchPrepLog, fetchShoppingLists, fetchOrgRecipes, fetchNutritionLogs, fetchOrgEvents, fetchUserEvents, fetchAthleteSessions, fetchAthleteWorkoutSets, fetchAthleteCheckIns, fetchAthleteInjuries, fetchOrgWorkoutSessions, fetchOrgWorkoutSets, fetchOrgCheckIns, fetchOrgInjuries, fetchOrgStaffMembers, fetchOrgNutritionLogs, fetchUserMeets, fetchUserTrainingBlocks, fetchUserGoals, fetchAthleteMeetHistory } from './supabase'
+import { upsertProfile, isSupabaseConfigured, onAuthStateChange, fetchProfile, fetchOrgMemberships, signOut as supabaseSignOut, getSession, fetchChannels as sbFetchChannels, createChannel as sbCreateChannel, updateChannel as sbUpdateChannel, archiveChannel as sbArchiveChannel, fetchMessages as sbFetchMessages, sendMessage as sbSendMessage, editMessage as sbEditMessage, deleteMessage as sbDeleteMessage, toggleReaction as sbToggleReaction, togglePinMessage as sbTogglePinMessage, findOrCreateDM as sbFindOrCreateDM, findOrCreateGroup as sbFindOrCreateGroup, markChannelRead as sbMarkChannelRead, subscribeToChannel as sbSubscribeToChannel, uploadMessageFile as sbUploadMessageFile, subscribeToOrgEvents as sbSubscribeToOrgEvents, fetchOrgAthletes, fetchOrgReviewQueue, fetchExercises, fetchProgramTemplates, fetchOrgTrainingBlocks, fetchPrepLog, fetchShoppingLists, fetchOrgRecipes, fetchNutritionLogs, fetchOrgEvents, fetchUserEvents, fetchAthleteSessions, fetchAthleteWorkoutSets, fetchAthleteCheckIns, fetchAthleteInjuries, fetchOrgWorkoutSessions, fetchOrgWorkoutSets, fetchOrgCheckIns, fetchOrgInjuries, fetchOrgStaffMembers, fetchOrgNutritionLogs, fetchUserMeets, fetchUserTrainingBlocks, fetchUserGoals, fetchAthleteMeetHistory, fetchAllOrgsForSuperAdmin, fetchAllPlatformUsers } from './supabase'
 import { saveMessageRecord, updateMessageRecord, saveChannelRecord, updateChannelRecord, saveOrgPublicPage, loadOrgPublicPage, loadOrgLeads, submitIntakeLead, saveLead, removeLead, loadOrgResources, saveNewResource, updateResource, removeResource } from './db'
 import { subscribeToOrgLeads, subscribeToOrgResources } from './supabase'
 
@@ -58,7 +58,7 @@ export const useAuthStore = create((set, get) => ({
   logout: () => {
     // Clear auth state AND all stores so demo/real data can't leak between sessions
     set({ user: null, profile: null, orgMemberships: [], activeOrgId: null, isDemo: false, viewAsAthlete: false })
-    useOrgStore.setState({ orgs: [], staffAssignments: [], websiteLoadedFor: new Set(), resourcesLoadedFor: new Set() })
+    useOrgStore.setState({ orgs: [], staffAssignments: [], platformUsers: [], _allOrgsLoaded: false, websiteLoadedFor: new Set(), resourcesLoadedFor: new Set() })
     useGoalsStore.setState({ goals: [] })
     useTrainingStore.setState({ blocks: [], meets: [] })
     useNutritionStore.setState({ athleteRecipes: {}, athletePrepLog: {}, athleteShoppingLists: {}, boardPlans: {}, orgRecipes: [], orgRecipesLoaded: false, nutritionLogs: {} })
@@ -82,7 +82,7 @@ export const useAuthStore = create((set, get) => ({
     }
     set({ isLoading: true })
     // Clear any demo data that may have been loaded in a prior demo session
-    useOrgStore.setState({ orgs: [], staffAssignments: [], websiteLoadedFor: new Set(), resourcesLoadedFor: new Set() })
+    useOrgStore.setState({ orgs: [], staffAssignments: [], platformUsers: [], _allOrgsLoaded: false, websiteLoadedFor: new Set(), resourcesLoadedFor: new Set() })
     useGoalsStore.setState({ goals: [] })
     useTrainingStore.setState({ blocks: [], meets: [] })
     useNutritionStore.setState({ athleteRecipes: {}, athletePrepLog: {}, athleteShoppingLists: {}, boardPlans: {}, orgRecipes: [], orgRecipesLoaded: false, nutritionLogs: {} })
@@ -174,7 +174,7 @@ export const useAuthStore = create((set, get) => ({
     if (isSupabaseConfigured()) await supabaseSignOut()
     set({ user: null, profile: null, orgMemberships: [], activeOrgId: null, isDemo: false, viewAsAthlete: false })
     // Clear all stores back to empty (remove any demo or real user data)
-    useOrgStore.setState({ orgs: [], staffAssignments: [], websiteLoadedFor: new Set(), resourcesLoadedFor: new Set() })
+    useOrgStore.setState({ orgs: [], staffAssignments: [], platformUsers: [], _allOrgsLoaded: false, websiteLoadedFor: new Set(), resourcesLoadedFor: new Set() })
     useGoalsStore.setState({ goals: [] })
     useTrainingStore.setState({ blocks: [], meets: [] })
     useNutritionStore.setState({ athleteRecipes: {}, athletePrepLog: {}, athleteShoppingLists: {}, boardPlans: {} })
@@ -508,8 +508,24 @@ export const useTrainingStore = create((set) => ({
 export const useOrgStore = create((set, get) => ({
   orgs: [],
   staffAssignments: [],
+  platformUsers: [],          // super_admin only: all platform user profiles
+  _allOrgsLoaded: false,      // guard to prevent double-fetching
   // Track which orgs have had their website data loaded from Supabase
   websiteLoadedFor: new Set(),
+
+  // Super-admin: load ALL organizations + members + invitations from Supabase
+  loadAllOrgs: async () => {
+    if (get()._allOrgsLoaded) return
+    set({ _allOrgsLoaded: true })
+    const orgs = await fetchAllOrgsForSuperAdmin()
+    set({ orgs })
+  },
+
+  // Super-admin: load all platform user profiles
+  loadPlatformUsers: async () => {
+    const users = await fetchAllPlatformUsers()
+    set({ platformUsers: users })
+  },
 
   // Get a single org by id
   getOrg: (orgId) => get().orgs.find((o) => o.id === orgId),

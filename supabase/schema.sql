@@ -954,6 +954,13 @@ create or replace function get_my_org_ids()
     select coalesce(array_agg(org_id), '{}') from org_members where user_id = auth.uid()
   $$ language sql security definer stable;
 
+-- Returns true if the calling user has platform_role = 'super_admin'.
+-- Security-definer so it bypasses RLS when checking the profiles table.
+create or replace function is_platform_super_admin()
+  returns boolean as $$
+    select exists (select 1 from profiles where id = auth.uid() and platform_role = 'super_admin')
+  $$ language sql security definer stable;
+
 -- ============================================================
 -- RLS POLICIES (all idempotent via DROP IF EXISTS before CREATE)
 -- ============================================================
@@ -961,13 +968,15 @@ create or replace function get_my_org_ids()
 -- ── profiles ──────────────────────────────────────────────────
 drop policy if exists "profiles: any org member can read" on profiles;
 -- Allow reading profiles of users who share at least one org, plus your own profile.
+-- Super-admin can read all profiles.
 -- Uses get_my_org_ids() (security-definer) to avoid RLS recursion:
 --   profiles SELECT → org_members (direct join) → get_my_org_ids() → org_members = infinite loop.
 -- Instead we look up our org list once via the helper, then check if the target profile
 -- is a member of any of those orgs.
 create policy "profiles: any org member can read" on profiles for select
   using (
-    id = auth.uid()
+    is_platform_super_admin()
+    or id = auth.uid()
     or exists (
       select 1 from org_members
       where user_id = profiles.id
@@ -987,7 +996,10 @@ create policy "profiles: owner can delete" on profiles for delete using (auth.ui
 -- ── organizations ─────────────────────────────────────────────
 drop policy if exists "orgs: members can read" on organizations;
 create policy "orgs: members can read" on organizations for select
-  using (exists (select 1 from org_members where org_id = organizations.id and user_id = auth.uid()));
+  using (
+    is_platform_super_admin()
+    or exists (select 1 from org_members where org_id = organizations.id and user_id = auth.uid())
+  );
 
 drop policy if exists "orgs: owner can update" on organizations;
 create policy "orgs: owner can update" on organizations for update
@@ -1007,7 +1019,7 @@ create policy "orgs: owner can delete" on organizations for delete
 drop policy if exists "org_members: member can view own org" on org_members;
 -- Uses security-definer helper to avoid infinite recursion (can't query org_members from inside itself).
 create policy "org_members: member can view own org" on org_members for select
-  using (org_id = any(get_my_org_ids()));
+  using (is_platform_super_admin() or org_id = any(get_my_org_ids()));
 
 drop policy if exists "org_members: owner/head_coach can manage" on org_members;
 create policy "org_members: owner/head_coach can manage" on org_members for all
@@ -1020,7 +1032,10 @@ create policy "invitations: org admins can manage" on org_invitations for all
 
 drop policy if exists "invitations: invitee can read own" on org_invitations;
 create policy "invitations: invitee can read own" on org_invitations for select
-  using (invited_email = (select email from profiles where id = auth.uid()));
+  using (
+    is_platform_super_admin()
+    or invited_email = (select email from profiles where id = auth.uid())
+  );
 
 -- ── org_join_requests ─────────────────────────────────────────
 drop policy if exists "Users can create join requests" on org_join_requests;

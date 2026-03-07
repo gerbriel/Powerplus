@@ -1643,6 +1643,74 @@ export async function deleteResourceRecord(resourceId) {
 }
 
 /**
+ * Super-admin only: fetch ALL organizations with their members and invitations.
+ * Returns an array of org objects shaped to match the store's org format.
+ */
+export async function fetchAllOrgsForSuperAdmin() {
+  if (!isSupabaseConfigured()) return []
+  const { data: orgs, error: orgErr } = await supabase
+    .from('organizations')
+    .select('*')
+    .order('created_at', { ascending: false })
+  if (orgErr) { console.error('[supabase] fetchAllOrgs:', orgErr.message); return [] }
+
+  // Fetch all members and invitations in parallel
+  const { data: members } = await supabase
+    .from('org_members')
+    .select('*, profiles(id, full_name, display_name, email, avatar_url, role)')
+  const { data: invitations } = await supabase
+    .from('org_invitations')
+    .select('*')
+
+  const membersMap = {}
+  const invitationsMap = {}
+  ;(members || []).forEach((m) => {
+    if (!membersMap[m.org_id]) membersMap[m.org_id] = []
+    membersMap[m.org_id].push({
+      user_id:    m.user_id,
+      full_name:  m.profiles?.full_name || m.profiles?.display_name || m.profiles?.email || '',
+      email:      m.profiles?.email || '',
+      role:       m.org_role,
+      org_role:   m.org_role,
+      is_self_athlete: m.is_self_athlete,
+      status:     m.status,
+      joined_at:  m.joined_at ? m.joined_at.slice(0, 10) : '',
+    })
+  })
+  ;(invitations || []).forEach((i) => {
+    if (!invitationsMap[i.org_id]) invitationsMap[i.org_id] = []
+    invitationsMap[i.org_id].push({
+      id:       i.id,
+      email:    i.invited_email,
+      role:     i.org_role,
+      org_role: i.org_role,
+      status:   i.status,
+      sent_at:  i.sent_at ? i.sent_at.slice(0, 10) : '',
+    })
+  })
+
+  return orgs.map((o) => ({
+    ...o,
+    members:      membersMap[o.id]      || [],
+    invitations:  invitationsMap[o.id]  || [],
+    activity_log: [],
+  }))
+}
+
+/**
+ * Super-admin only: fetch ALL platform user profiles.
+ */
+export async function fetchAllPlatformUsers() {
+  if (!isSupabaseConfigured()) return []
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id, full_name, display_name, email, avatar_url, role, platform_role, created_at')
+    .order('created_at', { ascending: false })
+  if (error) { console.error('[supabase] fetchAllPlatformUsers:', error.message); return [] }
+  return data ?? []
+}
+
+/**
  * Realtime subscription — fires callback on INSERT/UPDATE/DELETE in the resources table for an org.
  * Returns an unsubscribe function.
  */

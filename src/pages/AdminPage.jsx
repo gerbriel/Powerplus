@@ -66,9 +66,18 @@ function activityDot(type) {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export function AdminPage() {
   const { profile } = useAuthStore()
+  const { loadAllOrgs, loadPlatformUsers } = useOrgStore()
   const isSuperAdmin = profile?.platform_role === 'super_admin' || profile?.role === 'super_admin'
   const isHeadCoach = profile?.role === 'head_coach' || profile?.role === 'admin' || profile?.org_role === 'head_coach' || profile?.org_role === 'owner'
   const canManage = isSuperAdmin || isHeadCoach
+
+  // Load real Supabase data for super_admin on mount
+  useEffect(() => {
+    if (isSuperAdmin) {
+      loadAllOrgs()
+      loadPlatformUsers()
+    }
+  }, [isSuperAdmin]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const SUPER_TABS = [
     { id: 'orgs',      label: 'Organizations' },
@@ -166,7 +175,7 @@ function PlatformAnalyticsTab() {
   const totalARR = totalMRR * 12
   const activeOrgs = orgs.filter((o) => o.status === 'active').length
   const suspendedOrgs = orgs.filter((o) => o.status === 'suspended').length
-  const totalUsers = orgs.reduce((s, o) => s + o.members.length, 0)
+  const totalUsers = orgs.reduce((s, o) => s + (o.members || []).length, 0)
   const paidOrgs = orgs.filter((o) => o.plan !== 'starter' && o.status === 'active').length
   const conversionRate = orgs.length > 0 ? Math.round((paidOrgs / orgs.length) * 100) : 0
   const totalStorage = orgs.reduce((s, o) => s + (o.storage_gb_used || 0), 0)
@@ -292,7 +301,7 @@ function PlatformAnalyticsTab() {
               ))
             )}
             {orgs.filter((o) => {
-              const athletePct = (o.members.filter((m) => m.role === 'athlete').length / o.athlete_limit) * 100
+              const athletePct = ((o.members || []).filter((m) => (m.org_role || m.role) === 'athlete').length / (o.athlete_limit || 10)) * 100
               return athletePct >= 90 && o.status === 'active'
             }).map((o) => (
               <div key={o.id + '-limit'} className="flex items-center gap-3 p-2 bg-yellow-500/5 border border-yellow-500/15 rounded-lg">
@@ -312,36 +321,18 @@ function PlatformAnalyticsTab() {
 
 // ─── Platform Users (Super Admin) ─────────────────────────────────────────────
 function PlatformUsersTab() {
-  const { orgs } = useOrgStore()
+  const { platformUsers } = useOrgStore()
   const [search, setSearch] = useState('')
 
-  // Flatten all unique users across orgs
-  const allUsers = useMemo(() => {
-    const seen = new Set()
-    const users = []
-    orgs.forEach((org) => {
-      org.members.forEach((m) => {
-        if (!seen.has(m.user_id)) {
-          seen.add(m.user_id)
-          users.push({
-            ...m,
-            orgs: orgs.filter((o) => o.members.some((mm) => mm.user_id === m.user_id)).map((o) => o.name),
-          })
-        }
-      })
-    })
-    return users
-  }, [orgs])
-
-  const filtered = allUsers.filter(
+  const filtered = platformUsers.filter(
     (u) =>
-      u.full_name.toLowerCase().includes(search.toLowerCase()) ||
-      u.email.toLowerCase().includes(search.toLowerCase())
+      (u.full_name || u.display_name || '').toLowerCase().includes(search.toLowerCase()) ||
+      (u.email || '').toLowerCase().includes(search.toLowerCase())
   )
 
-  const totalPlatformUsers = allUsers.length
-  const staffCount = allUsers.filter((u) => u.role !== 'athlete').length
-  const athleteCount = allUsers.filter((u) => u.role === 'athlete').length
+  const totalPlatformUsers = platformUsers.length
+  const staffCount = platformUsers.filter((u) => u.role !== 'athlete' && u.platform_role !== 'super_admin').length
+  const athleteCount = platformUsers.filter((u) => u.role === 'athlete').length
 
   return (
     <div className="space-y-5">
@@ -375,29 +366,31 @@ function PlatformUsersTab() {
               </thead>
               <tbody>
                 {filtered.map((u, i) => (
-                  <tr key={u.user_id} className={`border-b border-zinc-800/60 last:border-0 ${i % 2 === 0 ? 'bg-zinc-800/10' : ''}`}>
+                  <tr key={u.id} className={`border-b border-zinc-800/60 last:border-0 ${i % 2 === 0 ? 'bg-zinc-800/10' : ''}`}>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2.5">
-                        <Avatar name={u.full_name} size="xs" />
+                        <Avatar name={u.full_name || u.display_name || u.email} size="xs" />
                         <div>
-                          <p className="text-zinc-200 font-medium text-sm">{u.full_name}</p>
+                          <p className="text-zinc-200 font-medium text-sm">{u.full_name || u.display_name || u.email}</p>
                           <p className="text-xs text-zinc-500">{u.email}</p>
                         </div>
                       </div>
                     </td>
                     <td className="px-4 py-3">
-                      <Badge color={roleBadge(u.role)} className="capitalize">
-                        {u.role === 'admin' ? 'Head Coach' : u.role}
-                      </Badge>
+                      {u.platform_role === 'super_admin' ? (
+                        <Badge color="red">Super Admin</Badge>
+                      ) : (
+                        <Badge color={roleBadge(u.role)} className="capitalize">
+                          {u.role === 'head_coach' ? 'Head Coach' : u.role || 'user'}
+                        </Badge>
+                      )}
                     </td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-wrap gap-1">
-                        {u.orgs.map((name) => (
-                          <span key={name} className="text-xs text-zinc-400 bg-zinc-800 px-2 py-0.5 rounded-md">{name}</span>
-                        ))}
-                      </div>
+                    <td className="px-4 py-3 text-xs text-zinc-500">
+                      {u.platform_role === 'super_admin' ? 'Platform' : '—'}
                     </td>
-                    <td className="px-4 py-3 text-xs text-zinc-500">{u.joined_at}</td>
+                    <td className="px-4 py-3 text-xs text-zinc-500">
+                      {u.created_at ? new Date(u.created_at).toLocaleDateString() : '—'}
+                    </td>
                   </tr>
                 ))}
                 {filtered.length === 0 && (
@@ -437,7 +430,7 @@ function PlatformBillingTab() {
           {paidOrgs.map((org) => {
             const planInfo = PLAN_META[org.plan] || PLAN_META.starter
             const mrr = PLAN_MRR[org.plan] || 0
-            const athletes = org.members.filter((m) => m.role === 'athlete').length
+            const athletes = (org.members || []).filter((m) => (m.org_role || m.role) === 'athlete').length
             return (
               <Card key={org.id}>
                 <div className="flex items-center gap-4">
@@ -452,7 +445,7 @@ function PlatformBillingTab() {
                     </div>
                     <div className="flex items-center gap-4 mt-1 text-xs text-zinc-500">
                       <span>{athletes} athletes</span>
-                      <span>Created {org.created_at}</span>
+                      <span>Created {org.created_at ? new Date(org.created_at).toLocaleDateString() : '—'}</span>
                       <span>{org.federation || 'No federation'}</span>
                     </div>
                   </div>
@@ -472,8 +465,8 @@ function PlatformBillingTab() {
         <p className="text-xs text-zinc-500 uppercase tracking-wide font-semibold mb-3">Free tier — upsell candidates</p>
         <div className="space-y-2">
           {orgs.filter((o) => o.plan === 'starter').map((org) => {
-            const athletes = org.members.filter((m) => m.role === 'athlete').length
-            const pct = (athletes / org.athlete_limit) * 100
+            const athletes = (org.members || []).filter((m) => (m.org_role || m.role) === 'athlete').length
+            const pct = (athletes / (org.athlete_limit || 10)) * 100
             return (
               <div key={org.id} className="flex items-center gap-4 p-3 bg-zinc-900 border border-zinc-700 rounded-xl">
                 <div className="flex-1 min-w-0">
@@ -1383,7 +1376,7 @@ function AthleteDrilldown({ athlete: a, org, onBack }) {
 
 // ─── Super Admin: All Organizations ──────────────────────────────────────────
 function SuperAdminOrgsTab() {
-  const { orgs, createOrg, updateOrg, deleteOrg, toggleOrgStatus } = useOrgStore()
+  const { orgs, _allOrgsLoaded, createOrg, updateOrg, deleteOrg, toggleOrgStatus } = useOrgStore()
   const [search, setSearch] = useState('')
   const [createOpen, setCreateOpen] = useState(false)
   const [editTarget, setEditTarget] = useState(null)
@@ -1391,14 +1384,19 @@ function SuperAdminOrgsTab() {
   const [expandedOrg, setExpandedOrg] = useState(null)
 
   const filtered = orgs.filter(
-    (o) => o.name.toLowerCase().includes(search.toLowerCase()) || o.slug.toLowerCase().includes(search.toLowerCase())
+    (o) => (o.name || '').toLowerCase().includes(search.toLowerCase()) || (o.slug || '').toLowerCase().includes(search.toLowerCase())
   )
-  const totalAthletes = orgs.reduce((s, o) => s + o.members.filter((m) => m.role === 'athlete').length, 0)
-  const totalStaff = orgs.reduce((s, o) => s + o.members.filter((m) => m.role !== 'athlete').length, 0)
+  const totalAthletes = orgs.reduce((s, o) => s + (o.members || []).filter((m) => m.role === 'athlete' || m.org_role === 'athlete').length, 0)
+  const totalStaff = orgs.reduce((s, o) => s + (o.members || []).filter((m) => m.role !== 'athlete' && m.org_role !== 'athlete').length, 0)
   const activeOrgs = orgs.filter((o) => o.status === 'active').length
 
   return (
     <div className="space-y-5">
+      {!_allOrgsLoaded && orgs.length === 0 && (
+        <div className="flex items-center justify-center py-12 text-zinc-500">
+          <RefreshCw className="w-5 h-5 animate-spin mr-2" /> Loading organizations…
+        </div>
+      )}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <StatCard label="Total Orgs" value={orgs.length} icon={Building2} color="purple" />
         <StatCard label="Active Orgs" value={activeOrgs} icon={CheckCircle2} color="green" />
@@ -1422,10 +1420,18 @@ function SuperAdminOrgsTab() {
       </div>
 
       <div className="space-y-3">
+        {_allOrgsLoaded && filtered.length === 0 && (
+          <Card>
+            <CardBody className="py-10 text-center text-zinc-500">
+              <Building2 className="w-8 h-8 mx-auto mb-3 opacity-40" />
+              <p className="text-sm">{search ? 'No organizations match your search' : 'No organizations yet'}</p>
+            </CardBody>
+          </Card>
+        )}
         {filtered.map((org) => {
-          const athletes = org.members.filter((m) => m.role === 'athlete').length
-          const staff = org.members.filter((m) => m.role !== 'athlete').length
-          const pendingInvites = org.invitations.filter((i) => i.status === 'pending').length
+          const athletes = (org.members || []).filter((m) => (m.org_role || m.role) === 'athlete').length
+          const staff = (org.members || []).filter((m) => (m.org_role || m.role) !== 'athlete').length
+          const pendingInvites = (org.invitations || []).filter((i) => i.status === 'pending').length
           const planInfo = PLAN_META[org.plan] || PLAN_META.starter
           const isExpanded = expandedOrg === org.id
 
@@ -1444,7 +1450,7 @@ function SuperAdminOrgsTab() {
                     <span className="flex items-center gap-1"><Users className="w-3 h-3" />{athletes} athletes</span>
                     <span className="flex items-center gap-1"><Shield className="w-3 h-3" />{staff} staff</span>
                     {pendingInvites > 0 && <span className="flex items-center gap-1 text-yellow-400"><Mail className="w-3 h-3" />{pendingInvites} pending</span>}
-                    <span className="text-zinc-600">Created {org.created_at}</span>
+                    <span className="text-zinc-600">Created {org.created_at ? new Date(org.created_at).toLocaleDateString() : '—'}</span>
                   </div>
                 </div>
                 <div className="flex items-center gap-1.5 flex-shrink-0">
@@ -1479,24 +1485,24 @@ function SuperAdminOrgsTab() {
               {isExpanded && (
                 <div className="mt-4 pt-4 border-t border-zinc-800 space-y-2">
                   <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wide mb-2">Members ({org.members.length})</p>
-                  {org.members.map((m) => (
+                  {(org.members || []).map((m) => (
                     <div key={m.user_id} className="flex items-center gap-3 py-1">
                       <Avatar name={m.full_name} size="xs" />
                       <div className="flex-1 min-w-0">
                         <span className="text-sm text-zinc-200">{m.full_name}</span>
                         <span className="text-xs text-zinc-500 ml-2">{m.email}</span>
                       </div>
-                      <Badge color={roleBadge(m.role)} className="capitalize">{m.role}</Badge>
+                      <Badge color={roleBadge(m.org_role || m.role)} className="capitalize">{m.org_role || m.role}</Badge>
                     </div>
                   ))}
-                  {org.invitations.filter((i) => i.status === 'pending').map((inv) => (
+                  {(org.invitations || []).filter((i) => i.status === 'pending').map((inv) => (
                     <div key={inv.id} className="flex items-center gap-3 py-1 opacity-60">
                       <div className="w-6 h-6 rounded-full bg-zinc-700 flex items-center justify-center"><Mail className="w-3 h-3 text-zinc-400" /></div>
                       <div className="flex-1 min-w-0">
                         <span className="text-sm text-zinc-300">{inv.email}</span>
                         <span className="text-xs text-zinc-500 ml-2">invited {inv.sent_at}</span>
                       </div>
-                      <Badge color="yellow" className="capitalize">Invited · {inv.role}</Badge>
+                      <Badge color="yellow" className="capitalize">Invited · {inv.org_role || inv.role}</Badge>
                     </div>
                   ))}
                   <div className="mt-3 pt-3 border-t border-zinc-800/60 grid grid-cols-3 gap-3">
