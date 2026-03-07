@@ -1585,3 +1585,76 @@ export async function fetchPublicOrgBySlug(slug) {
   }))
   return { org, page, staff }
 }
+
+// ─── Resources ────────────────────────────────────────────────────────────────
+
+/**
+ * Fetch all published resources for an org (athletes see published only via RLS).
+ * Coaches see all via the "coaches can manage" policy.
+ */
+export async function fetchOrgResources(orgId) {
+  if (!orgId) return []
+  const { data, error } = await supabase
+    .from('resources')
+    .select('id, org_id, created_by, title, content, category, file_url, video_url, is_published, tags, created_at, updated_at')
+    .eq('org_id', orgId)
+    .order('updated_at', { ascending: false })
+  if (error) { console.error('[supabase] fetchOrgResources:', error.message); return [] }
+  return data || []
+}
+
+/**
+ * Insert a new resource. Returns the inserted row or null.
+ */
+export async function insertResource(orgId, resource) {
+  const { data, error } = await supabase
+    .from('resources')
+    .insert({ org_id: orgId, ...resource })
+    .select()
+    .single()
+  if (error) { console.error('[supabase] insertResource:', error.message); return null }
+  return data
+}
+
+/**
+ * Update a resource by id. Returns the updated row or null.
+ */
+export async function updateResourceRecord(resourceId, updates) {
+  const { data, error } = await supabase
+    .from('resources')
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq('id', resourceId)
+    .select()
+    .single()
+  if (error) { console.error('[supabase] updateResourceRecord:', error.message); return null }
+  return data
+}
+
+/**
+ * Delete a resource by id.
+ */
+export async function deleteResourceRecord(resourceId) {
+  const { error } = await supabase
+    .from('resources')
+    .delete()
+    .eq('id', resourceId)
+  if (error) { console.error('[supabase] deleteResourceRecord:', error.message); return false }
+  return true
+}
+
+/**
+ * Realtime subscription — fires callback on INSERT/UPDATE/DELETE in the resources table for an org.
+ * Returns an unsubscribe function.
+ */
+export function subscribeToOrgResources(orgId, cb) {
+  const channel = supabase
+    .channel(`resources:${orgId}`)
+    .on('postgres_changes', {
+      event: '*',
+      schema: 'public',
+      table: 'resources',
+      filter: `org_id=eq.${orgId}`,
+    }, (payload) => cb(payload))
+    .subscribe()
+  return () => supabase.removeChannel(channel)
+}

@@ -1,8 +1,8 @@
 import { create } from 'zustand'
 import { MOCK_USERS, MOCK_GOALS, MOCK_TRAINING_BLOCKS, MOCK_MEETS, MOCK_ORGS, MOCK_ORG_MEMBERS, MOCK_STAFF_ASSIGNMENTS, MOCK_ATHLETE_RECIPES, MOCK_ATHLETE_PREP_LOG, MOCK_ATHLETE_SHOPPING_LISTS, MOCK_ATHLETE_MEAL_PLANS, MOCK_CHANNELS, MOCK_MESSAGES, MOCK_DIRECT_MESSAGES, MOCK_EXERCISES } from './mockData'
 import { upsertProfile, isSupabaseConfigured, onAuthStateChange, fetchProfile, fetchOrgMemberships, signOut as supabaseSignOut, getSession, fetchChannels as sbFetchChannels, createChannel as sbCreateChannel, updateChannel as sbUpdateChannel, archiveChannel as sbArchiveChannel, fetchMessages as sbFetchMessages, sendMessage as sbSendMessage, editMessage as sbEditMessage, deleteMessage as sbDeleteMessage, toggleReaction as sbToggleReaction, togglePinMessage as sbTogglePinMessage, findOrCreateDM as sbFindOrCreateDM, findOrCreateGroup as sbFindOrCreateGroup, markChannelRead as sbMarkChannelRead, subscribeToChannel as sbSubscribeToChannel, uploadMessageFile as sbUploadMessageFile, subscribeToOrgEvents as sbSubscribeToOrgEvents, fetchOrgAthletes, fetchOrgReviewQueue, fetchExercises, fetchProgramTemplates, fetchOrgTrainingBlocks, fetchPrepLog, fetchShoppingLists, fetchOrgRecipes, fetchNutritionLogs, fetchOrgEvents, fetchUserEvents, fetchAthleteSessions, fetchAthleteWorkoutSets, fetchAthleteCheckIns, fetchAthleteInjuries, fetchOrgWorkoutSessions, fetchOrgWorkoutSets, fetchOrgCheckIns, fetchOrgInjuries, fetchOrgStaffMembers, fetchOrgNutritionLogs, fetchUserMeets, fetchUserTrainingBlocks, fetchUserGoals, fetchAthleteMeetHistory } from './supabase'
-import { saveMessageRecord, updateMessageRecord, saveChannelRecord, updateChannelRecord, saveOrgPublicPage, loadOrgPublicPage, loadOrgLeads, submitIntakeLead, saveLead, removeLead } from './db'
-import { subscribeToOrgLeads } from './supabase'
+import { saveMessageRecord, updateMessageRecord, saveChannelRecord, updateChannelRecord, saveOrgPublicPage, loadOrgPublicPage, loadOrgLeads, submitIntakeLead, saveLead, removeLead, loadOrgResources, saveNewResource, updateResource, removeResource } from './db'
+import { subscribeToOrgLeads, subscribeToOrgResources } from './supabase'
 
 export const useAuthStore = create((set, get) => ({
   user: null,
@@ -56,7 +56,7 @@ export const useAuthStore = create((set, get) => ({
   logout: () => {
     // Clear auth state AND all stores so demo/real data can't leak between sessions
     set({ user: null, profile: null, orgMemberships: [], activeOrgId: null, isDemo: false, viewAsAthlete: false })
-    useOrgStore.setState({ orgs: [], staffAssignments: [], websiteLoadedFor: new Set() })
+    useOrgStore.setState({ orgs: [], staffAssignments: [], websiteLoadedFor: new Set(), resourcesLoadedFor: new Set() })
     useGoalsStore.setState({ goals: [] })
     useTrainingStore.setState({ blocks: [], meets: [] })
     useNutritionStore.setState({ athleteRecipes: {}, athletePrepLog: {}, athleteShoppingLists: {}, boardPlans: {}, orgRecipes: [], orgRecipesLoaded: false, nutritionLogs: {} })
@@ -79,7 +79,7 @@ export const useAuthStore = create((set, get) => ({
     }
     set({ isLoading: true })
     // Clear any demo data that may have been loaded in a prior demo session
-    useOrgStore.setState({ orgs: [], staffAssignments: [], websiteLoadedFor: new Set() })
+    useOrgStore.setState({ orgs: [], staffAssignments: [], websiteLoadedFor: new Set(), resourcesLoadedFor: new Set() })
     useGoalsStore.setState({ goals: [] })
     useTrainingStore.setState({ blocks: [], meets: [] })
     useNutritionStore.setState({ athleteRecipes: {}, athletePrepLog: {}, athleteShoppingLists: {}, boardPlans: {}, orgRecipes: [], orgRecipesLoaded: false, nutritionLogs: {} })
@@ -162,7 +162,7 @@ export const useAuthStore = create((set, get) => ({
     if (isSupabaseConfigured()) await supabaseSignOut()
     set({ user: null, profile: null, orgMemberships: [], activeOrgId: null, isDemo: false, viewAsAthlete: false })
     // Clear all stores back to empty (remove any demo or real user data)
-    useOrgStore.setState({ orgs: [], staffAssignments: [], websiteLoadedFor: new Set() })
+    useOrgStore.setState({ orgs: [], staffAssignments: [], websiteLoadedFor: new Set(), resourcesLoadedFor: new Set() })
     useGoalsStore.setState({ goals: [] })
     useTrainingStore.setState({ blocks: [], meets: [] })
     useNutritionStore.setState({ athleteRecipes: {}, athletePrepLog: {}, athleteShoppingLists: {}, boardPlans: {} })
@@ -884,6 +884,91 @@ export const useOrgStore = create((set, get) => ({
       }))
     })
     return () => channel?.unsubscribe?.()
+  },
+
+  // ── Resources ────────────────────────────────────────────────────────────
+  // Track which orgs have had resources loaded
+  resourcesLoadedFor: new Set(),
+
+  loadOrgResources: async (orgId) => {
+    if (!orgId) return
+    if (get().resourcesLoadedFor.has(orgId)) return
+    const resources = await loadOrgResources(orgId)
+    set((s) => ({
+      resourcesLoadedFor: new Set([...s.resourcesLoadedFor, orgId]),
+      orgs: s.orgs.map((o) => o.id !== orgId ? o : { ...o, resources: resources || [] }),
+    }))
+  },
+
+  addResource: async (orgId, createdBy, resource) => {
+    // Optimistic local add
+    const tempId = `res-${Date.now()}`
+    const optimistic = {
+      id: tempId,
+      org_id: orgId,
+      created_by: createdBy,
+      is_published: resource.is_published !== false,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      tags: resource.tags || [],
+      ...resource,
+    }
+    set((s) => ({
+      orgs: s.orgs.map((o) =>
+        o.id !== orgId ? o : { ...o, resources: [optimistic, ...(o.resources || [])] }
+      ),
+    }))
+    const saved = await saveNewResource(orgId, createdBy, resource).catch(() => null)
+    if (saved) {
+      set((s) => ({
+        orgs: s.orgs.map((o) =>
+          o.id !== orgId ? o : {
+            ...o,
+            resources: (o.resources || []).map((r) => r.id === tempId ? saved : r),
+          }
+        ),
+      }))
+    }
+    return saved
+  },
+
+  updateResource: (orgId, resourceId, updates) => {
+    set((s) => ({
+      orgs: s.orgs.map((o) =>
+        o.id !== orgId ? o : {
+          ...o,
+          resources: (o.resources || []).map((r) =>
+            r.id === resourceId ? { ...r, ...updates, updated_at: new Date().toISOString() } : r
+          ),
+        }
+      ),
+    }))
+    updateResource(resourceId, updates).catch(() => {})
+  },
+
+  deleteResource: (orgId, resourceId) => {
+    set((s) => ({
+      orgs: s.orgs.map((o) =>
+        o.id !== orgId ? o : { ...o, resources: (o.resources || []).filter((r) => r.id !== resourceId) }
+      ),
+    }))
+    removeResource(resourceId).catch(() => {})
+  },
+
+  subscribeResources: (orgId) => {
+    return subscribeToOrgResources(orgId, (payload) => {
+      const { eventType, new: rec, old } = payload
+      set((s) => ({
+        orgs: s.orgs.map((o) => {
+          if (o.id !== orgId) return o
+          const list = o.resources || []
+          if (eventType === 'INSERT') return { ...o, resources: [rec, ...list.filter((r) => r.id !== rec.id)] }
+          if (eventType === 'UPDATE') return { ...o, resources: list.map((r) => r.id === rec.id ? rec : r) }
+          if (eventType === 'DELETE') return { ...o, resources: list.filter((r) => r.id !== old.id) }
+          return o
+        }),
+      }))
+    })
   },
 }))
 

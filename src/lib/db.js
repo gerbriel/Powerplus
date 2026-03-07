@@ -16,7 +16,7 @@
  *  - Date strings are validated as ISO dates; invalid dates become null
  */
 
-import { supabase, isSupabaseConfigured, createChannel, sendMessage, editMessage, updateChannel, upsertOrgPublicPage as sbUpsertOrgPublicPage, fetchOrgPublicPage as sbFetchOrgPublicPage, fetchOrgLeads as sbFetchOrgLeads, insertLead as sbInsertLead, updateLeadRecord as sbUpdateLeadRecord, deleteLeadRecord as sbDeleteLeadRecord } from './supabase'
+import { supabase, isSupabaseConfigured, createChannel, sendMessage, editMessage, updateChannel, upsertOrgPublicPage as sbUpsertOrgPublicPage, fetchOrgPublicPage as sbFetchOrgPublicPage, fetchOrgLeads as sbFetchOrgLeads, insertLead as sbInsertLead, updateLeadRecord as sbUpdateLeadRecord, deleteLeadRecord as sbDeleteLeadRecord, fetchOrgResources as sbFetchOrgResources, insertResource as sbInsertResource, updateResourceRecord as sbUpdateResourceRecord, deleteResourceRecord as sbDeleteResourceRecord } from './supabase'
 
 // ─── Sanitization utilities ───────────────────────────────────────────────────
 
@@ -1337,4 +1337,67 @@ export async function saveLead(leadId, updates) {
 export async function removeLead(leadId) {
   if (!isSupabaseConfigured() || !leadId) return false
   return sbDeleteLeadRecord(leadId)
+}
+
+// ─── Resources ────────────────────────────────────────────────────────────────
+
+const VALID_RESOURCE_CATEGORIES = ['technique', 'meet_day', 'recovery', 'nutrition', 'rules', 'general']
+
+/**
+ * Fetch all resources for an org.
+ */
+export async function loadOrgResources(orgId) {
+  if (!isSupabaseConfigured() || !orgId) return []
+  return sbFetchOrgResources(orgId)
+}
+
+/**
+ * Sanitize + insert a new resource.
+ */
+export async function saveNewResource(orgId, createdBy, resource) {
+  if (!isSupabaseConfigured() || !orgId) return null
+  const category = VALID_RESOURCE_CATEGORIES.includes(resource.category) ? resource.category : 'general'
+  const tags = Array.isArray(resource.tags)
+    ? resource.tags.map((t) => sanitizeText(t, 50)).filter(Boolean).slice(0, 10)
+    : []
+  const clean = {
+    created_by:   createdBy || null,
+    title:        sanitizeText(resource.title, 200) || 'Untitled',
+    content:      sanitizeText(resource.content, 50000) || '',
+    category,
+    file_url:     sanitizeText(resource.file_url, 500) || null,
+    video_url:    sanitizeText(resource.video_url, 500) || null,
+    is_published: resource.is_published !== false,
+    tags,
+  }
+  return sbInsertResource(orgId, clean)
+}
+
+/**
+ * Sanitize + update an existing resource.
+ */
+export async function updateResource(resourceId, updates) {
+  if (!isSupabaseConfigured() || !resourceId) return null
+  const clean = {}
+  if (updates.title !== undefined)        clean.title        = sanitizeText(updates.title, 200) || 'Untitled'
+  if (updates.content !== undefined)      clean.content      = sanitizeText(updates.content, 50000) ?? ''
+  if (updates.category !== undefined && VALID_RESOURCE_CATEGORIES.includes(updates.category)) {
+    clean.category = updates.category
+  }
+  if (updates.file_url !== undefined)     clean.file_url     = sanitizeText(updates.file_url, 500) || null
+  if (updates.video_url !== undefined)    clean.video_url    = sanitizeText(updates.video_url, 500) || null
+  if (updates.is_published !== undefined) clean.is_published = Boolean(updates.is_published)
+  if (updates.tags !== undefined && Array.isArray(updates.tags)) {
+    clean.tags = updates.tags.map((t) => sanitizeText(t, 50)).filter(Boolean).slice(0, 10)
+  }
+  if (!Object.keys(clean).length) return null
+  return sbUpdateResourceRecord(resourceId, clean)
+}
+
+/**
+ * Delete a resource.
+ */
+export async function removeResource(resourceId) {
+  if (!isSupabaseConfigured() || !resourceId) return false
+  return sbDeleteResourceRecord(resourceId)
 }
