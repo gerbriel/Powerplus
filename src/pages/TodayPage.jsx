@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Zap, CheckCircle2, Circle, Clock, Flame, Droplets, Moon, Dumbbell, MessageSquare, ChevronRight, AlertCircle, Trophy, Scale, Users, TrendingUp, TrendingDown, AlertTriangle, Activity, Target, BarChart2, Shield, Stethoscope, Eye, CreditCard, Building2, Globe, Server, CheckCircle } from 'lucide-react'
+import { useState, useEffect, useMemo } from 'react'
+import { Zap, CheckCircle2, Circle, Clock, Flame, Droplets, Moon, Dumbbell, MessageSquare, ChevronRight, AlertCircle, Trophy, Scale, Users, TrendingUp, TrendingDown, AlertTriangle, Activity, Target, BarChart2, Shield, Stethoscope, Eye, CreditCard, Building2, Globe, Server, CheckCircle, Search } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardSubtitle, CardBody } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { ProgressBar } from '../components/ui/ProgressBar'
@@ -9,9 +9,10 @@ import { Modal } from '../components/ui/Modal'
 import { Avatar } from '../components/ui/Avatar'
 import { Badge } from '../components/ui/Badge'
 import { MOCK_TODAY_WORKOUT, MOCK_NUTRITION_TODAY, MOCK_NOTIFICATIONS, MOCK_ATHLETES, MOCK_TRAINING_BLOCKS, MOCK_MEETS, MOCK_STAFF_ASSIGNMENTS, PLAN_META } from '../lib/mockData'
-import { useAuthStore, useSettingsStore, useUIStore, useOrgStore } from '../lib/store'
+import { useAuthStore, useSettingsStore, useUIStore, useOrgStore, useRosterStore, useTrainingStore, useMeetsStore, useAnalyticsStore, useMessagingStore } from '../lib/store'
 import { resolveRole, isStaffRole } from '../lib/store'
 import { cn, macroPercent, kgToLbs } from '../lib/utils'
+import { saveCheckIn } from '../lib/db'
 
 // Convert a string intensity like "100kg" or "180kg" to the current unit
 function convertIntensity(intensity, weightUnit) {
@@ -227,11 +228,57 @@ function StaffDashboard({ profile, membership }) {
   const isNutritionist = role === 'nutritionist'
   const isAdmin = role === 'admin'
   const { setActivePage } = useUIStore()
-  const { isDemo } = useAuthStore()
+  const { isDemo, activeOrgId } = useAuthStore()
 
-  const athletes       = isDemo ? MOCK_ATHLETES : []
-  const trainingBlocks = isDemo ? MOCK_TRAINING_BLOCKS : []
-  const meets          = isDemo ? MOCK_MEETS : []
+  // ── Live data — always prefer store data, fall back to mock in demo ──────
+  const { athletes: liveAthletes, loadRoster } = useRosterStore()
+  const { blocks: liveBlocks, loadOrgTrainingBlocks } = useTrainingStore()
+  const { meets: liveMeets, load: loadMeets } = useMeetsStore()
+  const { channels, messagesByThread, initMessaging } = useMessagingStore()
+
+  // Load live data on mount for real users
+  useEffect(() => {
+    if (!isDemo && activeOrgId) {
+      loadRoster(activeOrgId)
+      loadOrgTrainingBlocks(activeOrgId)
+    }
+    if (!isDemo && profile?.id && activeOrgId) {
+      loadMeets(profile.id, activeOrgId)
+    }
+    if (!isDemo && activeOrgId) {
+      initMessaging({ id: profile?.id }, activeOrgId, isAdmin)
+    }
+  }, [isDemo, activeOrgId, profile?.id]) // eslint-disable-line
+
+  const athletes       = isDemo ? MOCK_ATHLETES       : liveAthletes
+  const trainingBlocks = isDemo ? MOCK_TRAINING_BLOCKS : liveBlocks
+  const meets          = isDemo ? MOCK_MEETS           : liveMeets
+
+  // Search filter for athletes
+  const [athleteSearch, setAthleteSearch] = useState('')
+  const filteredAthletes = useMemo(() => {
+    if (!athleteSearch.trim()) return athletes
+    const q = athleteSearch.trim().toLowerCase()
+    return athletes.filter(a =>
+      (a.full_name || a.display_name || '').toLowerCase().includes(q) ||
+      (a.email || '').toLowerCase().includes(q)
+    )
+  }, [athletes, athleteSearch])
+
+  // Recent messages from messaging store (newest first, limit 5)
+  const recentMessages = useMemo(() => {
+    if (isDemo) return null // use hardcoded demo array below
+    // Gather the last message from each channel thread
+    const msgs = []
+    for (const ch of channels.slice(0, 10)) {
+      const thread = messagesByThread[ch.id]
+      if (thread?.length) {
+        const last = thread[thread.length - 1]
+        msgs.push({ from: last.sender_name || last.sender_id || 'Unknown', msg: last.content || last.text || '', time: last.created_at ? new Date(last.created_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '', unread: false, role: 'staff', channelName: ch.name })
+      }
+    }
+    return msgs.sort((a, b) => new Date(b.time) - new Date(a.time)).slice(0, 5)
+  }, [isDemo, channels, messagesByThread])
 
   const activeBlock = trainingBlocks.find(b => b.status === 'active')
   const upcomingMeet = meets?.[0]
@@ -242,8 +289,8 @@ function StaffDashboard({ profile, membership }) {
   const flaggedAthletes = athletes.filter(a => a.flags?.length > 0)
   const lowCompliance = athletes.filter(a => a.nutrition_compliance < 80)
   const missedSessions = athletes.filter(a => a.sessions_this_week < a.sessions_planned_this_week)
-  const avgCompliance = athletes.length ? Math.round(athletes.reduce((s, a) => s + a.nutrition_compliance, 0) / athletes.length) : 0
-  const avgAdherence  = athletes.length ? Math.round(athletes.reduce((s, a) => s + a.adherence, 0) / athletes.length) : 0
+  const avgCompliance = athletes.length ? Math.round(athletes.reduce((s, a) => s + (a.nutrition_compliance || 0), 0) / athletes.length) : 0
+  const avgAdherence  = athletes.length ? Math.round(athletes.reduce((s, a) => s + (a.adherence || 0), 0) / athletes.length) : 0
 
   const FLAG_META = {
     pain_flag:       { label: 'Pain Flag',       color: 'text-red-400 bg-red-500/10 border-red-500/20' },
@@ -274,7 +321,18 @@ function StaffDashboard({ profile, membership }) {
             }
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          {/* Athlete search */}
+          <div className="relative">
+            <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none" />
+            <input
+              type="text"
+              value={athleteSearch}
+              onChange={e => setAthleteSearch(e.target.value)}
+              placeholder="Search athletes…"
+              className="pl-8 pr-3 py-1.5 text-xs bg-zinc-800 border border-zinc-700 rounded-lg text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-purple-500/40 focus:border-purple-500 w-44"
+            />
+          </div>
           {!isNutritionist && (
             <Button size="sm" variant="outline" onClick={() => setActivePage?.('programming')}>
               <Activity className="w-3.5 h-3.5" /> Program Builder
@@ -290,11 +348,11 @@ function StaffDashboard({ profile, membership }) {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <StatCard label="Athletes" value={`${athletes.length}`} icon={Users} color="purple"
           trendLabel={`${athletes.filter(a => a.sessions_this_week > 0).length} trained today`} trend={1} />
-        <StatCard label="Avg Adherence" value={`${avgAdherence}%`} icon={Zap} color="orange"
-          trendLabel="7-day rolling" trend={avgAdherence >= 85 ? 1 : -1} />
+        <StatCard label="Avg Adherence" value={avgAdherence > 0 ? `${avgAdherence}%` : '—'} icon={Zap} color="orange"
+          trendLabel="7-day rolling" trend={avgAdherence >= 85 ? 1 : avgAdherence > 0 ? -1 : 0} />
         {!isNutritionist && (
-          <StatCard label="Avg Nutrition" value={`${avgCompliance}%`} icon={Flame} color="teal"
-            trendLabel="This week" trend={avgCompliance >= 80 ? 1 : -1} />
+          <StatCard label="Avg Nutrition" value={avgCompliance > 0 ? `${avgCompliance}%` : '—'} icon={Flame} color="teal"
+            trendLabel="This week" trend={avgCompliance >= 80 ? 1 : avgCompliance > 0 ? -1 : 0} />
         )}
         <StatCard
           label={daysToMeet ? 'Days to Meet' : 'Active Block'}
@@ -365,15 +423,20 @@ function StaffDashboard({ profile, membership }) {
               </CardTitle>
             </CardHeader>
             <CardBody className="space-y-2">
-              {athletes.map(a => {
+              {filteredAthletes.length === 0 && (
+                <p className="text-xs text-zinc-600 text-center py-3">
+                  {athleteSearch ? 'No athletes match your search' : 'No athletes on roster yet'}
+                </p>
+              )}
+              {filteredAthletes.map(a => {
                 const todayStr = new Date().toISOString().slice(0, 10)
                 const trained = a.sessions_this_week > 0 && a.last_session >= todayStr
                 const recentSession = a.recent_sessions?.[0]
                 return (
                   <div key={a.id} className="flex items-center gap-3 p-2 rounded-xl bg-zinc-800/30 border border-zinc-700/20">
-                    <Avatar name={a.full_name} role="athlete" size="sm" />
+                    <Avatar name={a.full_name || a.display_name} role="athlete" size="sm" />
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold text-zinc-200">{a.full_name}</p>
+                      <p className="text-xs font-semibold text-zinc-200">{a.full_name || a.display_name}</p>
                       {recentSession ? (
                         <p className="text-xs text-zinc-500 truncate">{recentSession.name}</p>
                       ) : (
@@ -410,14 +473,19 @@ function StaffDashboard({ profile, membership }) {
               </CardTitle>
             </CardHeader>
             <CardBody className="space-y-2">
-              {athletes.map(a => {
-                const nc = a.nutrition_compliance
+              {filteredAthletes.length === 0 && (
+                <p className="text-xs text-zinc-600 text-center py-3">
+                  {athleteSearch ? 'No athletes match your search' : 'No athletes on roster yet'}
+                </p>
+              )}
+              {filteredAthletes.map(a => {
+                const nc = a.nutrition_compliance ?? 0
                 return (
                   <div key={a.id} className="flex items-center gap-3">
-                    <Avatar name={a.full_name} role="athlete" size="sm" />
+                    <Avatar name={a.full_name || a.display_name} role="athlete" size="sm" />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between mb-1">
-                        <p className="text-xs font-medium text-zinc-200">{a.full_name}</p>
+                        <p className="text-xs font-medium text-zinc-200">{a.full_name || a.display_name}</p>
                         <span className={cn('text-xs font-bold', nc >= 85 ? 'text-green-400' : nc >= 70 ? 'text-yellow-400' : 'text-red-400')}>{nc}%</span>
                       </div>
                       <ProgressBar value={nc} max={100} color={nc >= 85 ? 'green' : nc >= 70 ? 'yellow' : 'red'} size="sm" />
@@ -520,14 +588,17 @@ function StaffDashboard({ profile, membership }) {
               </CardTitle>
             </CardHeader>
             <CardBody className="space-y-2">
+              {athletes.length === 0 && (
+                <p className="text-xs text-zinc-600 text-center py-3">No athletes on roster yet</p>
+              )}
               {athletes.slice(0, 4).map(a => {
-                const nc = a.nutrition_compliance
+                const nc = a.nutrition_compliance ?? 0
                 return (
                   <div key={a.id} className="flex items-center gap-3">
-                    <Avatar name={a.full_name} role="athlete" size="sm" />
+                    <Avatar name={a.full_name || a.display_name} role="athlete" size="sm" />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between mb-0.5">
-                        <p className="text-xs font-medium text-zinc-200 truncate">{a.full_name}</p>
+                        <p className="text-xs font-medium text-zinc-200 truncate">{a.full_name || a.display_name}</p>
                         <span className={cn('text-xs font-bold ml-2 flex-shrink-0', nc >= 85 ? 'text-green-400' : nc >= 70 ? 'text-yellow-400' : 'text-red-400')}>{nc}%</span>
                       </div>
                       <ProgressBar value={nc} max={100} color={nc >= 85 ? 'green' : nc >= 70 ? 'yellow' : 'red'} size="sm" />
@@ -550,6 +621,9 @@ function StaffDashboard({ profile, membership }) {
             <CardTitle className="flex items-center gap-2">
               <MessageSquare className="w-4 h-4 text-blue-400" />Recent Messages
             </CardTitle>
+            <button onClick={() => setActivePage?.('messaging')} className="text-xs text-purple-400 hover:text-purple-300 flex items-center gap-0.5">
+              All <ChevronRight className="w-3 h-3" />
+            </button>
           </div>
         </CardHeader>
         <CardBody className="space-y-2">
@@ -571,6 +645,20 @@ function StaffDashboard({ profile, membership }) {
               </div>
               {m.unread && <span className="w-2 h-2 rounded-full bg-blue-400 mt-1 flex-shrink-0" />}
             </div>
+          )) : recentMessages && recentMessages.length > 0 ? recentMessages.map((m, i) => (
+            <div key={i} className={cn('flex items-start gap-3 p-3 rounded-xl text-xs', m.unread ? 'bg-blue-500/5 border border-blue-500/20' : 'bg-zinc-800/30 border border-zinc-700/20')}>
+              <div className={cn('w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0', m.unread ? 'bg-blue-700 text-blue-100' : 'bg-zinc-700 text-zinc-300')}>
+                {m.from.charAt(0)}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-semibold text-zinc-200">{m.from}</span>
+                  <span className="text-zinc-500 flex-shrink-0">{m.time}</span>
+                </div>
+                {m.channelName && <span className="text-zinc-600 text-xs">#{m.channelName} · </span>}
+                <p className="text-zinc-400 mt-0.5 truncate">{m.msg}</p>
+              </div>
+            </div>
           )) : (
             <div className="text-center py-6 space-y-1">
               <MessageSquare className="w-8 h-8 text-zinc-700 mx-auto" />
@@ -585,14 +673,75 @@ function StaffDashboard({ profile, membership }) {
 
 // ─── Athlete Today Page ────────────────────────────────────────────────────────
 function AthleteTodayPage({ profile, weightUnit, toggleWeightUnit }) {
-  const { isDemo } = useAuthStore()
+  const { isDemo, activeOrgId } = useAuthStore()
   const [checkinOpen, setCheckinOpen] = useState(false)
   const [checkinData, setCheckinData] = useState({ sleep_hours: 7, sleep_quality: 7, soreness: 5, motivation: 7, stress: 4, bodyweight: '' })
   const [checkinDone, setCheckinDone] = useState(false)
+  const [checkinSaving, setCheckinSaving] = useState(false)
   const [suppChecked, setSuppChecked] = useState({})
+
+  // ── Analytics for real users ─────────────────────────────────────────────
+  const { personal, personalLoading, loadPersonalAnalytics } = useAnalyticsStore()
+
+  useEffect(() => {
+    if (!isDemo && profile?.id) {
+      loadPersonalAnalytics(profile.id, activeOrgId)
+    }
+  }, [isDemo, profile?.id, activeOrgId]) // eslint-disable-line
+
+  // Check if today's check-in already done by looking at analytics check-in data
+  // (personal.bwTrend last entry date matches today)
+  useEffect(() => {
+    if (!isDemo && personal) {
+      const todayStr = new Date().toISOString().slice(0, 10)
+      // bwTrend items don't have raw dates; rely on wellnessTrend recency as proxy.
+      // We just keep checkinDone in local state — it resets on reload, which is fine
+      // since saveCheckIn uses upsert so double-submit is idempotent.
+    }
+  }, [isDemo, personal])
 
   const nutrition = isDemo ? MOCK_NUTRITION_TODAY : null
   const workout   = isDemo ? MOCK_TODAY_WORKOUT   : null
+
+  // ── Derived stats from analytics store ──────────────────────────────────
+  const streakLabel     = isDemo ? '12d'  : (personal?.totalCompleted != null ? `${personal.totalCompleted}` : '—')
+  const adherenceLabel  = isDemo ? '87%'  : (personal?.adherenceScore != null ? `${personal.adherenceScore}%` : '—')
+  const sleepLabel      = isDemo ? '6.8h' : (personal?.avgSleep ?? '—')
+  const totalE1RM       = isDemo ? '655kg' : (() => {
+    if (!personal?.prRows?.length) return '—'
+    const tot = personal.prRows.reduce((s, r) => s + (r.e1rm || 0), 0)
+    return tot > 0 ? `${tot}kg` : '—'
+  })()
+  const adherenceTrend  = isDemo ? 1 : (personal?.adherenceScore >= 80 ? 1 : personal?.adherenceScore > 0 ? -1 : 0)
+  const sleepTrend      = isDemo ? -1 : (personal?.avgSleep ? (parseFloat(personal.avgSleep) >= 7 ? 1 : -1) : 0)
+
+  // ── Handle check-in submit — save to Supabase ────────────────────────────
+  async function handleCheckinSubmit() {
+    if (checkinSaving) return
+    setCheckinSaving(true)
+    try {
+      // Sanitize bodyweight input
+      const bwRaw = String(checkinData.bodyweight).trim()
+      const bw = bwRaw !== '' ? Number(bwRaw) : null
+      await saveCheckIn(profile?.id, {
+        ...checkinData,
+        body_weight: bw,
+        bodyweight_unit: weightUnit || 'kg',
+        check_type: 'morning',
+        check_date: new Date().toISOString().slice(0, 10),
+      })
+      setCheckinDone(true)
+      setCheckinOpen(false)
+      // Invalidate analytics so next load picks up the new check-in
+      if (!isDemo && profile?.id) {
+        useAnalyticsStore.setState({ personalFor: null })
+      }
+    } catch (err) {
+      console.error('[TodayPage] saveCheckIn error:', err)
+    } finally {
+      setCheckinSaving(false)
+    }
+  }
 
   if (!workout || !nutrition) {
     return (
@@ -603,10 +752,36 @@ function AthleteTodayPage({ profile, weightUnit, toggleWeightUnit }) {
           </h1>
           <p className="text-sm text-zinc-400 mt-0.5">Your coach hasn't assigned a workout yet.</p>
         </div>
-        <div className="text-center py-16 text-zinc-600">
+
+        {/* Still show check-in + stats for real users even without a workout */}
+        <div className="flex justify-end">
+          <Button
+            variant={checkinDone ? 'success' : 'primary'}
+            size="sm"
+            onClick={() => !checkinDone && setCheckinOpen(true)}
+          >
+            {checkinDone ? <><CheckCircle2 className="w-3.5 h-3.5" /> Checked In</> : 'Morning Check-In'}
+          </Button>
+        </div>
+
+        {!isDemo && personal && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <StatCard label="Sessions Done" value={streakLabel} icon={Flame} color="orange" trendLabel="All-time completed" trend={1} />
+            <StatCard label="Weekly Adherence" value={adherenceLabel} icon={Zap} color="purple" trendLabel="Last 4 weeks" trend={adherenceTrend} />
+            <StatCard label="Avg Sleep" value={sleepLabel} icon={Moon} color="blue" trendLabel="Recent check-ins" trend={sleepTrend} />
+            <StatCard label="Total e1RM" value={totalE1RM} sub="SBD" icon={Dumbbell} color="yellow" trendLabel="Best sets" trend={1} />
+          </div>
+        )}
+
+        <div className="text-center py-10 text-zinc-600">
           <Dumbbell className="w-10 h-10 mx-auto mb-3 opacity-30" />
           <p className="text-sm">No workout scheduled for today.</p>
         </div>
+
+        {/* Morning Check-In Modal */}
+        <Modal open={checkinOpen} onClose={() => setCheckinOpen(false)} title="Morning Check-In" size="sm">
+          <CheckinModalBody checkinData={checkinData} setCheckinData={setCheckinData} onSubmit={handleCheckinSubmit} saving={checkinSaving} />
+        </Modal>
       </div>
     )
   }
@@ -643,10 +818,10 @@ function AthleteTodayPage({ profile, weightUnit, toggleWeightUnit }) {
 
       {/* Quick stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <StatCard label="Training Streak" value="12d" icon={Flame} color="orange" trendLabel="Personal best" trend={1} />
-        <StatCard label="Weekly Adherence" value="87%" icon={Zap} color="purple" trendLabel="+2% vs last week" trend={1} />
-        <StatCard label="Avg Sleep" value="6.8h" icon={Moon} color="blue" trendLabel="-0.2h vs goal" trend={-1} />
-        <StatCard label="Current e1RM" value="655kg" sub="Total" icon={Dumbbell} color="yellow" trendLabel="Up 15kg this block" trend={1} />
+        <StatCard label={isDemo ? 'Training Streak' : 'Sessions Done'} value={streakLabel} icon={Flame} color="orange" trendLabel={isDemo ? 'Personal best' : 'All-time completed'} trend={1} />
+        <StatCard label="Weekly Adherence" value={adherenceLabel} icon={Zap} color="purple" trendLabel={isDemo ? '+2% vs last week' : 'Last 4 weeks'} trend={adherenceTrend} />
+        <StatCard label="Avg Sleep" value={sleepLabel} icon={Moon} color="blue" trendLabel={isDemo ? '-0.2h vs goal' : 'Recent check-ins'} trend={sleepTrend} />
+        <StatCard label="Total e1RM" value={totalE1RM} sub="SBD" icon={Dumbbell} color="yellow" trendLabel={isDemo ? 'Up 15kg this block' : 'Best sets'} trend={totalE1RM !== '—' ? 1 : 0} />
       </div>
 
       <div className="grid md:grid-cols-2 gap-4">
@@ -807,56 +982,76 @@ function AthleteTodayPage({ profile, weightUnit, toggleWeightUnit }) {
 
       {/* Morning Check-In Modal */}
       <Modal open={checkinOpen} onClose={() => setCheckinOpen(false)} title="Morning Check-In" size="sm">
-        <div className="p-6 space-y-5">
-          <Slider
-            label="Sleep Duration (hours)"
-            value={checkinData.sleep_hours}
-            min={3} max={12}
-            onChange={(v) => setCheckinData(d => ({ ...d, sleep_hours: v }))}
-            colorFn={(v) => v >= 7 ? 'text-green-400' : v >= 6 ? 'text-yellow-400' : 'text-red-400'}
-          />
-          <Slider
-            label="Sleep Quality"
-            value={checkinData.sleep_quality}
-            onChange={(v) => setCheckinData(d => ({ ...d, sleep_quality: v }))}
-            colorFn={(v) => v >= 7 ? 'text-green-400' : v >= 5 ? 'text-yellow-400' : 'text-red-400'}
-          />
-          <Slider
-            label="Soreness Level"
-            value={checkinData.soreness}
-            onChange={(v) => setCheckinData(d => ({ ...d, soreness: v }))}
-            colorFn={(v) => v <= 3 ? 'text-green-400' : v <= 6 ? 'text-yellow-400' : 'text-red-400'}
-          />
-          <Slider
-            label="Motivation Level"
-            value={checkinData.motivation}
-            onChange={(v) => setCheckinData(d => ({ ...d, motivation: v }))}
-            colorFn={(v) => v >= 7 ? 'text-green-400' : v >= 5 ? 'text-yellow-400' : 'text-red-400'}
-          />
-          <Slider
-            label="Stress Level"
-            value={checkinData.stress}
-            onChange={(v) => setCheckinData(d => ({ ...d, stress: v }))}
-            colorFn={(v) => v <= 3 ? 'text-green-400' : v <= 6 ? 'text-yellow-400' : 'text-red-400'}
-          />
-          <div>
-            <label className="block text-xs font-medium text-zinc-400 mb-1.5">Bodyweight (kg)</label>
-            <input
-              type="number"
-              value={checkinData.bodyweight}
-              onChange={(e) => setCheckinData(d => ({ ...d, bodyweight: e.target.value }))}
-              placeholder="e.g. 92.4"
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500"
-            />
-          </div>
-          <Button
-            className="w-full"
-            onClick={() => { setCheckinDone(true); setCheckinOpen(false) }}
-          >
-            <CheckCircle2 className="w-4 h-4" /> Submit Check-In
-          </Button>
-        </div>
+        <CheckinModalBody checkinData={checkinData} setCheckinData={setCheckinData} onSubmit={handleCheckinSubmit} saving={checkinSaving} weightUnit={weightUnit} />
       </Modal>
+    </div>
+  )
+}
+
+// ─── Shared check-in modal body ────────────────────────────────────────────────
+function CheckinModalBody({ checkinData, setCheckinData, onSubmit, saving, weightUnit }) {
+  return (
+    <div className="p-6 space-y-5">
+      <Slider
+        label="Sleep Duration (hours)"
+        value={checkinData.sleep_hours}
+        min={3} max={12}
+        onChange={(v) => setCheckinData(d => ({ ...d, sleep_hours: v }))}
+        colorFn={(v) => v >= 7 ? 'text-green-400' : v >= 6 ? 'text-yellow-400' : 'text-red-400'}
+      />
+      <Slider
+        label="Sleep Quality"
+        value={checkinData.sleep_quality}
+        onChange={(v) => setCheckinData(d => ({ ...d, sleep_quality: v }))}
+        colorFn={(v) => v >= 7 ? 'text-green-400' : v >= 5 ? 'text-yellow-400' : 'text-red-400'}
+      />
+      <Slider
+        label="Soreness Level"
+        value={checkinData.soreness}
+        onChange={(v) => setCheckinData(d => ({ ...d, soreness: v }))}
+        colorFn={(v) => v <= 3 ? 'text-green-400' : v <= 6 ? 'text-yellow-400' : 'text-red-400'}
+      />
+      <Slider
+        label="Motivation Level"
+        value={checkinData.motivation}
+        onChange={(v) => setCheckinData(d => ({ ...d, motivation: v }))}
+        colorFn={(v) => v >= 7 ? 'text-green-400' : v >= 5 ? 'text-yellow-400' : 'text-red-400'}
+      />
+      <Slider
+        label="Stress Level"
+        value={checkinData.stress}
+        onChange={(v) => setCheckinData(d => ({ ...d, stress: v }))}
+        colorFn={(v) => v <= 3 ? 'text-green-400' : v <= 6 ? 'text-yellow-400' : 'text-red-400'}
+      />
+      <div>
+        <label className="block text-xs font-medium text-zinc-400 mb-1.5">
+          Bodyweight ({weightUnit || 'kg'})
+        </label>
+        <input
+          type="number"
+          value={checkinData.bodyweight}
+          onChange={(e) => {
+            const raw = e.target.value
+            // Allow empty, digits, and a single decimal point — strip other chars
+            if (raw === '' || /^\d*\.?\d*$/.test(raw)) {
+              setCheckinData(d => ({ ...d, bodyweight: raw }))
+            }
+          }}
+          placeholder="e.g. 92.4"
+          min="0"
+          max="500"
+          step="0.1"
+          className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500"
+        />
+      </div>
+      <Button
+        className="w-full"
+        onClick={onSubmit}
+        disabled={saving}
+      >
+        <CheckCircle2 className="w-4 h-4" />
+        {saving ? 'Saving…' : 'Submit Check-In'}
+      </Button>
     </div>
   )
 }
