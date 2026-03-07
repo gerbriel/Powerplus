@@ -21,52 +21,54 @@ export default function AuthCallbackPage() {
   useEffect(() => {
     const processCallback = async () => {
       try {
-        // Detect token type from the URL hash/query so we can show the
-        // right UI for invite links (type=invite) vs email confirmations.
+        // Detect token type from both hash and query params.
+        // Supabase v2 puts type=invite / type=recovery in the hash for old-style links,
+        // and in query params for PKCE links. Check both.
         const hashParams = new URLSearchParams(window.location.hash.replace('#', '?'))
         const queryParams = new URLSearchParams(window.location.search)
         const tokenType = hashParams.get('type') || queryParams.get('type')
 
-        // For invite / recovery / email_change tokens Supabase v2 puts the
-        // access_token directly in the hash. exchangeCodeForSession handles
-        // the PKCE code= param for signup confirmations.
+        // Exchange PKCE code for session (signup confirmations and modern invite links)
         const code = queryParams.get('code')
         if (code) {
-          const { error } = await supabase.auth.exchangeCodeForSession(code)
-          if (error) { throw error }
-        }
-
-        // Give the internal listener a moment to hydrate the session
-        await new Promise(r => setTimeout(r, 500))
-        const { data: { session }, error } = await supabase.auth.getSession()
-
-        if (error) throw error
-
-        if (!session) {
-          // One more retry for slow networks
-          await new Promise(r => setTimeout(r, 1500))
-          const { data: retry, error: retryErr } = await supabase.auth.getSession()
-          if (retryErr || !retry.session) {
-            throw new Error('Confirmation link may have expired. Please try signing in.')
+          const { data: exchanged, error: exchangeErr } = await supabase.auth.exchangeCodeForSession(code)
+          if (exchangeErr) throw exchangeErr
+          // After exchange, check if this was a recovery/invite type from the next_url or
+          // inspect the user object — Supabase sets user.email_confirmed_at only AFTER confirm,
+          // so a freshly-exchanged recovery session means the user needs to set a password.
+          const exchangedType = exchanged?.user?.recovery_sent_at ? 'recovery' : null
+          if (tokenType === 'invite' || tokenType === 'recovery' || exchangedType === 'recovery') {
+            setStatus('set_password')
+            return
           }
         }
 
-        // ── Invite flow: user must set a password before continuing ──────
-        // tokenType is 'invite' for admin-invited users, 'recovery' for
-        // password resets — both need the set-password form.
+        // For hash-based tokens (older invite/recovery links), type is in the hash
         if (tokenType === 'invite' || tokenType === 'recovery') {
+          // Session is already set from the hash token — just show set-password form
+          await new Promise(r => setTimeout(r, 500))
           setStatus('set_password')
           return
         }
 
         // ── Normal email confirmation ─────────────────────────────────────
-        const { data: { session: finalSession } } = await supabase.auth.getSession()
-        await handleAuthSession(finalSession)
+        await new Promise(r => setTimeout(r, 500))
+        const { data: { session }, error } = await supabase.auth.getSession()
+        if (error) throw error
+
+        if (!session) {
+          await new Promise(r => setTimeout(r, 1500))
+          const { data: retry, error: retryErr } = await supabase.auth.getSession()
+          if (retryErr || !retry.session) {
+            throw new Error('Confirmation link may have expired. Please try signing in.')
+          }
+          await handleAuthSession(retry.session)
+        } else {
+          await handleAuthSession(session)
+        }
+
         setStatus('success')
-        const { orgMemberships, profile } = useAuthStore.getState()
-        const dest = (!profile?.onboarding_complete && orgMemberships.length === 0)
-          ? '/onboarding'
-          : '/app'
+        const dest = getDestination()
         setTimeout(() => navigate(dest, { replace: true }), 1200)
       } catch (err) {
         console.error('Auth callback error:', err)
@@ -77,6 +79,15 @@ export default function AuthCallbackPage() {
 
     processCallback()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Determine where to send the user after auth ──────────────────────────
+  // Super admins go straight to /app — they have no org and don't need onboarding.
+  const getDestination = () => {
+    const { orgMemberships, profile } = useAuthStore.getState()
+    const isSuperAdmin = profile?.platform_role === 'super_admin' || profile?.role === 'super_admin'
+    if (isSuperAdmin) return '/app'
+    return (!profile?.onboarding_complete && orgMemberships.length === 0) ? '/onboarding' : '/app'
+  }
 
   // ── Handle password set submission ──────────────────────────────────────
   const handleSetPassword = async (e) => {
@@ -98,11 +109,7 @@ export default function AuthCallbackPage() {
       const { data: { session } } = await supabase.auth.getSession()
       await handleAuthSession(session)
       setStatus('success')
-      const { orgMemberships, profile } = useAuthStore.getState()
-      const dest = (!profile?.onboarding_complete && orgMemberships.length === 0)
-        ? '/onboarding'
-        : '/app'
-      setTimeout(() => navigate(dest, { replace: true }), 1200)
+      setTimeout(() => navigate(getDestination(), { replace: true }), 1200)
     } catch (err) {
       console.error('Set password error:', err)
       setPwError(err.message || 'Failed to set password. Please try again.')
