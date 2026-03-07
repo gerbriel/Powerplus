@@ -88,6 +88,7 @@ export const useAuthStore = create((set, get) => ({
     useNutritionStore.setState({ athleteRecipes: {}, athletePrepLog: {}, athleteShoppingLists: {}, boardPlans: {}, orgRecipes: [], orgRecipesLoaded: false, nutritionLogs: {} })
     useRosterStore.setState({ athletes: [], reviewQueue: [], loading: false, error: null })
     useProgrammingStore.setState({ templates: [], exercises: [], loading: false })
+    useMessagingStore.setState({ channels: [], messagesByThread: {}, directMessages: [], _fetchedThreads: new Set(), _realtimeSubs: {}, _isDemo: false, _demoSeeded: false })
     useCalendarStore.getState().reset()
     useAnalyticsStore.getState().reset()
     useMeetsStore.getState().reset()
@@ -171,6 +172,7 @@ export const useAuthStore = create((set, get) => ({
     useNutritionStore.setState({ athleteRecipes: {}, athletePrepLog: {}, athleteShoppingLists: {}, boardPlans: {} })
     useRosterStore.setState({ athletes: [], reviewQueue: [], loading: false, error: null })
     useProgrammingStore.setState({ templates: [], exercises: [], loading: false })
+    useMessagingStore.setState({ channels: [], messagesByThread: {}, directMessages: [], _fetchedThreads: new Set(), _realtimeSubs: {}, _isDemo: false, _demoSeeded: false })
     useCalendarStore.getState().reset()
     useAnalyticsStore.getState().reset()
     useMeetsStore.getState().reset()
@@ -1244,9 +1246,14 @@ export const useMessagingStore = create((set, get) => ({
   initMessaging: async (isDemo, orgId, currentUserId) => {
     const existing = get()
     // Guard: skip if already initialised for the same context.
-    // Always re-init when switching into demo mode so mock data isn't blocked
-    // by a previous real-user channel load.
-    if (!isDemo && existing.channels.length > 0) return
+    // For real users: only skip if channels belong to the current org (not stale demo data).
+    // For demo: use a dedicated _demoSeeded flag.
+    if (!isDemo && existing._isDemo) {
+      // Was seeded with demo data — force a clean re-init for the real user
+      set({ channels: [], messagesByThread: {}, directMessages: [], _fetchedThreads: new Set(), _isDemo: false, _demoSeeded: false })
+    } else if (!isDemo && existing.channels.length > 0 && existing.channels[0]?.org_id === orgId) {
+      return
+    }
     if (isDemo && existing._demoSeeded) return
 
     if (isDemo) {
