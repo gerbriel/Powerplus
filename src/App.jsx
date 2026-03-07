@@ -61,8 +61,8 @@ const PAGE_MAP = {
 function DashboardRedirect() {
   const { profile } = useAuthStore()
   const { setActivePage } = useUIStore()
-  const role = profile?.role || 'athlete'
-  const landingPage = role === 'super_admin' ? 'settings' : 'today'
+  const isSuperAdmin = profile?.platform_role === 'super_admin' || profile?.role === 'super_admin'
+  const landingPage = isSuperAdmin ? 'settings' : 'today'
   setTimeout(() => setActivePage(landingPage), 0)
   return null
 }
