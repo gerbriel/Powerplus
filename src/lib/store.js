@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { MOCK_USERS, MOCK_GOALS, MOCK_TRAINING_BLOCKS, MOCK_MEETS, MOCK_ORGS, MOCK_ORG_MEMBERS, MOCK_STAFF_ASSIGNMENTS, MOCK_ATHLETE_RECIPES, MOCK_ATHLETE_PREP_LOG, MOCK_ATHLETE_SHOPPING_LISTS, MOCK_ATHLETE_MEAL_PLANS, MOCK_CHANNELS, MOCK_MESSAGES, MOCK_DIRECT_MESSAGES, MOCK_EXERCISES } from './mockData'
+import { MOCK_USERS, MOCK_GOALS, MOCK_TRAINING_BLOCKS, MOCK_MEETS, MOCK_ORGS, MOCK_PLATFORM_USERS, MOCK_ORG_MEMBERS, MOCK_STAFF_ASSIGNMENTS, MOCK_ATHLETE_RECIPES, MOCK_ATHLETE_PREP_LOG, MOCK_ATHLETE_SHOPPING_LISTS, MOCK_ATHLETE_MEAL_PLANS, MOCK_CHANNELS, MOCK_MESSAGES, MOCK_DIRECT_MESSAGES, MOCK_EXERCISES } from './mockData'
 import { upsertProfile, isSupabaseConfigured, onAuthStateChange, fetchProfile, fetchOrgMemberships, signOut as supabaseSignOut, getSession, fetchChannels as sbFetchChannels, createChannel as sbCreateChannel, updateChannel as sbUpdateChannel, archiveChannel as sbArchiveChannel, fetchMessages as sbFetchMessages, sendMessage as sbSendMessage, editMessage as sbEditMessage, deleteMessage as sbDeleteMessage, toggleReaction as sbToggleReaction, togglePinMessage as sbTogglePinMessage, findOrCreateDM as sbFindOrCreateDM, findOrCreateGroup as sbFindOrCreateGroup, markChannelRead as sbMarkChannelRead, subscribeToChannel as sbSubscribeToChannel, uploadMessageFile as sbUploadMessageFile, subscribeToOrgEvents as sbSubscribeToOrgEvents, fetchOrgAthletes, fetchOrgReviewQueue, fetchExercises, fetchProgramTemplates, fetchOrgTrainingBlocks, fetchPrepLog, fetchShoppingLists, fetchOrgRecipes, fetchNutritionLogs, fetchOrgEvents, fetchUserEvents, fetchAthleteSessions, fetchAthleteWorkoutSets, fetchAthleteCheckIns, fetchAthleteInjuries, fetchOrgWorkoutSessions, fetchOrgWorkoutSets, fetchOrgCheckIns, fetchOrgInjuries, fetchOrgStaffMembers, fetchOrgNutritionLogs, fetchUserMeets, fetchUserTrainingBlocks, fetchUserGoals, fetchAthleteMeetHistory, fetchAllOrgsForSuperAdmin, fetchAllPlatformUsers, insertOrgInvitation, deleteOrgInvitation, updateOrgMemberRole, removeOrgMember, fetchOrgMembers, fetchOrgInvitations } from './supabase'
 import { saveMessageRecord, updateMessageRecord, saveChannelRecord, updateChannelRecord, saveOrgPublicPage, loadOrgPublicPage, loadOrgLeads, submitIntakeLead, saveLead, removeLead, loadOrgResources, saveNewResource, updateResource, removeResource } from './db'
 import { subscribeToOrgLeads, subscribeToOrgResources } from './supabase'
@@ -36,6 +36,10 @@ export const useAuthStore = create((set, get) => ({
     })
     // Seed all other stores with mock data for the demo session
     useOrgStore.setState({ orgs: MOCK_ORGS, staffAssignments: MOCK_STAFF_ASSIGNMENTS })
+    // Super-admin demo: also seed platform-wide user list and mark orgs loaded
+    if (resolvedRole === 'super_admin') {
+      useOrgStore.setState({ platformUsers: MOCK_PLATFORM_USERS, _allOrgsLoaded: true })
+    }
     useGoalsStore.setState({ goals: MOCK_GOALS })
     useTrainingStore.setState({ blocks: MOCK_TRAINING_BLOCKS, meets: MOCK_MEETS })
     useMeetsStore.setState({ meets: MOCK_MEETS, blocks: MOCK_TRAINING_BLOCKS, goals: MOCK_GOALS, history: [], loading: false, loadedFor: profile.id })
