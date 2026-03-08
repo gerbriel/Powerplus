@@ -111,6 +111,9 @@ alter table organizations add column if not exists stripe_subscription_id text;
 alter table organizations add column if not exists billing_email text;
 alter table organizations add column if not exists trial_ends_at timestamptz;
 
+-- Mark the demo org — run this once; safe to re-run (idempotent)
+update organizations set is_demo = true where slug = 'iron-north' or name ilike '%iron north%';
+
 -- ── org_members ───────────────────────────────────────────────
 create table if not exists org_members (
   id                    uuid primary key default uuid_generate_v4(),
