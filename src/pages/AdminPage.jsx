@@ -169,22 +169,35 @@ const PLAN_MRR = { starter: 0, team_pro: 149, enterprise: 499 }
 
 // ─── Platform Analytics (Super Admin — SaaS metrics) ─────────────────────────
 function PlatformAnalyticsTab() {
-  const { orgs } = useOrgStore()
-  const { platformUsers } = useOrgStore()
+  const { orgs, platformUsers } = useOrgStore()
 
-  // Exclude demo orgs from all revenue calculations
-  const billingOrgs = orgs.filter((o) => !o.is_demo)
+  // Separate production orgs from demo orgs — demo orgs are excluded from ALL metrics
+  const productionOrgs = orgs.filter((o) => !o.is_demo)
+
+  // Build set of user IDs that belong exclusively to demo orgs (exclude from user metrics)
+  const demoOrgMemberIds = useMemo(() => {
+    const demoOrgs = orgs.filter((o) => o.is_demo)
+    const demoIds = new Set(demoOrgs.flatMap((o) => (o.members || []).map((m) => m.user_id).filter(Boolean)))
+    const prodIds = new Set(productionOrgs.flatMap((o) => (o.members || []).map((m) => m.user_id).filter(Boolean)))
+    // Only exclude users who are in demo orgs AND not in any production org
+    const exclusivelyDemoIds = new Set([...demoIds].filter((id) => !prodIds.has(id)))
+    return exclusivelyDemoIds
+  }, [orgs, productionOrgs])
+
+  const productionPlatformUsers = platformUsers.filter((u) => !demoOrgMemberIds.has(u.id))
+
+  // Revenue — production orgs only
+  const billingOrgs = productionOrgs  // alias for clarity in billing calcs
   const totalMRR = billingOrgs.filter((o) => o.status === 'active').reduce((s, o) => s + (PLAN_MRR[o.plan] || 0), 0)
   const totalARR = totalMRR * 12
-  const activeOrgs = orgs.filter((o) => o.status === 'active').length
-  const demoOrgs = orgs.filter((o) => o.is_demo).length
-  const suspendedOrgs = orgs.filter((o) => o.status === 'suspended').length
+  const activeOrgs = productionOrgs.filter((o) => o.status === 'active').length
+  const suspendedOrgs = productionOrgs.filter((o) => o.status === 'suspended').length
   const paidOrgs = billingOrgs.filter((o) => o.plan !== 'starter' && o.status === 'active').length
   const conversionRate = billingOrgs.length > 0 ? Math.round((paidOrgs / billingOrgs.length) * 100) : 0
-  const totalStorage = orgs.reduce((s, o) => s + (o.storage_gb_used || 0), 0)
-  const totalStorageLimit = orgs.reduce((s, o) => s + (o.storage_gb_limit || 2), 0)
-  const totalMembers = orgs.reduce((s, o) => s + (o.members || []).length, 0)
-  const totalAthletes = orgs.reduce((s, o) => s + (o.members || []).filter((m) => (m.org_role || m.role) === 'athlete').length, 0)
+  const totalStorage = productionOrgs.reduce((s, o) => s + (o.storage_gb_used || 0), 0)
+  const totalStorageLimit = productionOrgs.reduce((s, o) => s + (o.storage_gb_limit || 2), 0)
+  const totalMembers = productionOrgs.reduce((s, o) => s + (o.members || []).length, 0)
+  const totalAthletes = productionOrgs.reduce((s, o) => s + (o.members || []).filter((m) => (m.org_role || m.role) === 'athlete').length, 0)
   const totalStaff = totalMembers - totalAthletes
 
   const planBreakdown = Object.keys(PLAN_META).map((p) => ({
@@ -193,33 +206,33 @@ function PlatformAnalyticsTab() {
     mrr: billingOrgs.filter((o) => o.plan === p && o.status === 'active').reduce((s) => s + (PLAN_MRR[p] || 0), 0),
   }))
 
-  // Org growth by month (from real created_at dates)
+  // Org growth by month — production orgs only
   const orgGrowth = useMemo(() => {
     const months = {}
-    orgs.forEach((o) => {
+    productionOrgs.forEach((o) => {
       if (!o.created_at) return
       const key = new Date(o.created_at).toLocaleDateString('en-US', { month: 'short', year: '2-digit' })
       months[key] = (months[key] || 0) + 1
     })
     return Object.entries(months).slice(-8).map(([month, count]) => ({ month, count }))
-  }, [orgs])
+  }, [productionOrgs])
 
-  // User growth by month
+  // User growth by month — production users only
   const userGrowth = useMemo(() => {
     const months = {}
-    platformUsers.forEach((u) => {
+    productionPlatformUsers.forEach((u) => {
       if (!u.created_at) return
       const key = new Date(u.created_at).toLocaleDateString('en-US', { month: 'short', year: '2-digit' })
       months[key] = (months[key] || 0) + 1
     })
     return Object.entries(months).slice(-8).map(([month, count]) => ({ month, count }))
-  }, [platformUsers])
+  }, [productionPlatformUsers])
 
-  // Churn risk orgs
-  const churnRisk = orgs.filter((o) => {
+  // Churn risk — production orgs only (suspended demo orgs don't count)
+  const churnRisk = productionOrgs.filter((o) => {
     if (o.status === 'suspended') return true
     const athletePct = ((o.members || []).filter((m) => (m.org_role || m.role) === 'athlete').length / (o.athlete_limit || 10)) * 100
-    return athletePct >= 90 && o.status === 'active' && !o.is_demo
+    return athletePct >= 90 && o.status === 'active'
   })
 
   return (
@@ -228,8 +241,8 @@ function PlatformAnalyticsTab() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <StatCard label="MRR" value={`$${totalMRR.toLocaleString()}`} sub={`$${totalARR.toLocaleString()} ARR`} icon={TrendingUp} color="green" />
         <StatCard label="Paying Orgs" value={paidOrgs} sub={`${conversionRate}% conversion`} icon={Building2} color="purple" />
-        <StatCard label="Platform Users" value={platformUsers.length} sub={`${totalAthletes} athletes · ${totalStaff} staff`} icon={Users} color="blue" />
-        <StatCard label="Active Orgs" value={activeOrgs} sub={`${demoOrgs} demo · ${suspendedOrgs} suspended`} icon={Activity} color="yellow" />
+        <StatCard label="Platform Users" value={productionPlatformUsers.length} sub={`${totalAthletes} athletes · ${totalStaff} staff`} icon={Users} color="blue" />
+        <StatCard label="Active Orgs" value={activeOrgs} sub={`${suspendedOrgs} suspended`} icon={Activity} color="yellow" />
       </div>
 
       {/* Org growth + User growth */}
@@ -314,8 +327,8 @@ function PlatformAnalyticsTab() {
           </CardHeader>
           <CardBody className="space-y-3">
             {[
-              { label: 'Active orgs',           value: activeOrgs,     of: orgs.length,         color: 'bg-green-500' },
-              { label: 'Paid conversion (ex. demo)', value: paidOrgs,  of: billingOrgs.length,  color: 'bg-purple-500' },
+              { label: 'Active orgs',           value: activeOrgs,     of: productionOrgs.length, color: 'bg-green-500' },
+              { label: 'Paid conversion (ex. demo)', value: paidOrgs,  of: billingOrgs.length,    color: 'bg-purple-500' },
               { label: 'Storage used',           value: +totalStorage.toFixed(1), of: totalStorageLimit, color: 'bg-yellow-500', suffix: 'GB' },
             ].map((item) => {
               const pct = Math.min(item.of > 0 ? (item.value / item.of) * 100 : 0, 100)
