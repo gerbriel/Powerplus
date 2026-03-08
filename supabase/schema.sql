@@ -96,9 +96,20 @@ create table if not exists organizations (
   has_dedicated_nutritionist         boolean default false,
   athletes_can_self_manage_nutrition boolean default true,
   address                            text,
+  is_demo                            boolean default false,
+  stripe_customer_id                 text,
+  stripe_subscription_id             text,
+  billing_email                      text,
+  trial_ends_at                      timestamptz,
   created_at                         timestamptz default now(),
   updated_at                         timestamptz default now()
 );
+-- Idempotent column guards for organizations
+alter table organizations add column if not exists is_demo boolean default false;
+alter table organizations add column if not exists stripe_customer_id text;
+alter table organizations add column if not exists stripe_subscription_id text;
+alter table organizations add column if not exists billing_email text;
+alter table organizations add column if not exists trial_ends_at timestamptz;
 
 -- ── org_members ───────────────────────────────────────────────
 create table if not exists org_members (
