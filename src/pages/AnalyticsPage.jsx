@@ -115,13 +115,16 @@ function PlatformAnalyticsView() {
   const { orgs } = useOrgStore()
   const PLAN_MRR = { starter: 0, team_pro: 149, enterprise: 499 }
 
-  const activeOrgs  = useMemo(() => orgs.filter(o => o.status === 'active'), [orgs])
+  // Exclude demo orgs from ALL production metrics
+  const productionOrgs = useMemo(() => orgs.filter(o => !o.is_demo), [orgs])
+
+  const activeOrgs  = useMemo(() => productionOrgs.filter(o => o.status === 'active'), [productionOrgs])
   const totalMRR    = useMemo(() => activeOrgs.reduce((s, o) => s + (PLAN_MRR[o.plan] || 0), 0), [activeOrgs])
   const totalARR    = totalMRR * 12
   const paidOrgs    = useMemo(() => activeOrgs.filter(o => o.plan !== 'starter'), [activeOrgs])
-  const conversion  = orgs.length > 0 ? Math.round((paidOrgs.length / orgs.length) * 100) : 0
-  const totalUsers  = useMemo(() => orgs.reduce((s, o) => s + (o.members?.length || 0), 0), [orgs])
-  const newThisMonth = Math.round(orgs.length * 0.18)
+  const conversion  = productionOrgs.length > 0 ? Math.round((paidOrgs.length / productionOrgs.length) * 100) : 0
+  const totalUsers  = useMemo(() => productionOrgs.reduce((s, o) => s + (o.members?.length || 0), 0), [productionOrgs])
+  const newThisMonth = Math.round(productionOrgs.length * 0.18)
 
   const signupTrend = useMemo(() => {
     const buckets = {}
@@ -130,7 +133,7 @@ function PlatformAnalyticsView() {
       const key = i === 0 ? 'W-Now' : `W-${i}`
       buckets[key] = { week: key, signups: 0, churned: 0 }
     }
-    for (const org of orgs) {
+    for (const org of productionOrgs) {
       if (!org.created_at) continue
       const daysAgo = Math.floor((now - new Date(org.created_at)) / 86400000)
       const wk = Math.floor(daysAgo / 7)
@@ -140,22 +143,22 @@ function PlatformAnalyticsView() {
       }
     }
     return Object.values(buckets)
-  }, [orgs])
+  }, [productionOrgs])
 
   const mrrTrend = [
-    { month: 'Sep', mrr: Math.round(totalMRR * 0.58), orgs: Math.round(orgs.length * 0.62) },
-    { month: 'Oct', mrr: Math.round(totalMRR * 0.67), orgs: Math.round(orgs.length * 0.70) },
-    { month: 'Nov', mrr: Math.round(totalMRR * 0.73), orgs: Math.round(orgs.length * 0.76) },
-    { month: 'Dec', mrr: Math.round(totalMRR * 0.80), orgs: Math.round(orgs.length * 0.82) },
-    { month: 'Jan', mrr: Math.round(totalMRR * 0.87), orgs: Math.round(orgs.length * 0.88) },
-    { month: 'Feb', mrr: Math.round(totalMRR * 0.93), orgs: Math.round(orgs.length * 0.94) },
-    { month: 'Mar', mrr: totalMRR,                    orgs: orgs.length },
+    { month: 'Sep', mrr: Math.round(totalMRR * 0.58), orgs: Math.round(productionOrgs.length * 0.62) },
+    { month: 'Oct', mrr: Math.round(totalMRR * 0.67), orgs: Math.round(productionOrgs.length * 0.70) },
+    { month: 'Nov', mrr: Math.round(totalMRR * 0.73), orgs: Math.round(productionOrgs.length * 0.76) },
+    { month: 'Dec', mrr: Math.round(totalMRR * 0.80), orgs: Math.round(productionOrgs.length * 0.82) },
+    { month: 'Jan', mrr: Math.round(totalMRR * 0.87), orgs: Math.round(productionOrgs.length * 0.88) },
+    { month: 'Feb', mrr: Math.round(totalMRR * 0.93), orgs: Math.round(productionOrgs.length * 0.94) },
+    { month: 'Mar', mrr: totalMRR,                    orgs: productionOrgs.length },
   ]
 
   const planBreakdown = Object.keys(PLAN_META).map(p => ({
     plan: p, meta: PLAN_META[p],
-    count: orgs.filter(o => o.plan === p).length,
-    mrr:   orgs.filter(o => o.plan === p && o.status === 'active').reduce(s => s + (PLAN_MRR[p] || 0), 0),
+    count: productionOrgs.filter(o => o.plan === p).length,
+    mrr:   productionOrgs.filter(o => o.plan === p && o.status === 'active').reduce(s => s + (PLAN_MRR[p] || 0), 0),
   }))
 
   return (
@@ -165,10 +168,10 @@ function PlatformAnalyticsView() {
         <p className="text-sm text-zinc-400 mt-0.5">MRR, ARR, signups, churn, and org-level billing metrics</p>
       </div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <StatCard label="MRR"         value={`$${totalMRR.toLocaleString()}`}   sub="monthly recurring"            icon={TrendingUp}  color="green"  trendLabel="+12% vs last month" trend={1} />
-        <StatCard label="ARR"         value={`$${totalARR.toLocaleString()}`}    sub="annualized run rate"          icon={CreditCard}  color="purple" />
-        <StatCard label="Active Orgs" value={activeOrgs.length}                  sub={`${conversion}% paid`}        icon={Building2}   color="blue"   trendLabel={`+${newThisMonth} this month`} trend={1} />
-        <StatCard label="Total Users" value={totalUsers}                         sub={`across ${orgs.length} orgs`} icon={Users}       color="yellow" />
+        <StatCard label="MRR"         value={`$${totalMRR.toLocaleString()}`}            sub="monthly recurring"                      icon={TrendingUp}  color="green"  trendLabel="+12% vs last month" trend={1} />
+        <StatCard label="ARR"         value={`$${totalARR.toLocaleString()}`}            sub="annualized run rate"                    icon={CreditCard}  color="purple" />
+        <StatCard label="Active Orgs" value={activeOrgs.length}                          sub={`${conversion}% paid`}                  icon={Building2}   color="blue"   trendLabel={`+${newThisMonth} this month`} trend={1} />
+        <StatCard label="Total Users" value={totalUsers}                                 sub={`across ${productionOrgs.length} orgs`} icon={Users}       color="yellow" />
       </div>
 
       <Card>
@@ -252,8 +255,8 @@ function PlatformAnalyticsView() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2"><Globe className="w-4 h-4 text-zinc-400" /> All Organizations</CardTitle>
-          <CardSubtitle>Subscription status and usage across every org</CardSubtitle>
+          <CardTitle className="flex items-center gap-2"><Globe className="w-4 h-4 text-zinc-400" /> Production Organizations</CardTitle>
+          <CardSubtitle>Subscription status and usage — demo orgs excluded</CardSubtitle>
         </CardHeader>
         <CardBody className="p-0">
           <div className="overflow-x-auto">
@@ -266,10 +269,10 @@ function PlatformAnalyticsView() {
                 </tr>
               </thead>
               <tbody>
-                {orgs.map((org, i) => {
+                {productionOrgs.map((org, i) => {
                   const planInfo = PLAN_META[org.plan] || PLAN_META.starter
                   const mrr = PLAN_MRR[org.plan] || 0
-                  const athletes = (org.members || []).filter(m => m.role === 'athlete').length
+                  const athletes = (org.members || []).filter(m => (m.org_role || m.role) === 'athlete').length
                   return (
                     <tr key={org.id} className={`border-b border-zinc-800/60 last:border-0 ${i % 2 === 0 ? 'bg-zinc-800/10' : ''}`}>
                       <td className="px-4 py-3">
@@ -290,6 +293,9 @@ function PlatformAnalyticsView() {
                     </tr>
                   )
                 })}
+                {productionOrgs.length === 0 && (
+                  <tr><td colSpan={6} className="px-4 py-10 text-center text-sm text-zinc-500">No production organizations yet</td></tr>
+                )}
               </tbody>
             </table>
           </div>
