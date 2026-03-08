@@ -391,18 +391,17 @@ function PlatformUsersTab() {
     return map
   }, [orgs])
 
-  // Demo user IDs — users whose ONLY memberships are in demo orgs
-  const demoOnlyUserIds = useMemo(() => {
-    const ids = new Set()
-    platformUsers.forEach((u) => {
-      const memberships = userOrgMap[u.id] || []
-      if (memberships.length > 0 && memberships.every((m) => m.is_demo)) ids.add(u.id)
-    })
-    return ids
-  }, [platformUsers, userOrgMap])
+  // Production users: is_demo flag is explicitly false
+  const productionUsers = useMemo(
+    () => platformUsers.filter((u) => u.is_demo === false),
+    [platformUsers]
+  )
 
-  // Production users: not demo-only, not super_admin (super_admins shown separately)
-  const productionUsers = platformUsers.filter((u) => !demoOnlyUserIds.has(u.id))
+  // Demo users: is_demo flag is true
+  const demoUserCount = useMemo(
+    () => platformUsers.filter((u) => u.is_demo === true).length,
+    [platformUsers]
+  )
 
   const filtered = productionUsers.filter((u) => {
     const matchSearch = (u.full_name || u.display_name || '').toLowerCase().includes(search.toLowerCase()) ||
@@ -414,7 +413,6 @@ function PlatformUsersTab() {
   const athleteCount = productionUsers.filter((u) => u.role === 'athlete').length
   const staffCount = productionUsers.filter((u) => u.role !== 'athlete' && u.platform_role !== 'super_admin').length
   const superAdminCount = productionUsers.filter((u) => u.platform_role === 'super_admin').length
-  const demoUserCount = demoOnlyUserIds.size
 
   return (
     <div className="space-y-5">
@@ -719,10 +717,9 @@ function DemoSandboxTab() {
     })
   }, [demoOrgs.length]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const demoUserIds = new Set()
-  demoOrgs.forEach((o) => (o.members || []).forEach((m) => demoUserIds.add(m.user_id)))
-  const demoUsers = platformUsers.filter((u) => demoUserIds.has(u.id))
-  const liveUsers = platformUsers.filter((u) => !demoUserIds.has(u.id) && u.platform_role !== 'super_admin')
+  // Use is_demo flag directly — no indirect org-membership lookup
+  const demoUsers = platformUsers.filter((u) => u.is_demo === true && u.platform_role !== 'super_admin')
+  const liveUsers = platformUsers.filter((u) => u.is_demo === false)
 
   return (
     <div className="space-y-6">
