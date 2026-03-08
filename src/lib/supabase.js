@@ -421,7 +421,7 @@ export async function fetchOrgMemberships(userId) {
   if (!isSupabaseConfigured()) return []
   const { data, error } = await supabase
     .from('org_members')
-    .select('*, organizations(id, name, slug, logo_url)')
+    .select('*, organizations(id, name, slug, logo_url, plan, status, is_demo)')
     .eq('user_id', userId)
   if (error) { console.error('[supabase] fetchOrgMemberships:', error.message); return [] }
   return data ?? []
@@ -1640,6 +1640,114 @@ export async function deleteResourceRecord(resourceId) {
     .eq('id', resourceId)
   if (error) { console.error('[supabase] deleteResourceRecord:', error.message); return false }
   return true
+}
+
+/**
+ * Insert an org invitation row into Supabase.
+ * Returns the created row (with id) or null on error.
+ */
+export async function insertOrgInvitation(orgId, { email, org_role, message, invitedBy }) {
+  if (!isSupabaseConfigured()) return null
+  const { data, error } = await supabase
+    .from('org_invitations')
+    .insert({
+      org_id:        orgId,
+      invited_email: email,
+      org_role:      org_role,
+      message:       message || null,
+      invited_by:    invitedBy || null,
+      status:        'pending',
+    })
+    .select()
+    .single()
+  if (error) { console.error('[supabase] insertOrgInvitation:', error.message); return null }
+  return data
+}
+
+/**
+ * Delete (cancel) an org invitation by id.
+ */
+export async function deleteOrgInvitation(invitationId) {
+  if (!isSupabaseConfigured()) return false
+  const { error } = await supabase
+    .from('org_invitations')
+    .delete()
+    .eq('id', invitationId)
+  if (error) { console.error('[supabase] deleteOrgInvitation:', error.message); return false }
+  return true
+}
+
+/**
+ * Update the org_role of an existing org_member row.
+ */
+export async function updateOrgMemberRole(orgId, userId, newRole) {
+  if (!isSupabaseConfigured()) return false
+  const { error } = await supabase
+    .from('org_members')
+    .update({ org_role: newRole })
+    .eq('org_id', orgId)
+    .eq('user_id', userId)
+  if (error) { console.error('[supabase] updateOrgMemberRole:', error.message); return false }
+  return true
+}
+
+/**
+ * Remove a member from an org (delete the org_members row).
+ */
+export async function removeOrgMember(orgId, userId) {
+  if (!isSupabaseConfigured()) return false
+  const { error } = await supabase
+    .from('org_members')
+    .delete()
+    .eq('org_id', orgId)
+    .eq('user_id', userId)
+  if (error) { console.error('[supabase] removeOrgMember:', error.message); return false }
+  return true
+}
+
+/**
+ * Fetch the current members of an org (for head_coach view after login).
+ * Returns members shaped to match the store's members array.
+ */
+export async function fetchOrgMembers(orgId) {
+  if (!isSupabaseConfigured()) return []
+  const { data, error } = await supabase
+    .from('org_members')
+    .select('*, profiles(id, full_name, display_name, email, avatar_url, role)')
+    .eq('org_id', orgId)
+  if (error) { console.error('[supabase] fetchOrgMembers:', error.message); return [] }
+  return (data || []).map((m) => ({
+    user_id:    m.user_id,
+    full_name:  m.profiles?.full_name || m.profiles?.display_name || m.profiles?.email || '',
+    email:      m.profiles?.email || '',
+    role:       m.org_role,
+    org_role:   m.org_role,
+    is_self_athlete: m.is_self_athlete,
+    status:     m.status,
+    joined_at:  m.joined_at ? m.joined_at.slice(0, 10) : '',
+  }))
+}
+
+/**
+ * Fetch pending invitations for an org.
+ */
+export async function fetchOrgInvitations(orgId) {
+  if (!isSupabaseConfigured()) return []
+  const { data, error } = await supabase
+    .from('org_invitations')
+    .select('*')
+    .eq('org_id', orgId)
+    .eq('status', 'pending')
+  if (error) { console.error('[supabase] fetchOrgInvitations:', error.message); return [] }
+  return (data || []).map((i) => ({
+    id:       i.id,
+    email:    i.invited_email,
+    role:     i.org_role,
+    org_role: i.org_role,
+    status:   i.status,
+    message:  i.message || '',
+    sent_at:  i.sent_at ? i.sent_at.slice(0, 10) : '',
+  }))
 }
 
 /**

@@ -84,6 +84,7 @@ export function AdminPage() {
     { id: 'users',     label: 'Users' },
     { id: 'analytics', label: 'Platform Analytics' },
     { id: 'billing',   label: 'Billing & Plans' },
+    { id: 'demo',      label: 'Demo Sandbox' },
     { id: 'system',    label: 'System' },
   ]
   const ADMIN_TABS = [
@@ -143,6 +144,7 @@ export function AdminPage() {
       {tab === 'users'     && isSuperAdmin && <PlatformUsersTab />}
       {tab === 'analytics' && isSuperAdmin && <PlatformAnalyticsTab />}
       {tab === 'billing'   && isSuperAdmin && <PlatformBillingTab />}
+      {tab === 'demo'      && isSuperAdmin && <DemoSandboxTab />}
       {tab === 'system'    && isSuperAdmin && <PlatformSystemTab />}
       {tab === 'overview' && isHeadCoach && <OverviewTab />}
       {tab === 'team' && isHeadCoach && <TeamTab onInvite={() => setInviteOpen(true)} />}
@@ -382,21 +384,41 @@ function PlatformUsersTab() {
     return map
   }, [orgs])
 
-  const filtered = platformUsers.filter((u) => {
+  // Demo user IDs — users whose ONLY memberships are in demo orgs
+  const demoOnlyUserIds = useMemo(() => {
+    const ids = new Set()
+    platformUsers.forEach((u) => {
+      const memberships = userOrgMap[u.id] || []
+      if (memberships.length > 0 && memberships.every((m) => m.is_demo)) ids.add(u.id)
+    })
+    return ids
+  }, [platformUsers, userOrgMap])
+
+  // Production users: not demo-only, not super_admin (super_admins shown separately)
+  const productionUsers = platformUsers.filter((u) => !demoOnlyUserIds.has(u.id))
+
+  const filtered = productionUsers.filter((u) => {
     const matchSearch = (u.full_name || u.display_name || '').toLowerCase().includes(search.toLowerCase()) ||
       (u.email || '').toLowerCase().includes(search.toLowerCase())
     const matchRole = roleFilter === 'all' || u.platform_role === roleFilter || u.role === roleFilter
     return matchSearch && matchRole
   })
 
-  const athleteCount = platformUsers.filter((u) => u.role === 'athlete').length
-  const staffCount = platformUsers.filter((u) => u.role !== 'athlete' && u.platform_role !== 'super_admin').length
-  const superAdminCount = platformUsers.filter((u) => u.platform_role === 'super_admin').length
+  const athleteCount = productionUsers.filter((u) => u.role === 'athlete').length
+  const staffCount = productionUsers.filter((u) => u.role !== 'athlete' && u.platform_role !== 'super_admin').length
+  const superAdminCount = productionUsers.filter((u) => u.platform_role === 'super_admin').length
+  const demoUserCount = demoOnlyUserIds.size
 
   return (
     <div className="space-y-5">
+      {demoUserCount > 0 && (
+        <div className="flex items-center gap-2 px-3 py-2 bg-amber-500/5 border border-amber-500/15 rounded-lg text-xs text-amber-400">
+          <EyeOff className="w-3.5 h-3.5 flex-shrink-0" />
+          {demoUserCount} demo-only user{demoUserCount !== 1 ? 's' : ''} hidden — view them in the <strong>Demo Sandbox</strong> tab.
+        </div>
+      )}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <StatCard label="Total Users" value={platformUsers.length} icon={Users} color="purple" />
+        <StatCard label="Production Users" value={productionUsers.length} icon={Users} color="purple" />
         <StatCard label="Athletes" value={athleteCount} icon={Activity} color="blue" />
         <StatCard label="Staff / Coaches" value={staffCount} icon={Shield} color="green" />
         <StatCard label="Super Admins" value={superAdminCount} icon={Crown} color="red" />
@@ -672,6 +694,178 @@ function PlatformBillingTab() {
             ))}
           </div>
         </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Demo Sandbox Tab (Super Admin) ──────────────────────────────────────────
+function DemoSandboxTab() {
+  const { orgs, loadOrgMembers, updateOrg } = useOrgStore()
+  const { platformUsers } = useOrgStore()
+  const demoOrgs = orgs.filter((o) => o.is_demo)
+  const [selectedOrg, setSelectedOrg] = useState(null)
+
+  useEffect(() => {
+    demoOrgs.forEach((o) => {
+      if ((o.members || []).length === 0) loadOrgMembers(o.id)
+    })
+  }, [demoOrgs.length]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const demoUserIds = new Set()
+  demoOrgs.forEach((o) => (o.members || []).forEach((m) => demoUserIds.add(m.user_id)))
+  const demoUsers = platformUsers.filter((u) => demoUserIds.has(u.id))
+  const liveUsers = platformUsers.filter((u) => !demoUserIds.has(u.id) && u.platform_role !== 'super_admin')
+
+  return (
+    <div className="space-y-6">
+      {/* Header notice */}
+      <div className="flex items-start gap-3 p-4 bg-amber-500/5 border border-amber-500/20 rounded-xl">
+        <AlertTriangle className="w-5 h-5 text-amber-400 mt-0.5 flex-shrink-0" />
+        <div>
+          <p className="text-sm font-semibold text-amber-300">Demo Sandbox — isolated from production</p>
+          <p className="text-xs text-zinc-400 mt-1">
+            Organizations flagged <code className="text-amber-400">is_demo = true</code> are shown here only.
+            They are excluded from billing, MRR, analytics, and the main Organizations tab.
+            Demo users assigned to demo orgs are also isolated below.
+          </p>
+        </div>
+      </div>
+
+      {demoOrgs.length === 0 ? (
+        <Card>
+          <CardBody className="py-12 text-center">
+            <EyeOff className="w-8 h-8 text-zinc-600 mx-auto mb-3" />
+            <p className="text-sm text-zinc-500">No demo orgs yet.</p>
+            <p className="text-xs text-zinc-600 mt-1">
+              Run <code className="text-zinc-400">UPDATE organizations SET is_demo = true WHERE name ILIKE '%iron north%'</code> in Supabase to mark one.
+            </p>
+          </CardBody>
+        </Card>
+      ) : (
+        <>
+          {/* Demo org cards */}
+          <div>
+            <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wide mb-3">Demo Organizations ({demoOrgs.length})</p>
+            <div className="space-y-3">
+              {demoOrgs.map((org) => {
+                const athletes = (org.members || []).filter((m) => (m.org_role || m.role) === 'athlete')
+                const staff = (org.members || []).filter((m) => (m.org_role || m.role) !== 'athlete')
+                const planInfo = PLAN_META[org.plan] || PLAN_META.starter
+                const isSelected = selectedOrg === org.id
+
+                return (
+                  <Card key={org.id} className="border-dashed border-amber-500/20">
+                    <div className="flex items-start gap-4">
+                      <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center flex-shrink-0">
+                        <Building2 className="w-5 h-5 text-amber-400" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-sm font-semibold text-zinc-100">{org.name}</span>
+                          <Badge color="default" className="text-xs">Demo · Not billed</Badge>
+                          <Badge color={planInfo.color}>{planInfo.label}</Badge>
+                          <Badge color={ORG_STATUS_BADGE[org.status]?.color || 'default'}>{ORG_STATUS_BADGE[org.status]?.label || org.status}</Badge>
+                        </div>
+                        <p className="text-xs text-zinc-500 mt-0.5">/{org.slug} · {org.federation || 'No federation'}</p>
+                        <div className="flex items-center gap-4 mt-1.5 text-xs text-zinc-400">
+                          <span><Users className="w-3 h-3 inline mr-1" />{athletes.length} athletes</span>
+                          <span><Shield className="w-3 h-3 inline mr-1" />{staff.length} staff</span>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => setSelectedOrg(isSelected ? null : org.id)}
+                        className="p-1.5 text-zinc-500 hover:text-zinc-200 hover:bg-zinc-700 rounded-lg"
+                      >
+                        <ChevronDown className={`w-4 h-4 transition-transform ${isSelected ? 'rotate-180' : ''}`} />
+                      </button>
+                    </div>
+
+                    {isSelected && (
+                      <div className="mt-4 pt-4 border-t border-zinc-800 space-y-2">
+                        <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wide mb-2">Members</p>
+                        {(org.members || []).length === 0 ? (
+                          <p className="text-xs text-zinc-600">No members loaded yet</p>
+                        ) : (
+                          (org.members || []).map((m) => (
+                            <div key={m.user_id} className="flex items-center gap-3 py-1">
+                              <Avatar name={m.full_name} size="xs" />
+                              <div className="flex-1 min-w-0">
+                                <span className="text-sm text-zinc-200">{m.full_name || 'Unknown'}</span>
+                                <span className="text-xs text-zinc-500 ml-2">{m.email}</span>
+                              </div>
+                              <Badge color={roleBadge(m.org_role || m.role)} className="capitalize text-xs">{m.org_role || m.role}</Badge>
+                            </div>
+                          ))
+                        )}
+                        <div className="mt-3 pt-2 border-t border-zinc-800/60">
+                          <button
+                            onClick={() => updateOrg(org.id, { is_demo: false })}
+                            className="text-xs text-amber-400 hover:text-amber-300 flex items-center gap-1"
+                          >
+                            <CheckCircle2 className="w-3 h-3" /> Promote to production org
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </Card>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Demo users */}
+          <div>
+            <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wide mb-3">Demo Users ({demoUsers.length})</p>
+            {demoUsers.length === 0 ? (
+              <p className="text-sm text-zinc-600">No users assigned to demo orgs yet.</p>
+            ) : (
+              <Card>
+                <CardBody className="p-0">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-zinc-800">
+                        <th className="px-4 py-2 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wide">User</th>
+                        <th className="px-4 py-2 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wide">Role</th>
+                        <th className="px-4 py-2 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wide">Demo Org</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {demoUsers.map((u) => {
+                        const membership = demoOrgs.flatMap((o) => (o.members || []).filter((m) => m.user_id === u.id).map((m) => ({ orgName: o.name, role: m.org_role || m.role })))[0]
+                        return (
+                          <tr key={u.id} className="border-b border-zinc-800/50 last:border-0">
+                            <td className="px-4 py-2">
+                              <div className="flex items-center gap-2">
+                                <Avatar name={u.full_name || u.email} size="xs" />
+                                <div>
+                                  <p className="text-zinc-200 text-sm">{u.full_name || u.email}</p>
+                                  <p className="text-xs text-zinc-500">{u.email}</p>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-4 py-2">
+                              <Badge color={roleBadge(membership?.role)} className="capitalize text-xs">{membership?.role || '—'}</Badge>
+                            </td>
+                            <td className="px-4 py-2 text-xs text-amber-400/80">{membership?.orgName || '—'}</td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </CardBody>
+              </Card>
+            )}
+          </div>
+
+          {/* Live users (non-demo, non-super_admin) for reference */}
+          <div className="p-3 bg-zinc-800/30 border border-zinc-700 rounded-xl">
+            <p className="text-xs text-zinc-500">
+              <span className="font-semibold text-zinc-300">{liveUsers.length}</span> production users not in any demo org.
+              These are real paying/trial accounts shown in the Users and Analytics tabs.
+            </p>
+          </div>
+        </>
       )}
     </div>
   )
@@ -1725,27 +1919,36 @@ function SuperAdminOrgsTab() {
   const [editTarget, setEditTarget] = useState(null)
   const [detailOrg, setDetailOrg] = useState(null)
 
-  const filtered = orgs.filter((o) => {
+  // Exclude demo orgs — they live in the Demo Sandbox tab
+  const productionOrgs = orgs.filter((o) => !o.is_demo)
+
+  const filtered = productionOrgs.filter((o) => {
     const matchSearch = (o.name || '').toLowerCase().includes(search.toLowerCase()) || (o.slug || '').toLowerCase().includes(search.toLowerCase())
     const matchPlan = planFilter === 'all' || o.plan === planFilter
     const matchStatus = statusFilter === 'all' || o.status === statusFilter
     return matchSearch && matchPlan && matchStatus
   })
 
-  const totalAthletes = orgs.reduce((s, o) => s + (o.members || []).filter((m) => (m.org_role || m.role) === 'athlete').length, 0)
-  const totalStaff = orgs.reduce((s, o) => s + (o.members || []).filter((m) => (m.org_role || m.role) !== 'athlete').length, 0)
-  const activeOrgs = orgs.filter((o) => o.status === 'active').length
-  const demoOrgs = orgs.filter((o) => o.is_demo).length
+  const totalAthletes = productionOrgs.reduce((s, o) => s + (o.members || []).filter((m) => (m.org_role || m.role) === 'athlete').length, 0)
+  const totalStaff = productionOrgs.reduce((s, o) => s + (o.members || []).filter((m) => (m.org_role || m.role) !== 'athlete').length, 0)
+  const activeOrgs = productionOrgs.filter((o) => o.status === 'active').length
+  const demoCount = orgs.filter((o) => o.is_demo).length
 
   return (
     <div className="space-y-5">
+      {demoCount > 0 && (
+        <div className="flex items-center gap-2 px-3 py-2 bg-amber-500/5 border border-amber-500/15 rounded-lg text-xs text-amber-400">
+          <EyeOff className="w-3.5 h-3.5 flex-shrink-0" />
+          {demoCount} demo org{demoCount !== 1 ? 's' : ''} hidden — view them in the <strong>Demo Sandbox</strong> tab.
+        </div>
+      )}
       {!_allOrgsLoaded && orgs.length === 0 && (
         <div className="flex items-center justify-center py-12 text-zinc-500">
           <RefreshCw className="w-5 h-5 animate-spin mr-2" /> Loading organizations…
         </div>
       )}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <StatCard label="Total Orgs" value={orgs.length} sub={`${demoOrgs} demo`} icon={Building2} color="purple" />
+        <StatCard label="Production Orgs" value={productionOrgs.length} sub={`${demoCount} demo (hidden)`} icon={Building2} color="purple" />
         <StatCard label="Active Orgs" value={activeOrgs} icon={CheckCircle2} color="green" />
         <StatCard label="Total Athletes" value={totalAthletes} icon={Users} color="blue" />
         <StatCard label="Total Staff" value={totalStaff} icon={Shield} color="yellow" />
@@ -2162,20 +2365,27 @@ function JoinRequestsPanel({ orgId, onApproved }) {
 
 function TeamTab({ onInvite }) {
   const { profile, activeOrgId } = useAuthStore()
-  const { orgs, updateMemberRole, removeMember } = useOrgStore()
-  const org = orgs.find((o) => o.id === (activeOrgId || profile?.org_id))
+  const { orgs, updateMemberRole, removeMember, loadOrgMembers } = useOrgStore()
+  const orgId = activeOrgId || profile?.org_id
+  const org = orgs.find((o) => o.id === orgId)
   const members = org?.members || []
   const [confirmDelete, setConfirmDelete] = useState(null)
   const [editRole, setEditRole] = useState(null)
-  const staff = members.filter((m) => m.role !== 'athlete')
-  const athletes = members.filter((m) => m.role === 'athlete')
+  // Use org_role as the canonical field (Supabase); fall back to role (mock data)
+  const staff = members.filter((m) => (m.org_role || m.role) !== 'athlete')
+  const athletes = members.filter((m) => (m.org_role || m.role) === 'athlete')
+
+  // Load real members from Supabase on mount
+  useEffect(() => {
+    if (orgId) loadOrgMembers(orgId)
+  }, [orgId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleRoleChange(userId, newRole) {
-    updateMemberRole(profile.org_id, userId, newRole)
+    updateMemberRole(orgId, userId, newRole)
     setEditRole(null)
   }
   function handleRemove(userId) {
-    removeMember(profile.org_id, userId)
+    removeMember(orgId, userId)
     setConfirmDelete(null)
   }
 
@@ -2363,10 +2573,13 @@ function InviteModal({ open, onClose, orgId }) {
   const [role, setRole] = useState('athlete')
   const [message, setMessage] = useState('')
   const [sent, setSent] = useState(false)
+  const [loading, setLoading] = useState(false)
 
-  function handleSend() {
+  async function handleSend() {
     if (!email.trim() || !orgId) return
-    inviteMember(orgId, { email: email.trim(), role, message })
+    setLoading(true)
+    await inviteMember(orgId, { email: email.trim(), org_role: role, message })
+    setLoading(false)
     setSent(true)
     setTimeout(() => { setSent(false); setEmail(''); setRole('athlete'); setMessage(''); onClose() }, 1400)
   }
@@ -2407,7 +2620,10 @@ function InviteModal({ open, onClose, orgId }) {
             </div>
             <div className="flex gap-2 pt-1">
               <Button variant="ghost" className="flex-1" onClick={onClose}>Cancel</Button>
-              <Button className="flex-1" onClick={handleSend} disabled={!email.trim()}><Send className="w-3.5 h-3.5" /> Send Invitation</Button>
+              <Button className="flex-1" onClick={handleSend} disabled={!email.trim() || loading}>
+                {loading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                {loading ? 'Sending…' : 'Send Invitation'}
+              </Button>
             </div>
           </>
         )}
