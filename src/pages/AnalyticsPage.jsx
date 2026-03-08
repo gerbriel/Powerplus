@@ -124,17 +124,10 @@ function PlatformAnalyticsView() {
   // Exclude demo orgs from ALL production metrics
   const productionOrgs = useMemo(() => orgs.filter(o => !o.is_demo), [orgs])
 
-  // Build set of user IDs exclusive to demo orgs — exclude from user metrics
-  const demoOrgMemberIds = useMemo(() => {
-    const demoOrgs = orgs.filter(o => o.is_demo)
-    const demoIds = new Set(demoOrgs.flatMap(o => (o.members || []).map(m => m.user_id).filter(Boolean)))
-    const prodIds = new Set(productionOrgs.flatMap(o => (o.members || []).map(m => m.user_id).filter(Boolean)))
-    return new Set([...demoIds].filter(id => !prodIds.has(id)))
-  }, [orgs, productionOrgs])
-
+  // Only count users explicitly flagged as non-demo (is_demo === false)
   const productionUsers = useMemo(
-    () => platformUsers.filter(u => !demoOrgMemberIds.has(u.id)),
-    [platformUsers, demoOrgMemberIds]
+    () => platformUsers.filter(u => u.is_demo === false),
+    [platformUsers]
   )
 
   const totalAthletes = useMemo(

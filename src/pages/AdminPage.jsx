@@ -174,17 +174,11 @@ function PlatformAnalyticsTab() {
   // Separate production orgs from demo orgs — demo orgs are excluded from ALL metrics
   const productionOrgs = orgs.filter((o) => !o.is_demo)
 
-  // Build set of user IDs that belong exclusively to demo orgs (exclude from user metrics)
-  const demoOrgMemberIds = useMemo(() => {
-    const demoOrgs = orgs.filter((o) => o.is_demo)
-    const demoIds = new Set(demoOrgs.flatMap((o) => (o.members || []).map((m) => m.user_id).filter(Boolean)))
-    const prodIds = new Set(productionOrgs.flatMap((o) => (o.members || []).map((m) => m.user_id).filter(Boolean)))
-    // Only exclude users who are in demo orgs AND not in any production org
-    const exclusivelyDemoIds = new Set([...demoIds].filter((id) => !prodIds.has(id)))
-    return exclusivelyDemoIds
-  }, [orgs, productionOrgs])
-
-  const productionPlatformUsers = platformUsers.filter((u) => !demoOrgMemberIds.has(u.id))
+  // Only count users explicitly flagged as non-demo
+  const productionPlatformUsers = useMemo(
+    () => platformUsers.filter((u) => u.is_demo === false),
+    [platformUsers]
+  )
 
   // Revenue — production orgs only
   const billingOrgs = productionOrgs  // alias for clarity in billing calcs
