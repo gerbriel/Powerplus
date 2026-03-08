@@ -241,7 +241,7 @@ function PlatformAnalyticsTab() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <StatCard label="MRR" value={`$${totalMRR.toLocaleString()}`} sub={`$${totalARR.toLocaleString()} ARR`} icon={TrendingUp} color="green" />
         <StatCard label="Paying Orgs" value={paidOrgs} sub={`${conversionRate}% conversion`} icon={Building2} color="purple" />
-        <StatCard label="Platform Users" value={productionPlatformUsers.length} sub={`${totalAthletes} athletes · ${totalStaff} staff`} icon={Users} color="blue" />
+        <StatCard label="Production Users" value={productionPlatformUsers.length || (totalAthletes + totalStaff)} sub={`${totalAthletes} athletes · ${totalStaff} staff`} icon={Users} color="blue" />
         <StatCard label="Active Orgs" value={activeOrgs} sub={`${suspendedOrgs} suspended`} icon={Activity} color="yellow" />
       </div>
 
