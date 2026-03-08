@@ -406,12 +406,22 @@ function PlatformUsersTab() {
   const filtered = productionUsers.filter((u) => {
     const matchSearch = (u.full_name || u.display_name || '').toLowerCase().includes(search.toLowerCase()) ||
       (u.email || '').toLowerCase().includes(search.toLowerCase())
-    const matchRole = roleFilter === 'all' || u.platform_role === roleFilter || u.role === roleFilter
+    const orgRole = userOrgMap[u.id]?.[0]?.org_role || u.role
+    const matchRole = roleFilter === 'all' || u.platform_role === roleFilter || orgRole === roleFilter
     return matchSearch && matchRole
   })
 
-  const athleteCount = productionUsers.filter((u) => u.role === 'athlete').length
-  const staffCount = productionUsers.filter((u) => u.role !== 'athlete' && u.platform_role !== 'super_admin').length
+  const athleteCount = useMemo(
+    () => productionUsers.filter((u) => (userOrgMap[u.id]?.[0]?.org_role || u.role) === 'athlete').length,
+    [productionUsers, userOrgMap]
+  )
+  const staffCount = useMemo(
+    () => productionUsers.filter((u) => {
+      const r = userOrgMap[u.id]?.[0]?.org_role || u.role
+      return r !== 'athlete' && u.platform_role !== 'super_admin'
+    }).length,
+    [productionUsers, userOrgMap]
+  )
   const superAdminCount = productionUsers.filter((u) => u.platform_role === 'super_admin').length
 
   return (
@@ -456,8 +466,7 @@ function PlatformUsersTab() {
               <thead>
                 <tr className="border-b border-zinc-800">
                   <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wide">User</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wide">Role</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wide">Organizations</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wide">Org · Role</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wide">Joined</th>
                   <th className="px-4 py-3" />
                 </tr>
@@ -465,6 +474,8 @@ function PlatformUsersTab() {
               <tbody>
                 {filtered.map((u, i) => {
                   const memberships = userOrgMap[u.id] || []
+                  // Use org role for display; fall back to flat u.role if no memberships
+                  const primaryRole = memberships[0]?.org_role || u.role
                   return (
                     <tr key={u.id} className={`border-b border-zinc-800/60 last:border-0 hover:bg-zinc-800/30 cursor-pointer ${i % 2 === 0 ? 'bg-zinc-800/10' : ''}`} onClick={() => setSelectedUser({ ...u, memberships })}>
                       <td className="px-4 py-3">
@@ -477,23 +488,19 @@ function PlatformUsersTab() {
                         </div>
                       </td>
                       <td className="px-4 py-3">
-                        {u.platform_role === 'super_admin' ? (
-                          <Badge color="red">Super Admin</Badge>
-                        ) : (
-                          <Badge color={roleBadge(u.role)} className="capitalize">
-                            {u.role === 'head_coach' ? 'Head Coach' : u.role || 'user'}
-                          </Badge>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
                         {memberships.length === 0 ? (
-                          <span className="text-xs text-zinc-600">—</span>
+                          <span className="text-xs text-zinc-600">No org</span>
                         ) : (
-                          <div className="flex flex-wrap gap-1">
+                          <div className="space-y-1">
                             {memberships.map((m) => (
-                              <span key={m.orgId} className={`text-xs px-2 py-0.5 rounded-md ${m.is_demo ? 'bg-zinc-700/60 text-zinc-500 italic' : 'bg-zinc-800 text-zinc-400'}`}>
-                                {m.orgName}{m.is_demo ? ' (demo)' : ''}
-                              </span>
+                              <div key={m.orgId} className="flex items-center gap-1.5 flex-wrap">
+                                <Badge color={roleBadge(m.org_role)} className="capitalize text-xs">
+                                  {m.org_role === 'head_coach' ? 'Head Coach' : m.org_role || 'user'}
+                                </Badge>
+                                <span className={`text-xs ${m.is_demo ? 'text-zinc-600 italic' : 'text-zinc-400'}`}>
+                                  {m.orgName}{m.is_demo ? ' (demo)' : ''}
+                                </span>
+                              </div>
                             ))}
                           </div>
                         )}
