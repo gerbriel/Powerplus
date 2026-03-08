@@ -124,9 +124,9 @@ function PlatformAnalyticsView() {
   // Exclude demo orgs from ALL production metrics
   const productionOrgs = useMemo(() => orgs.filter(o => !o.is_demo), [orgs])
 
-  // Only count users explicitly flagged as non-demo (is_demo === false)
+  // Exclude demo-flagged users — real Supabase users have no is_demo field (undefined = not demo)
   const productionUsers = useMemo(
-    () => platformUsers.filter(u => u.is_demo === false),
+    () => platformUsers.filter(u => !u.is_demo),
     [platformUsers]
   )
 

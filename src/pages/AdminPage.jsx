@@ -174,9 +174,9 @@ function PlatformAnalyticsTab() {
   // Separate production orgs from demo orgs — demo orgs are excluded from ALL metrics
   const productionOrgs = orgs.filter((o) => !o.is_demo)
 
-  // Only count users explicitly flagged as non-demo
+  // Only count users not flagged as demo — real Supabase users have undefined (falsy) is_demo
   const productionPlatformUsers = useMemo(
-    () => platformUsers.filter((u) => u.is_demo === false),
+    () => platformUsers.filter((u) => !u.is_demo),
     [platformUsers]
   )
 
@@ -391,13 +391,13 @@ function PlatformUsersTab() {
     return map
   }, [orgs])
 
-  // Production users: is_demo flag is explicitly false
+  // Production users: exclude anyone explicitly flagged is_demo — real Supabase users have no is_demo field (undefined = not demo)
   const productionUsers = useMemo(
-    () => platformUsers.filter((u) => u.is_demo === false),
+    () => platformUsers.filter((u) => !u.is_demo),
     [platformUsers]
   )
 
-  // Demo users: is_demo flag is true
+  // Demo users: explicitly flagged true
   const demoUserCount = useMemo(
     () => platformUsers.filter((u) => u.is_demo === true).length,
     [platformUsers]
@@ -726,7 +726,7 @@ function DemoSandboxTab() {
 
   // Use is_demo flag directly — no indirect org-membership lookup
   const demoUsers = platformUsers.filter((u) => u.is_demo === true && u.platform_role !== 'super_admin')
-  const liveUsers = platformUsers.filter((u) => u.is_demo === false)
+  const liveUsers = platformUsers.filter((u) => !u.is_demo)
 
   return (
     <div className="space-y-6">
