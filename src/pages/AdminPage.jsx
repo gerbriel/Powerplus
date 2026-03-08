@@ -163,78 +163,129 @@ const chartTooltipStyle = {
   labelStyle: { color: '#a1a1aa' },
 }
 
+const PLAN_MRR = { starter: 0, team_pro: 149, enterprise: 499 }
+
 // ─── Platform Analytics (Super Admin — SaaS metrics) ─────────────────────────
 function PlatformAnalyticsTab() {
   const { orgs } = useOrgStore()
+  const { platformUsers } = useOrgStore()
 
-  // Derived SaaS metrics from mock org data
-  const PLAN_MRR = { starter: 0, team_pro: 149, enterprise: 499 }
-  const totalMRR = orgs
-    .filter((o) => o.status === 'active')
-    .reduce((s, o) => s + (PLAN_MRR[o.plan] || 0), 0)
+  // Exclude demo orgs from all revenue calculations
+  const billingOrgs = orgs.filter((o) => !o.is_demo)
+  const totalMRR = billingOrgs.filter((o) => o.status === 'active').reduce((s, o) => s + (PLAN_MRR[o.plan] || 0), 0)
   const totalARR = totalMRR * 12
   const activeOrgs = orgs.filter((o) => o.status === 'active').length
+  const demoOrgs = orgs.filter((o) => o.is_demo).length
   const suspendedOrgs = orgs.filter((o) => o.status === 'suspended').length
-  const totalUsers = orgs.reduce((s, o) => s + (o.members || []).length, 0)
-  const paidOrgs = orgs.filter((o) => o.plan !== 'starter' && o.status === 'active').length
-  const conversionRate = orgs.length > 0 ? Math.round((paidOrgs / orgs.length) * 100) : 0
+  const paidOrgs = billingOrgs.filter((o) => o.plan !== 'starter' && o.status === 'active').length
+  const conversionRate = billingOrgs.length > 0 ? Math.round((paidOrgs / billingOrgs.length) * 100) : 0
   const totalStorage = orgs.reduce((s, o) => s + (o.storage_gb_used || 0), 0)
+  const totalStorageLimit = orgs.reduce((s, o) => s + (o.storage_gb_limit || 2), 0)
+  const totalMembers = orgs.reduce((s, o) => s + (o.members || []).length, 0)
+  const totalAthletes = orgs.reduce((s, o) => s + (o.members || []).filter((m) => (m.org_role || m.role) === 'athlete').length, 0)
+  const totalStaff = totalMembers - totalAthletes
+
   const planBreakdown = Object.keys(PLAN_META).map((p) => ({
     plan: p, meta: PLAN_META[p],
-    count: orgs.filter((o) => o.plan === p).length,
-    mrr: orgs.filter((o) => o.plan === p && o.status === 'active').reduce((s) => s + (PLAN_MRR[p] || 0), 0),
+    count: billingOrgs.filter((o) => o.plan === p).length,
+    mrr: billingOrgs.filter((o) => o.plan === p && o.status === 'active').reduce((s) => s + (PLAN_MRR[p] || 0), 0),
   }))
 
-  // Mock signup trend (last 8 weeks)
-  const signupTrend = [
-    { week: 'W-7', signups: 3, churned: 0, mrr: totalMRR * 0.70 },
-    { week: 'W-6', signups: 5, churned: 1, mrr: totalMRR * 0.74 },
-    { week: 'W-5', signups: 2, churned: 0, mrr: totalMRR * 0.77 },
-    { week: 'W-4', signups: 7, churned: 1, mrr: totalMRR * 0.82 },
-    { week: 'W-3', signups: 4, churned: 0, mrr: totalMRR * 0.88 },
-    { week: 'W-2', signups: 6, churned: 2, mrr: totalMRR * 0.92 },
-    { week: 'W-1', signups: 8, churned: 1, mrr: totalMRR * 0.97 },
-    { week: 'Now',  signups: 3, churned: 0, mrr: totalMRR },
-  ]
+  // Org growth by month (from real created_at dates)
+  const orgGrowth = useMemo(() => {
+    const months = {}
+    orgs.forEach((o) => {
+      if (!o.created_at) return
+      const key = new Date(o.created_at).toLocaleDateString('en-US', { month: 'short', year: '2-digit' })
+      months[key] = (months[key] || 0) + 1
+    })
+    return Object.entries(months).slice(-8).map(([month, count]) => ({ month, count }))
+  }, [orgs])
+
+  // User growth by month
+  const userGrowth = useMemo(() => {
+    const months = {}
+    platformUsers.forEach((u) => {
+      if (!u.created_at) return
+      const key = new Date(u.created_at).toLocaleDateString('en-US', { month: 'short', year: '2-digit' })
+      months[key] = (months[key] || 0) + 1
+    })
+    return Object.entries(months).slice(-8).map(([month, count]) => ({ month, count }))
+  }, [platformUsers])
+
+  // Churn risk orgs
+  const churnRisk = orgs.filter((o) => {
+    if (o.status === 'suspended') return true
+    const athletePct = ((o.members || []).filter((m) => (m.org_role || m.role) === 'athlete').length / (o.athlete_limit || 10)) * 100
+    return athletePct >= 90 && o.status === 'active' && !o.is_demo
+  })
 
   return (
     <div className="space-y-6">
-      {/* Top-line SaaS KPIs */}
+      {/* Top KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <StatCard label="MRR" value={`$${totalMRR.toLocaleString()}`} sub="monthly recurring" icon={TrendingUp} color="green" trendLabel="+12% vs last month" trend={1} />
-        <StatCard label="ARR" value={`$${totalARR.toLocaleString()}`} sub="annualized" icon={CreditCard} color="purple" />
-        <StatCard label="Paying Orgs" value={paidOrgs} sub={`${conversionRate}% conversion`} icon={Building2} color="blue" />
-        <StatCard label="Total Users" value={totalUsers} sub={`across ${activeOrgs} active orgs`} icon={Users} color="yellow" />
+        <StatCard label="MRR" value={`$${totalMRR.toLocaleString()}`} sub={`$${totalARR.toLocaleString()} ARR`} icon={TrendingUp} color="green" />
+        <StatCard label="Paying Orgs" value={paidOrgs} sub={`${conversionRate}% conversion`} icon={Building2} color="purple" />
+        <StatCard label="Platform Users" value={platformUsers.length} sub={`${totalAthletes} athletes · ${totalStaff} staff`} icon={Users} color="blue" />
+        <StatCard label="Active Orgs" value={activeOrgs} sub={`${demoOrgs} demo · ${suspendedOrgs} suspended`} icon={Activity} color="yellow" />
       </div>
 
-      {/* MRR + signups trend */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2"><TrendingUp className="w-4 h-4 text-green-400" /> Growth Trend</CardTitle>
-          <CardSubtitle>Weekly new signups, churn, and MRR over the last 8 weeks</CardSubtitle>
-        </CardHeader>
-        <CardBody>
-          <div className="h-48">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={signupTrend} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#3f3f46" />
-                <XAxis dataKey="week" tick={{ fill: '#71717a', fontSize: 11 }} />
-                <YAxis tick={{ fill: '#71717a', fontSize: 11 }} />
-                <Tooltip {...chartTooltipStyle} />
-                <Legend wrapperStyle={{ fontSize: 11, color: '#a1a1aa' }} />
-                <Bar dataKey="signups" name="New Signups" fill="#a855f7" radius={[3,3,0,0]} />
-                <Bar dataKey="churned" name="Churned"     fill="#ef4444" radius={[3,3,0,0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </CardBody>
-      </Card>
+      {/* Org growth + User growth */}
+      <div className="grid md:grid-cols-2 gap-4">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><Building2 className="w-4 h-4 text-purple-400" /> Org Signups by Month</CardTitle>
+            <CardSubtitle>New organizations created per month</CardSubtitle>
+          </CardHeader>
+          <CardBody>
+            {orgGrowth.length === 0 ? (
+              <p className="text-sm text-zinc-500 text-center py-6">No data yet</p>
+            ) : (
+              <div className="h-40">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={orgGrowth} margin={{ top: 4, right: 8, bottom: 0, left: -20 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#3f3f46" />
+                    <XAxis dataKey="month" tick={{ fill: '#71717a', fontSize: 10 }} />
+                    <YAxis tick={{ fill: '#71717a', fontSize: 10 }} allowDecimals={false} />
+                    <Tooltip {...chartTooltipStyle} />
+                    <Bar dataKey="count" name="New Orgs" fill="#a855f7" radius={[3,3,0,0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </CardBody>
+        </Card>
 
-      {/* Revenue by plan */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><Users className="w-4 h-4 text-blue-400" /> User Signups by Month</CardTitle>
+            <CardSubtitle>New user profiles created per month</CardSubtitle>
+          </CardHeader>
+          <CardBody>
+            {userGrowth.length === 0 ? (
+              <p className="text-sm text-zinc-500 text-center py-6">No data yet</p>
+            ) : (
+              <div className="h-40">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={userGrowth} margin={{ top: 4, right: 8, bottom: 0, left: -20 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#3f3f46" />
+                    <XAxis dataKey="month" tick={{ fill: '#71717a', fontSize: 10 }} />
+                    <YAxis tick={{ fill: '#71717a', fontSize: 10 }} allowDecimals={false} />
+                    <Tooltip {...chartTooltipStyle} />
+                    <Bar dataKey="count" name="New Users" fill="#3b82f6" radius={[3,3,0,0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </CardBody>
+        </Card>
+      </div>
+
+      {/* Plan breakdown */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2"><CreditCard className="w-4 h-4 text-purple-400" /> Revenue by Plan</CardTitle>
-          <CardSubtitle>MRR contribution per subscription tier</CardSubtitle>
+          <CardTitle className="flex items-center gap-2"><CreditCard className="w-4 h-4 text-green-400" /> Revenue by Plan</CardTitle>
+          <CardSubtitle>Billing orgs only — demo orgs excluded</CardSubtitle>
         </CardHeader>
         <CardBody>
           <div className="grid grid-cols-3 gap-4">
@@ -253,19 +304,19 @@ function PlatformAnalyticsTab() {
         </CardBody>
       </Card>
 
-      {/* Health + churn risk */}
+      {/* Storage + churn risk */}
       <div className="grid md:grid-cols-2 gap-4">
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2"><Activity className="w-4 h-4 text-blue-400" /> Platform Health</CardTitle>
+            <CardTitle className="flex items-center gap-2"><Server className="w-4 h-4 text-blue-400" /> Platform Health</CardTitle>
           </CardHeader>
           <CardBody className="space-y-3">
             {[
-              { label: 'Active orgs',           value: activeOrgs,      of: orgs.length,     color: 'bg-green-500' },
-              { label: 'Paid conversion rate',  value: paidOrgs,        of: orgs.length,     color: 'bg-purple-500' },
-              { label: 'Storage utilisation',   value: Math.round(totalStorage), of: orgs.length * 2, color: 'bg-yellow-500', suffix: 'GB' },
+              { label: 'Active orgs',           value: activeOrgs,     of: orgs.length,         color: 'bg-green-500' },
+              { label: 'Paid conversion (ex. demo)', value: paidOrgs,  of: billingOrgs.length,  color: 'bg-purple-500' },
+              { label: 'Storage used',           value: +totalStorage.toFixed(1), of: totalStorageLimit, color: 'bg-yellow-500', suffix: 'GB' },
             ].map((item) => {
-              const pct = Math.min((item.value / item.of) * 100, 100) || 0
+              const pct = Math.min(item.of > 0 ? (item.value / item.of) * 100 : 0, 100)
               return (
                 <div key={item.label}>
                   <div className="flex justify-between mb-1">
@@ -283,35 +334,28 @@ function PlatformAnalyticsTab() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-yellow-400" /> Churn Risk</CardTitle>
-            <CardSubtitle>Orgs flagged for low usage or approaching limits</CardSubtitle>
+            <CardTitle className="flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-yellow-400" /> Churn Risk & Upsell</CardTitle>
+            <CardSubtitle>Suspended orgs and orgs near limits</CardSubtitle>
           </CardHeader>
           <CardBody className="space-y-2.5">
-            {orgs.filter((o) => o.status === 'suspended').length === 0 ? (
-              <p className="text-sm text-zinc-500 text-center py-3">No suspended orgs</p>
-            ) : (
-              orgs.filter((o) => o.status === 'suspended').map((o) => (
-                <div key={o.id} className="flex items-center gap-3 p-2 bg-red-500/5 border border-red-500/15 rounded-lg">
-                  <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0" />
-                  <div>
+            {churnRisk.length === 0 ? (
+              <p className="text-sm text-zinc-500 text-center py-4">No risk flags</p>
+            ) : churnRisk.map((o) => {
+              const athletePct = ((o.members || []).filter((m) => (m.org_role || m.role) === 'athlete').length / (o.athlete_limit || 10)) * 100
+              return (
+                <div key={o.id} className={`flex items-center gap-3 p-2 rounded-lg border ${o.status === 'suspended' ? 'bg-red-500/5 border-red-500/15' : 'bg-yellow-500/5 border-yellow-500/15'}`}>
+                  {o.status === 'suspended'
+                    ? <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0" />
+                    : <Zap className="w-4 h-4 text-yellow-400 flex-shrink-0" />}
+                  <div className="flex-1 min-w-0">
                     <p className="text-sm text-zinc-200 font-medium">{o.name}</p>
-                    <p className="text-xs text-red-400">Suspended · {PLAN_META[o.plan]?.label}</p>
+                    <p className={`text-xs ${o.status === 'suspended' ? 'text-red-400' : 'text-yellow-400'}`}>
+                      {o.status === 'suspended' ? `Suspended · ${PLAN_META[o.plan]?.label}` : `Athlete limit ${Math.round(athletePct)}% full — upsell`}
+                    </p>
                   </div>
                 </div>
-              ))
-            )}
-            {orgs.filter((o) => {
-              const athletePct = ((o.members || []).filter((m) => (m.org_role || m.role) === 'athlete').length / (o.athlete_limit || 10)) * 100
-              return athletePct >= 90 && o.status === 'active'
-            }).map((o) => (
-              <div key={o.id + '-limit'} className="flex items-center gap-3 p-2 bg-yellow-500/5 border border-yellow-500/15 rounded-lg">
-                <Zap className="w-4 h-4 text-yellow-400 flex-shrink-0" />
-                <div>
-                  <p className="text-sm text-zinc-200 font-medium">{o.name}</p>
-                  <p className="text-xs text-yellow-400">Athlete limit almost reached — upsell opportunity</p>
-                </div>
-              </div>
-            ))}
+              )
+            })}
           </CardBody>
         </Card>
       </div>
@@ -321,35 +365,61 @@ function PlatformAnalyticsTab() {
 
 // ─── Platform Users (Super Admin) ─────────────────────────────────────────────
 function PlatformUsersTab() {
-  const { platformUsers } = useOrgStore()
+  const { platformUsers, orgs } = useOrgStore()
   const [search, setSearch] = useState('')
+  const [roleFilter, setRoleFilter] = useState('all')
+  const [selectedUser, setSelectedUser] = useState(null)
 
-  const filtered = platformUsers.filter(
-    (u) =>
-      (u.full_name || u.display_name || '').toLowerCase().includes(search.toLowerCase()) ||
+  // Build a map of userId → org memberships from the loaded orgs
+  const userOrgMap = useMemo(() => {
+    const map = {}
+    orgs.forEach((org) => {
+      ;(org.members || []).forEach((m) => {
+        if (!map[m.user_id]) map[m.user_id] = []
+        map[m.user_id].push({ orgName: org.name, orgId: org.id, org_role: m.org_role || m.role, joined_at: m.joined_at, is_demo: org.is_demo })
+      })
+    })
+    return map
+  }, [orgs])
+
+  const filtered = platformUsers.filter((u) => {
+    const matchSearch = (u.full_name || u.display_name || '').toLowerCase().includes(search.toLowerCase()) ||
       (u.email || '').toLowerCase().includes(search.toLowerCase())
-  )
+    const matchRole = roleFilter === 'all' || u.platform_role === roleFilter || u.role === roleFilter
+    return matchSearch && matchRole
+  })
 
-  const totalPlatformUsers = platformUsers.length
-  const staffCount = platformUsers.filter((u) => u.role !== 'athlete' && u.platform_role !== 'super_admin').length
   const athleteCount = platformUsers.filter((u) => u.role === 'athlete').length
+  const staffCount = platformUsers.filter((u) => u.role !== 'athlete' && u.platform_role !== 'super_admin').length
+  const superAdminCount = platformUsers.filter((u) => u.platform_role === 'super_admin').length
 
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-3 gap-3">
-        <StatCard label="Total Users" value={totalPlatformUsers} icon={Users} color="purple" />
-        <StatCard label="Staff / Coaches" value={staffCount} icon={Shield} color="blue" />
-        <StatCard label="Athletes" value={athleteCount} icon={Activity} color="green" />
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <StatCard label="Total Users" value={platformUsers.length} icon={Users} color="purple" />
+        <StatCard label="Athletes" value={athleteCount} icon={Activity} color="blue" />
+        <StatCard label="Staff / Coaches" value={staffCount} icon={Shield} color="green" />
+        <StatCard label="Super Admins" value={superAdminCount} icon={Crown} color="red" />
       </div>
 
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search users by name or email…"
-          className="w-full bg-zinc-800 border border-zinc-700 rounded-xl pl-9 pr-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-purple-500/40"
-        />
+      <div className="flex items-center gap-3">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by name or email…"
+            className="w-full bg-zinc-800 border border-zinc-700 rounded-xl pl-9 pr-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-purple-500/40"
+          />
+        </div>
+        <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)} className="bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-purple-500/40">
+          <option value="all">All roles</option>
+          <option value="super_admin">Super Admin</option>
+          <option value="head_coach">Head Coach</option>
+          <option value="coach">Coach</option>
+          <option value="nutritionist">Nutritionist</option>
+          <option value="athlete">Athlete</option>
+        </select>
       </div>
 
       <Card>
@@ -360,49 +430,115 @@ function PlatformUsersTab() {
                 <tr className="border-b border-zinc-800">
                   <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wide">User</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wide">Role</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wide">Organization(s)</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wide">Organizations</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wide">Joined</th>
+                  <th className="px-4 py-3" />
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((u, i) => (
-                  <tr key={u.id} className={`border-b border-zinc-800/60 last:border-0 ${i % 2 === 0 ? 'bg-zinc-800/10' : ''}`}>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2.5">
-                        <Avatar name={u.full_name || u.display_name || u.email} size="xs" />
-                        <div>
-                          <p className="text-zinc-200 font-medium text-sm">{u.full_name || u.display_name || u.email}</p>
-                          <p className="text-xs text-zinc-500">{u.email}</p>
+                {filtered.map((u, i) => {
+                  const memberships = userOrgMap[u.id] || []
+                  return (
+                    <tr key={u.id} className={`border-b border-zinc-800/60 last:border-0 hover:bg-zinc-800/30 cursor-pointer ${i % 2 === 0 ? 'bg-zinc-800/10' : ''}`} onClick={() => setSelectedUser({ ...u, memberships })}>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2.5">
+                          <Avatar name={u.full_name || u.display_name || u.email} size="xs" />
+                          <div>
+                            <p className="text-zinc-200 font-medium text-sm">{u.full_name || u.display_name || u.email}</p>
+                            <p className="text-xs text-zinc-500">{u.email}</p>
+                          </div>
                         </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      {u.platform_role === 'super_admin' ? (
-                        <Badge color="red">Super Admin</Badge>
-                      ) : (
-                        <Badge color={roleBadge(u.role)} className="capitalize">
-                          {u.role === 'head_coach' ? 'Head Coach' : u.role || 'user'}
-                        </Badge>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-zinc-500">
-                      {u.platform_role === 'super_admin' ? 'Platform' : '—'}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-zinc-500">
-                      {u.created_at ? new Date(u.created_at).toLocaleDateString() : '—'}
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className="px-4 py-3">
+                        {u.platform_role === 'super_admin' ? (
+                          <Badge color="red">Super Admin</Badge>
+                        ) : (
+                          <Badge color={roleBadge(u.role)} className="capitalize">
+                            {u.role === 'head_coach' ? 'Head Coach' : u.role || 'user'}
+                          </Badge>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        {memberships.length === 0 ? (
+                          <span className="text-xs text-zinc-600">—</span>
+                        ) : (
+                          <div className="flex flex-wrap gap-1">
+                            {memberships.map((m) => (
+                              <span key={m.orgId} className={`text-xs px-2 py-0.5 rounded-md ${m.is_demo ? 'bg-zinc-700/60 text-zinc-500 italic' : 'bg-zinc-800 text-zinc-400'}`}>
+                                {m.orgName}{m.is_demo ? ' (demo)' : ''}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-zinc-500">
+                        {u.created_at ? new Date(u.created_at).toLocaleDateString() : '—'}
+                      </td>
+                      <td className="px-4 py-3">
+                        <Eye className="w-3.5 h-3.5 text-zinc-600 hover:text-zinc-300" />
+                      </td>
+                    </tr>
+                  )
+                })}
                 {filtered.length === 0 && (
-                  <tr>
-                    <td colSpan={4} className="px-4 py-10 text-center text-sm text-zinc-500">No users found</td>
-                  </tr>
+                  <tr><td colSpan={5} className="px-4 py-10 text-center text-sm text-zinc-500">No users found</td></tr>
                 )}
               </tbody>
             </table>
           </div>
         </CardBody>
       </Card>
+
+      {/* User drill-down modal */}
+      {selectedUser && (
+        <Modal open={!!selectedUser} onClose={() => setSelectedUser(null)} title="User Detail" size="sm">
+          <div className="p-6 space-y-4">
+            <div className="flex items-center gap-4">
+              <Avatar name={selectedUser.full_name || selectedUser.email} size="lg" />
+              <div>
+                <p className="text-base font-semibold text-zinc-100">{selectedUser.full_name || selectedUser.display_name || selectedUser.email}</p>
+                <p className="text-sm text-zinc-400">{selectedUser.email}</p>
+                <div className="flex items-center gap-2 mt-1.5">
+                  {selectedUser.platform_role === 'super_admin'
+                    ? <Badge color="red">Super Admin</Badge>
+                    : <Badge color={roleBadge(selectedUser.role)} className="capitalize">{selectedUser.role || 'user'}</Badge>}
+                </div>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3 text-xs">
+              <div className="bg-zinc-800/50 rounded-lg p-3">
+                <p className="text-zinc-500 mb-0.5">Joined</p>
+                <p className="text-zinc-200 font-medium">{selectedUser.created_at ? new Date(selectedUser.created_at).toLocaleDateString() : '—'}</p>
+              </div>
+              <div className="bg-zinc-800/50 rounded-lg p-3">
+                <p className="text-zinc-500 mb-0.5">Platform Role</p>
+                <p className="text-zinc-200 font-medium capitalize">{selectedUser.platform_role || 'user'}</p>
+              </div>
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wide mb-2">Organization Memberships ({selectedUser.memberships.length})</p>
+              {selectedUser.memberships.length === 0 ? (
+                <p className="text-sm text-zinc-600">No org memberships</p>
+              ) : (
+                <div className="space-y-2">
+                  {selectedUser.memberships.map((m) => (
+                    <div key={m.orgId} className="flex items-center justify-between p-2.5 bg-zinc-800/40 rounded-lg">
+                      <div>
+                        <span className="text-sm text-zinc-200">{m.orgName}</span>
+                        {m.is_demo && <Badge color="default" className="ml-2 text-xs">Demo</Badge>}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge color={roleBadge(m.org_role)} className="capitalize text-xs">{m.org_role}</Badge>
+                        <span className="text-xs text-zinc-600">{m.joined_at}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   )
 }
@@ -410,85 +546,133 @@ function PlatformUsersTab() {
 // ─── Platform Billing (Super Admin) ──────────────────────────────────────────
 function PlatformBillingTab() {
   const { orgs } = useOrgStore()
-  const PLAN_MRR = { starter: 0, team_pro: 149, enterprise: 499 }
 
-  const paidOrgs = orgs.filter((o) => o.plan !== 'starter')
+  // Exclude demo orgs from all billing views
+  const billingOrgs = orgs.filter((o) => !o.is_demo)
+  const paidOrgs = billingOrgs.filter((o) => o.plan !== 'starter' && o.status === 'active')
+  const freeOrgs = billingOrgs.filter((o) => o.plan === 'starter')
+  const totalMRR = paidOrgs.reduce((s, o) => s + (PLAN_MRR[o.plan] || 0), 0)
 
   return (
     <div className="space-y-5">
-      <p className="text-xs text-zinc-500 uppercase tracking-wide font-semibold">Subscription accounts</p>
+      {/* MRR summary */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <StatCard label="MRR" value={`$${totalMRR.toLocaleString()}`} sub="billing orgs only" icon={TrendingUp} color="green" />
+        <StatCard label="ARR" value={`$${(totalMRR * 12).toLocaleString()}`} icon={CreditCard} color="purple" />
+        <StatCard label="Paid Orgs" value={paidOrgs.length} icon={CheckCircle2} color="blue" />
+        <StatCard label="Free Orgs" value={freeOrgs.length} sub="upsell candidates" icon={Building2} color="yellow" />
+      </div>
 
-      {paidOrgs.length === 0 ? (
-        <Card>
-          <CardBody className="py-12 text-center text-zinc-500">
-            <CreditCard className="w-8 h-8 mx-auto mb-3 opacity-40" />
-            <p className="text-sm">No paid subscriptions yet</p>
-          </CardBody>
-        </Card>
-      ) : (
-        <div className="space-y-3">
-          {paidOrgs.map((org) => {
-            const planInfo = PLAN_META[org.plan] || PLAN_META.starter
-            const mrr = PLAN_MRR[org.plan] || 0
-            const athletes = (org.members || []).filter((m) => (m.org_role || m.role) === 'athlete').length
-            return (
-              <Card key={org.id}>
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-xl bg-zinc-700 flex items-center justify-center flex-shrink-0">
-                    <CreditCard className="w-5 h-5 text-zinc-400" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-sm font-semibold text-zinc-100">{org.name}</span>
-                      <Badge color={planInfo.color}>{planInfo.label}</Badge>
-                      <Badge color={org.status === 'active' ? 'green' : 'red'} className="capitalize">{org.status}</Badge>
-                    </div>
-                    <div className="flex items-center gap-4 mt-1 text-xs text-zinc-500">
-                      <span>{athletes} athletes</span>
-                      <span>Created {org.created_at ? new Date(org.created_at).toLocaleDateString() : '—'}</span>
-                      <span>{org.federation || 'No federation'}</span>
-                    </div>
-                  </div>
-                  <div className="text-right flex-shrink-0">
-                    <p className="text-base font-bold text-green-400">${mrr}/mo</p>
-                    <p className="text-xs text-zinc-500">${(mrr * 12).toLocaleString()}/yr</p>
-                  </div>
-                </div>
-              </Card>
-            )
-          })}
-        </div>
-      )}
-
-      {/* Upgrade prompts for free orgs */}
-      <div>
-        <p className="text-xs text-zinc-500 uppercase tracking-wide font-semibold mb-3">Free tier — upsell candidates</p>
-        <div className="space-y-2">
-          {orgs.filter((o) => o.plan === 'starter').map((org) => {
-            const athletes = (org.members || []).filter((m) => (m.org_role || m.role) === 'athlete').length
-            const pct = (athletes / (org.athlete_limit || 10)) * 100
-            return (
-              <div key={org.id} className="flex items-center gap-4 p-3 bg-zinc-900 border border-zinc-700 rounded-xl">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-zinc-200 font-medium">{org.name}</span>
-                    <Badge color="default">Starter</Badge>
-                  </div>
-                  <div className="flex items-center gap-2 mt-1.5">
-                    <div className="flex-1 h-1.5 bg-zinc-700 rounded-full">
-                      <div className={`h-full rounded-full ${pct >= 90 ? 'bg-red-500' : pct >= 70 ? 'bg-yellow-500' : 'bg-green-500'}`} style={{ width: `${pct}%` }} />
-                    </div>
-                    <span className="text-xs text-zinc-500 flex-shrink-0">{athletes}/{org.athlete_limit} athletes</span>
-                  </div>
-                </div>
-                {pct >= 70 && (
-                  <Badge color="yellow">Upsell</Badge>
-                )}
-              </div>
-            )
-          })}
+      {/* Stripe integration notice */}
+      <div className="flex items-start gap-3 p-3 bg-blue-500/5 border border-blue-500/20 rounded-xl">
+        <CreditCard className="w-4 h-4 text-blue-400 mt-0.5 flex-shrink-0" />
+        <div>
+          <p className="text-sm font-medium text-blue-300">Stripe integration ready</p>
+          <p className="text-xs text-zinc-400 mt-0.5">Each org has <code className="text-blue-400">stripe_customer_id</code> and <code className="text-blue-400">stripe_subscription_id</code> columns. Connect Stripe to sync billing data here automatically.</p>
         </div>
       </div>
+
+      {/* Paid subscriptions */}
+      <div>
+        <p className="text-xs text-zinc-500 uppercase tracking-wide font-semibold mb-3">Active Subscriptions</p>
+        {paidOrgs.length === 0 ? (
+          <Card>
+            <CardBody className="py-10 text-center text-zinc-500">
+              <CreditCard className="w-8 h-8 mx-auto mb-3 opacity-40" />
+              <p className="text-sm">No paid subscriptions yet</p>
+            </CardBody>
+          </Card>
+        ) : (
+          <div className="space-y-3">
+            {paidOrgs.map((org) => {
+              const planInfo = PLAN_META[org.plan] || PLAN_META.starter
+              const mrr = PLAN_MRR[org.plan] || 0
+              const athletes = (org.members || []).filter((m) => (m.org_role || m.role) === 'athlete').length
+              const athletePct = Math.round((athletes / (org.athlete_limit || 10)) * 100)
+              return (
+                <Card key={org.id}>
+                  <div className="flex items-center gap-4">
+                    <div className="w-10 h-10 rounded-xl bg-zinc-700/60 flex items-center justify-center flex-shrink-0">
+                      <CreditCard className="w-5 h-5 text-green-400" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-semibold text-zinc-100">{org.name}</span>
+                        <Badge color={planInfo.color}>{planInfo.label}</Badge>
+                        <Badge color="green">Active</Badge>
+                        {org.stripe_subscription_id && <Badge color="default" className="text-xs font-mono">Stripe ✓</Badge>}
+                      </div>
+                      <div className="flex items-center gap-4 mt-1 text-xs text-zinc-500">
+                        <span>{athletes}/{org.athlete_limit} athletes ({athletePct}%)</span>
+                        <span>{org.billing_email || org.federation || 'No billing email'}</span>
+                        <span>Since {org.created_at ? new Date(org.created_at).toLocaleDateString() : '—'}</span>
+                      </div>
+                      {/* Limit bar */}
+                      <div className="mt-2 h-1 bg-zinc-700 rounded-full w-48">
+                        <div className={`h-full rounded-full ${athletePct >= 90 ? 'bg-red-500' : athletePct >= 70 ? 'bg-yellow-500' : 'bg-green-500'}`} style={{ width: `${Math.min(athletePct, 100)}%` }} />
+                      </div>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <p className="text-lg font-bold text-green-400">${mrr}/mo</p>
+                      <p className="text-xs text-zinc-500">${(mrr * 12).toLocaleString()}/yr</p>
+                    </div>
+                  </div>
+                </Card>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Free / upsell candidates */}
+      <div>
+        <p className="text-xs text-zinc-500 uppercase tracking-wide font-semibold mb-3">Free Tier — Upsell Candidates</p>
+        {freeOrgs.length === 0 ? (
+          <p className="text-sm text-zinc-600 text-center py-4">No free orgs</p>
+        ) : (
+          <div className="space-y-2">
+            {freeOrgs.map((org) => {
+              const athletes = (org.members || []).filter((m) => (m.org_role || m.role) === 'athlete').length
+              const pct = Math.round((athletes / (org.athlete_limit || 10)) * 100)
+              return (
+                <div key={org.id} className="flex items-center gap-4 p-3 bg-zinc-900 border border-zinc-700 rounded-xl">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-zinc-200 font-medium">{org.name}</span>
+                      <Badge color="default">Starter</Badge>
+                      {org.status === 'suspended' && <Badge color="red">Suspended</Badge>}
+                    </div>
+                    <div className="flex items-center gap-2 mt-1.5">
+                      <div className="flex-1 h-1.5 bg-zinc-700 rounded-full">
+                        <div className={`h-full rounded-full ${pct >= 90 ? 'bg-red-500' : pct >= 70 ? 'bg-yellow-500' : 'bg-green-500'}`} style={{ width: `${pct}%` }} />
+                      </div>
+                      <span className="text-xs text-zinc-500 flex-shrink-0">{athletes}/{org.athlete_limit} athletes</span>
+                    </div>
+                  </div>
+                  {pct >= 70 && <Badge color="yellow">Upsell</Badge>}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Demo orgs — clearly separated */}
+      {orgs.filter((o) => o.is_demo).length > 0 && (
+        <div>
+          <p className="text-xs text-zinc-600 uppercase tracking-wide font-semibold mb-3 flex items-center gap-1.5">
+            <EyeOff className="w-3.5 h-3.5" /> Demo Orgs (excluded from billing)
+          </p>
+          <div className="space-y-2 opacity-50">
+            {orgs.filter((o) => o.is_demo).map((org) => (
+              <div key={org.id} className="flex items-center gap-3 p-3 bg-zinc-900 border border-dashed border-zinc-700 rounded-xl">
+                <span className="text-sm text-zinc-400">{org.name}</span>
+                <Badge color="default" className="text-xs">Demo · Not billed</Badge>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -1375,20 +1559,183 @@ function AthleteDrilldown({ athlete: a, org, onBack }) {
 }
 
 // ─── Super Admin: All Organizations ──────────────────────────────────────────
+// ─── Org Detail Modal ─────────────────────────────────────────────────────────
+function OrgDetailModal({ org, onClose, onEdit, onToggleStatus, onDelete }) {
+  const [deleteConfirm, setDeleteConfirm] = useState(false)
+  if (!org) return null
+
+  const athletes = (org.members || []).filter((m) => (m.org_role || m.role) === 'athlete')
+  const staff = (org.members || []).filter((m) => (m.org_role || m.role) !== 'athlete')
+  const pendingInvites = (org.invitations || []).filter((i) => i.status === 'pending')
+  const planInfo = PLAN_META[org.plan] || PLAN_META.starter
+  const athletePct = Math.min((athletes.length / (org.athlete_limit || 10)) * 100, 100)
+  const staffPct = Math.min((staff.length / (org.staff_limit || 2)) * 100, 100)
+  const storagePct = Math.min(((org.storage_gb_used || 0) / (org.storage_gb_limit || 2)) * 100, 100)
+
+  return (
+    <Modal open={!!org} onClose={onClose} title="Organization Detail" size="lg">
+      <div className="flex flex-col gap-0">
+        {/* Header */}
+        <div className="p-6 border-b border-zinc-800">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-xl bg-zinc-700 flex items-center justify-center flex-shrink-0">
+                <Building2 className="w-6 h-6 text-purple-400" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="text-base font-bold text-zinc-100">{org.name}</h3>
+                  <Badge color={planInfo.color}>{planInfo.label}</Badge>
+                  <Badge color={ORG_STATUS_BADGE[org.status]?.color || 'default'}>{ORG_STATUS_BADGE[org.status]?.label || org.status}</Badge>
+                  {org.is_demo && <Badge color="default">Demo</Badge>}
+                </div>
+                <p className="text-xs text-zinc-500 mt-0.5">/{org.slug} · {org.federation || 'No federation'} · {org.address || 'No location'}</p>
+                <p className="text-xs text-zinc-600 mt-0.5">Created {org.created_at ? new Date(org.created_at).toLocaleDateString() : '—'}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 flex-shrink-0">
+              <button onClick={onEdit} className="p-2 text-zinc-500 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-colors" title="Edit"><Edit2 className="w-4 h-4" /></button>
+              <button onClick={onToggleStatus} className={`p-2 rounded-lg transition-colors ${org.status === 'active' ? 'text-zinc-500 hover:text-yellow-400 hover:bg-yellow-500/10' : 'text-zinc-500 hover:text-green-400 hover:bg-green-500/10'}`} title={org.status === 'active' ? 'Suspend' : 'Reactivate'}>
+                {org.status === 'active' ? <ToggleRight className="w-4 h-4" /> : <ToggleLeft className="w-4 h-4" />}
+              </button>
+              <button onClick={() => setDeleteConfirm(true)} className="p-2 text-zinc-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors" title="Delete"><Trash2 className="w-4 h-4" /></button>
+            </div>
+          </div>
+          {deleteConfirm && (
+            <div className="mt-3 p-3 bg-red-500/10 border border-red-500/20 rounded-xl flex items-center gap-3">
+              <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0" />
+              <p className="text-xs text-red-300 flex-1">Permanently delete <strong>{org.name}</strong>? This cannot be undone.</p>
+              <button onClick={() => setDeleteConfirm(false)} className="text-xs text-zinc-400 hover:text-zinc-200 px-2 py-1">Cancel</button>
+              <button onClick={() => { onDelete(); onClose() }} className="text-xs text-white bg-red-600 hover:bg-red-500 px-3 py-1 rounded-lg">Delete</button>
+            </div>
+          )}
+        </div>
+
+        {/* Scrollable body */}
+        <div className="p-6 space-y-6 overflow-y-auto max-h-[60vh]">
+          {/* Usage bars */}
+          <div>
+            <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wide mb-3">Usage</p>
+            <div className="grid grid-cols-3 gap-4">
+              {[
+                { label: 'Athletes', used: athletes.length, limit: org.athlete_limit || 10, pct: athletePct },
+                { label: 'Staff', used: staff.length, limit: org.staff_limit || 2, pct: staffPct },
+                { label: 'Storage', used: +(org.storage_gb_used || 0).toFixed(1), limit: org.storage_gb_limit || 2, pct: storagePct, suffix: 'GB' },
+              ].map((item) => (
+                <div key={item.label} className="p-3 bg-zinc-800/40 rounded-xl">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs text-zinc-500">{item.label}</span>
+                    <span className="text-xs font-medium text-zinc-300">{item.used}{item.suffix || ''}/{item.limit}{item.suffix || ''}</span>
+                  </div>
+                  <div className="h-1.5 bg-zinc-700 rounded-full overflow-hidden">
+                    <div className={`h-full rounded-full ${item.pct >= 90 ? 'bg-red-500' : item.pct >= 70 ? 'bg-yellow-500' : 'bg-green-500'}`} style={{ width: `${item.pct}%` }} />
+                  </div>
+                  <p className="text-xs text-zinc-600 mt-1">{Math.round(item.pct)}% used</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Billing */}
+          <div>
+            <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wide mb-3">Billing</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="p-3 bg-zinc-800/40 rounded-xl">
+                <p className="text-xs text-zinc-500 mb-0.5">Plan</p>
+                <p className="text-sm font-semibold text-zinc-200">{planInfo.label} — {planInfo.price}</p>
+              </div>
+              <div className="p-3 bg-zinc-800/40 rounded-xl">
+                <p className="text-xs text-zinc-500 mb-0.5">Billing Email</p>
+                <p className="text-sm text-zinc-300">{org.billing_email || <span className="text-zinc-600 italic">Not set</span>}</p>
+              </div>
+              <div className="p-3 bg-zinc-800/40 rounded-xl">
+                <p className="text-xs text-zinc-500 mb-0.5">Stripe Customer</p>
+                <p className="text-sm text-zinc-300">{org.stripe_customer_id ? <span className="text-green-400 font-mono text-xs">{org.stripe_customer_id.slice(0, 18)}…</span> : <span className="text-zinc-600 italic">Not connected</span>}</p>
+              </div>
+              <div className="p-3 bg-zinc-800/40 rounded-xl">
+                <p className="text-xs text-zinc-500 mb-0.5">Subscription ID</p>
+                <p className="text-sm text-zinc-300">{org.stripe_subscription_id ? <span className="text-green-400 font-mono text-xs">{org.stripe_subscription_id.slice(0, 18)}…</span> : <span className="text-zinc-600 italic">Not connected</span>}</p>
+              </div>
+              {org.trial_ends_at && (
+                <div className="p-3 bg-yellow-500/5 border border-yellow-500/15 rounded-xl col-span-2">
+                  <p className="text-xs text-yellow-500 mb-0.5">Trial Ends</p>
+                  <p className="text-sm font-semibold text-yellow-300">{new Date(org.trial_ends_at).toLocaleDateString()}</p>
+                </div>
+              )}
+              {org.is_demo && (
+                <div className="col-span-2 p-3 bg-zinc-800/60 border border-dashed border-zinc-700 rounded-xl text-center">
+                  <p className="text-xs text-zinc-500">Demo org — not billed</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Members */}
+          <div>
+            <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wide mb-3">Members ({(org.members || []).length})</p>
+            {(org.members || []).length === 0 ? (
+              <p className="text-sm text-zinc-600 text-center py-3">No members yet</p>
+            ) : (
+              <div className="space-y-1.5">
+                {(org.members || []).map((m) => (
+                  <div key={m.user_id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-zinc-800/30">
+                    <Avatar name={m.full_name} size="xs" />
+                    <div className="flex-1 min-w-0">
+                      <span className="text-sm text-zinc-200">{m.full_name || 'Unknown'}</span>
+                      <span className="text-xs text-zinc-500 ml-2">{m.email}</span>
+                    </div>
+                    <Badge color={roleBadge(m.org_role || m.role)} className="capitalize text-xs">{m.org_role || m.role}</Badge>
+                    <span className="text-xs text-zinc-600">{m.joined_at ? new Date(m.joined_at).toLocaleDateString() : ''}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Pending invitations */}
+          {pendingInvites.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wide mb-3">Pending Invitations ({pendingInvites.length})</p>
+              <div className="space-y-1.5">
+                {pendingInvites.map((inv) => (
+                  <div key={inv.id} className="flex items-center gap-3 p-2 rounded-lg bg-zinc-800/20 opacity-70">
+                    <div className="w-6 h-6 rounded-full bg-zinc-700 flex items-center justify-center flex-shrink-0"><Mail className="w-3 h-3 text-zinc-400" /></div>
+                    <div className="flex-1 min-w-0">
+                      <span className="text-sm text-zinc-300">{inv.email}</span>
+                      <span className="text-xs text-zinc-500 ml-2">sent {inv.sent_at}</span>
+                    </div>
+                    <Badge color="yellow" className="text-xs capitalize">{inv.org_role || inv.role}</Badge>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
 function SuperAdminOrgsTab() {
   const { orgs, _allOrgsLoaded, createOrg, updateOrg, deleteOrg, toggleOrgStatus } = useOrgStore()
   const [search, setSearch] = useState('')
+  const [planFilter, setPlanFilter] = useState('all')
+  const [statusFilter, setStatusFilter] = useState('all')
   const [createOpen, setCreateOpen] = useState(false)
   const [editTarget, setEditTarget] = useState(null)
-  const [deleteConfirm, setDeleteConfirm] = useState(null)
-  const [expandedOrg, setExpandedOrg] = useState(null)
+  const [detailOrg, setDetailOrg] = useState(null)
 
-  const filtered = orgs.filter(
-    (o) => (o.name || '').toLowerCase().includes(search.toLowerCase()) || (o.slug || '').toLowerCase().includes(search.toLowerCase())
-  )
-  const totalAthletes = orgs.reduce((s, o) => s + (o.members || []).filter((m) => m.role === 'athlete' || m.org_role === 'athlete').length, 0)
-  const totalStaff = orgs.reduce((s, o) => s + (o.members || []).filter((m) => m.role !== 'athlete' && m.org_role !== 'athlete').length, 0)
+  const filtered = orgs.filter((o) => {
+    const matchSearch = (o.name || '').toLowerCase().includes(search.toLowerCase()) || (o.slug || '').toLowerCase().includes(search.toLowerCase())
+    const matchPlan = planFilter === 'all' || o.plan === planFilter
+    const matchStatus = statusFilter === 'all' || o.status === statusFilter
+    return matchSearch && matchPlan && matchStatus
+  })
+
+  const totalAthletes = orgs.reduce((s, o) => s + (o.members || []).filter((m) => (m.org_role || m.role) === 'athlete').length, 0)
+  const totalStaff = orgs.reduce((s, o) => s + (o.members || []).filter((m) => (m.org_role || m.role) !== 'athlete').length, 0)
   const activeOrgs = orgs.filter((o) => o.status === 'active').length
+  const demoOrgs = orgs.filter((o) => o.is_demo).length
 
   return (
     <div className="space-y-5">
@@ -1398,12 +1745,13 @@ function SuperAdminOrgsTab() {
         </div>
       )}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <StatCard label="Total Orgs" value={orgs.length} icon={Building2} color="purple" />
+        <StatCard label="Total Orgs" value={orgs.length} sub={`${demoOrgs} demo`} icon={Building2} color="purple" />
         <StatCard label="Active Orgs" value={activeOrgs} icon={CheckCircle2} color="green" />
         <StatCard label="Total Athletes" value={totalAthletes} icon={Users} color="blue" />
         <StatCard label="Total Staff" value={totalStaff} icon={Shield} color="yellow" />
       </div>
 
+      {/* Filters */}
       <div className="flex items-center gap-3">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
@@ -1414,6 +1762,16 @@ function SuperAdminOrgsTab() {
             className="w-full bg-zinc-800 border border-zinc-700 rounded-xl pl-9 pr-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-purple-500/40"
           />
         </div>
+        <select value={planFilter} onChange={(e) => setPlanFilter(e.target.value)} className="bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-purple-500/40">
+          <option value="all">All plans</option>
+          {Object.entries(PLAN_META).map(([key, m]) => <option key={key} value={key}>{m.label}</option>)}
+        </select>
+        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-purple-500/40">
+          <option value="all">All statuses</option>
+          <option value="active">Active</option>
+          <option value="trial">Trial</option>
+          <option value="suspended">Suspended</option>
+        </select>
         <Button size="sm" onClick={() => setCreateOpen(true)}>
           <PlusCircle className="w-3.5 h-3.5" /> New Org
         </Button>
@@ -1433,29 +1791,40 @@ function SuperAdminOrgsTab() {
           const staff = (org.members || []).filter((m) => (m.org_role || m.role) !== 'athlete').length
           const pendingInvites = (org.invitations || []).filter((i) => i.status === 'pending').length
           const planInfo = PLAN_META[org.plan] || PLAN_META.starter
-          const isExpanded = expandedOrg === org.id
+          const athletePct = Math.round((athletes / (org.athlete_limit || 10)) * 100)
 
           return (
-            <Card key={org.id} className={`transition-all ${org.status === 'suspended' ? 'border-red-500/20 opacity-75' : 'hover:border-zinc-600'}`}>
+            <Card key={org.id} className={`transition-all cursor-pointer ${org.status === 'suspended' ? 'border-red-500/20 opacity-80' : 'hover:border-zinc-600'}`} onClick={() => setDetailOrg(org)}>
               <div className="flex items-start gap-4">
-                <div className="w-10 h-10 rounded-xl bg-zinc-700 flex items-center justify-center flex-shrink-0"><Activity className="w-5 h-5 text-zinc-400" /></div>
+                <div className="w-10 h-10 rounded-xl bg-zinc-700/80 flex items-center justify-center flex-shrink-0">
+                  <Building2 className="w-5 h-5 text-purple-400" />
+                </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-sm font-semibold text-zinc-100">{org.name}</span>
                     <Badge color={planInfo.color}>{planInfo.label}</Badge>
                     <Badge color={ORG_STATUS_BADGE[org.status]?.color || 'default'}>{ORG_STATUS_BADGE[org.status]?.label || org.status}</Badge>
+                    {org.is_demo && <Badge color="default" className="text-xs">Demo</Badge>}
                   </div>
-                  <p className="text-xs text-zinc-500 mt-0.5">{org.slug} · {org.federation || 'No federation'} · {org.address || 'No address'}</p>
+                  <p className="text-xs text-zinc-500 mt-0.5">/{org.slug} · {org.federation || 'No federation'} · {org.address || 'No location'}</p>
                   <div className="flex items-center gap-4 mt-1.5 text-xs text-zinc-400">
                     <span className="flex items-center gap-1"><Users className="w-3 h-3" />{athletes} athletes</span>
                     <span className="flex items-center gap-1"><Shield className="w-3 h-3" />{staff} staff</span>
                     {pendingInvites > 0 && <span className="flex items-center gap-1 text-yellow-400"><Mail className="w-3 h-3" />{pendingInvites} pending</span>}
+                    {athletePct >= 80 && <span className="flex items-center gap-1 text-orange-400"><Zap className="w-3 h-3" />{athletePct}% full</span>}
                     <span className="text-zinc-600">Created {org.created_at ? new Date(org.created_at).toLocaleDateString() : '—'}</span>
                   </div>
+                  {/* Mini athlete capacity bar */}
+                  <div className="mt-2 flex items-center gap-2">
+                    <div className="w-24 h-1 bg-zinc-700 rounded-full overflow-hidden">
+                      <div className={`h-full rounded-full ${athletePct >= 90 ? 'bg-red-500' : athletePct >= 70 ? 'bg-yellow-500' : 'bg-green-500'}`} style={{ width: `${Math.min(athletePct, 100)}%` }} />
+                    </div>
+                    <span className="text-xs text-zinc-600">{athletes}/{org.athlete_limit || 10} capacity</span>
+                  </div>
                 </div>
-                <div className="flex items-center gap-1.5 flex-shrink-0">
-                  <button onClick={() => setExpandedOrg(isExpanded ? null : org.id)} className="p-1.5 text-zinc-500 hover:text-zinc-200 hover:bg-zinc-700 rounded-lg transition-colors" title="View details">
-                    <ChevronDown className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                <div className="flex items-center gap-1.5 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                  <button onClick={() => setDetailOrg(org)} className="p-1.5 text-zinc-500 hover:text-zinc-200 hover:bg-zinc-700 rounded-lg transition-colors" title="View details">
+                    <Eye className="w-4 h-4" />
                   </button>
                   <button onClick={() => setEditTarget(org)} className="p-1.5 text-zinc-500 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-colors" title="Edit org">
                     <Edit2 className="w-4 h-4" />
@@ -1467,80 +1836,25 @@ function SuperAdminOrgsTab() {
                   >
                     {org.status === 'active' ? <ToggleRight className="w-4 h-4" /> : <ToggleLeft className="w-4 h-4" />}
                   </button>
-                  <button onClick={() => setDeleteConfirm(org.id)} className="p-1.5 text-zinc-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors" title="Delete org">
-                    <Trash2 className="w-4 h-4" />
-                  </button>
                 </div>
               </div>
-
-              {deleteConfirm === org.id && (
-                <div className="mt-3 p-3 bg-red-500/10 border border-red-500/20 rounded-xl flex items-center gap-3">
-                  <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0" />
-                  <p className="text-xs text-red-300 flex-1">Permanently delete <strong>{org.name}</strong>? All data will be lost.</p>
-                  <button onClick={() => setDeleteConfirm(null)} className="text-xs text-zinc-400 hover:text-zinc-200 px-2 py-1">Cancel</button>
-                  <button onClick={() => { deleteOrg(org.id); setDeleteConfirm(null) }} className="text-xs text-white bg-red-600 hover:bg-red-500 px-3 py-1 rounded-lg transition-colors">Delete</button>
-                </div>
-              )}
-
-              {isExpanded && (
-                <div className="mt-4 pt-4 border-t border-zinc-800 space-y-2">
-                  <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wide mb-2">Members ({org.members.length})</p>
-                  {(org.members || []).map((m) => (
-                    <div key={m.user_id} className="flex items-center gap-3 py-1">
-                      <Avatar name={m.full_name} size="xs" />
-                      <div className="flex-1 min-w-0">
-                        <span className="text-sm text-zinc-200">{m.full_name}</span>
-                        <span className="text-xs text-zinc-500 ml-2">{m.email}</span>
-                      </div>
-                      <Badge color={roleBadge(m.org_role || m.role)} className="capitalize">{m.org_role || m.role}</Badge>
-                    </div>
-                  ))}
-                  {(org.invitations || []).filter((i) => i.status === 'pending').map((inv) => (
-                    <div key={inv.id} className="flex items-center gap-3 py-1 opacity-60">
-                      <div className="w-6 h-6 rounded-full bg-zinc-700 flex items-center justify-center"><Mail className="w-3 h-3 text-zinc-400" /></div>
-                      <div className="flex-1 min-w-0">
-                        <span className="text-sm text-zinc-300">{inv.email}</span>
-                        <span className="text-xs text-zinc-500 ml-2">invited {inv.sent_at}</span>
-                      </div>
-                      <Badge color="yellow" className="capitalize">Invited · {inv.org_role || inv.role}</Badge>
-                    </div>
-                  ))}
-                  <div className="mt-3 pt-3 border-t border-zinc-800/60 grid grid-cols-3 gap-3">
-                    {[
-                      { label: 'Athletes', used: athletes, limit: org.athlete_limit },
-                      { label: 'Staff', used: staff, limit: org.staff_limit },
-                      { label: 'Storage', used: org.storage_gb_used, limit: org.storage_gb_limit, suffix: 'GB' },
-                    ].map((item) => (
-                      <div key={item.label}>
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-xs text-zinc-500">{item.label}</span>
-                          <span className="text-xs text-zinc-400">{item.used}{item.suffix || ''}/{item.limit}{item.suffix || ''}</span>
-                        </div>
-                        <div className="h-1.5 bg-zinc-700 rounded-full overflow-hidden">
-                          <div
-                            className={`h-full rounded-full transition-all ${(item.used / item.limit) > 0.9 ? 'bg-red-500' : (item.used / item.limit) > 0.7 ? 'bg-yellow-500' : 'bg-green-500'}`}
-                            style={{ width: `${Math.min((item.used / item.limit) * 100, 100)}%` }}
-                          />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
             </Card>
           )
         })}
-        {filtered.length === 0 && (
-          <div className="text-center py-12 text-zinc-500">
-            <Building2 className="w-8 h-8 mx-auto mb-3 opacity-40" />
-            <p className="text-sm">No organizations found</p>
-          </div>
-        )}
       </div>
 
       <OrgFormModal open={createOpen} onClose={() => setCreateOpen(false)} onSave={(data) => { createOrg(data); setCreateOpen(false) }} />
       {editTarget && (
         <OrgFormModal open={!!editTarget} onClose={() => setEditTarget(null)} initial={editTarget} onSave={(data) => { updateOrg(editTarget.id, data); setEditTarget(null) }} />
+      )}
+      {detailOrg && (
+        <OrgDetailModal
+          org={detailOrg}
+          onClose={() => setDetailOrg(null)}
+          onEdit={() => { setEditTarget(detailOrg); setDetailOrg(null) }}
+          onToggleStatus={() => toggleOrgStatus(detailOrg.id)}
+          onDelete={() => deleteOrg(detailOrg.id)}
+        />
       )}
     </div>
   )
