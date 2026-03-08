@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { MOCK_USERS, MOCK_GOALS, MOCK_TRAINING_BLOCKS, MOCK_MEETS, MOCK_ORGS, MOCK_ORG_MEMBERS, MOCK_STAFF_ASSIGNMENTS, MOCK_ATHLETE_RECIPES, MOCK_ATHLETE_PREP_LOG, MOCK_ATHLETE_SHOPPING_LISTS, MOCK_ATHLETE_MEAL_PLANS, MOCK_CHANNELS, MOCK_MESSAGES, MOCK_DIRECT_MESSAGES, MOCK_EXERCISES } from './mockData'
-import { upsertProfile, isSupabaseConfigured, onAuthStateChange, fetchProfile, fetchOrgMemberships, signOut as supabaseSignOut, getSession, fetchChannels as sbFetchChannels, createChannel as sbCreateChannel, updateChannel as sbUpdateChannel, archiveChannel as sbArchiveChannel, fetchMessages as sbFetchMessages, sendMessage as sbSendMessage, editMessage as sbEditMessage, deleteMessage as sbDeleteMessage, toggleReaction as sbToggleReaction, togglePinMessage as sbTogglePinMessage, findOrCreateDM as sbFindOrCreateDM, findOrCreateGroup as sbFindOrCreateGroup, markChannelRead as sbMarkChannelRead, subscribeToChannel as sbSubscribeToChannel, uploadMessageFile as sbUploadMessageFile, subscribeToOrgEvents as sbSubscribeToOrgEvents, fetchOrgAthletes, fetchOrgReviewQueue, fetchExercises, fetchProgramTemplates, fetchOrgTrainingBlocks, fetchPrepLog, fetchShoppingLists, fetchOrgRecipes, fetchNutritionLogs, fetchOrgEvents, fetchUserEvents, fetchAthleteSessions, fetchAthleteWorkoutSets, fetchAthleteCheckIns, fetchAthleteInjuries, fetchOrgWorkoutSessions, fetchOrgWorkoutSets, fetchOrgCheckIns, fetchOrgInjuries, fetchOrgStaffMembers, fetchOrgNutritionLogs, fetchUserMeets, fetchUserTrainingBlocks, fetchUserGoals, fetchAthleteMeetHistory, fetchAllOrgsForSuperAdmin, fetchAllPlatformUsers } from './supabase'
+import { upsertProfile, isSupabaseConfigured, onAuthStateChange, fetchProfile, fetchOrgMemberships, signOut as supabaseSignOut, getSession, fetchChannels as sbFetchChannels, createChannel as sbCreateChannel, updateChannel as sbUpdateChannel, archiveChannel as sbArchiveChannel, fetchMessages as sbFetchMessages, sendMessage as sbSendMessage, editMessage as sbEditMessage, deleteMessage as sbDeleteMessage, toggleReaction as sbToggleReaction, togglePinMessage as sbTogglePinMessage, findOrCreateDM as sbFindOrCreateDM, findOrCreateGroup as sbFindOrCreateGroup, markChannelRead as sbMarkChannelRead, subscribeToChannel as sbSubscribeToChannel, uploadMessageFile as sbUploadMessageFile, subscribeToOrgEvents as sbSubscribeToOrgEvents, fetchOrgAthletes, fetchOrgReviewQueue, fetchExercises, fetchProgramTemplates, fetchOrgTrainingBlocks, fetchPrepLog, fetchShoppingLists, fetchOrgRecipes, fetchNutritionLogs, fetchOrgEvents, fetchUserEvents, fetchAthleteSessions, fetchAthleteWorkoutSets, fetchAthleteCheckIns, fetchAthleteInjuries, fetchOrgWorkoutSessions, fetchOrgWorkoutSets, fetchOrgCheckIns, fetchOrgInjuries, fetchOrgStaffMembers, fetchOrgNutritionLogs, fetchUserMeets, fetchUserTrainingBlocks, fetchUserGoals, fetchAthleteMeetHistory, fetchAllOrgsForSuperAdmin, fetchAllPlatformUsers, insertOrgInvitation, deleteOrgInvitation, updateOrgMemberRole, removeOrgMember, fetchOrgMembers, fetchOrgInvitations } from './supabase'
 import { saveMessageRecord, updateMessageRecord, saveChannelRecord, updateChannelRecord, saveOrgPublicPage, loadOrgPublicPage, loadOrgLeads, submitIntakeLead, saveLead, removeLead, loadOrgResources, saveNewResource, updateResource, removeResource } from './db'
 import { subscribeToOrgLeads, subscribeToOrgResources } from './supabase'
 
@@ -106,6 +106,35 @@ export const useAuthStore = create((set, get) => ({
     // Resolved role used throughout the app for nav/permission checks
     const resolvedRole = dbPlatformRole === 'super_admin' ? 'super_admin'
       : dbRole || metaRole || membershipRole || 'athlete'
+
+    // If a non-super_admin user belongs to an org, build a minimal org object
+    // in the store and then fetch its real members + invitations from Supabase.
+    if (activeOrgId && dbPlatformRole !== 'super_admin') {
+      // Seed a minimal org record so the AdminPage TeamTab can render immediately
+      useOrgStore.setState((s) => {
+        const already = s.orgs.find((o) => o.id === activeOrgId)
+        if (already) return s
+        return {
+          orgs: [
+            ...s.orgs,
+            {
+              id: activeOrgId,
+              name: memberships[0]?.organizations?.name || '',
+              slug: memberships[0]?.organizations?.slug || '',
+              members: [],
+              invitations: [],
+              activity_log: [],
+              plan: 'starter',
+              status: 'active',
+              is_demo: false,
+            },
+          ],
+        }
+      })
+      // Async: hydrate members + invitations (don't block auth)
+      useOrgStore.getState().loadOrgMembers(activeOrgId)
+    }
+
     set({
       user: session.user,
       profile: profile
@@ -611,23 +640,57 @@ export const useOrgStore = create((set, get) => ({
       ),
     })),
 
-  // Send an invitation
-  inviteMember: (orgId, { email, org_role, message = '' }) =>
+  // Load members and invitations for a specific org from Supabase (head_coach view)
+  loadOrgMembers: async (orgId) => {
+    if (!orgId || !isSupabaseConfigured()) return
+    const [members, invitations] = await Promise.all([
+      fetchOrgMembers(orgId),
+      fetchOrgInvitations(orgId),
+    ])
     set((s) => ({
-      orgs: s.orgs.map((o) => {
-        if (o.id !== orgId) return o
-        if (o.invitations.some((i) => i.email === email && i.status === 'pending')) return o
-        const newInv = {
-          id: `inv-${Date.now()}`,
-          email,
-          org_role,
-          message,
-          status: 'pending',
-          sent_at: new Date().toISOString().slice(0, 10),
-        }
-        return { ...o, invitations: [...o.invitations, newInv] }
-      }),
-    })),
+      orgs: s.orgs.map((o) =>
+        o.id === orgId ? { ...o, members, invitations } : o
+      ),
+    }))
+  },
+
+  // Send an invitation — writes to Supabase then updates local state
+  inviteMember: async (orgId, { email, org_role, role, message = '' }) =>
+    set(async (s) => {
+      const effectiveRole = org_role || role || 'athlete'
+      // Optimistic local update first
+      const tempInv = {
+        id: `inv-${Date.now()}`,
+        email,
+        org_role: effectiveRole,
+        role: effectiveRole,
+        message,
+        status: 'pending',
+        sent_at: new Date().toISOString().slice(0, 10),
+      }
+      // Supabase insert (fire-and-forget; replace temp id with real one if success)
+      const currentUser = useAuthStore.getState().user
+      insertOrgInvitation(orgId, { email, org_role: effectiveRole, message, invitedBy: currentUser?.id })
+        .then((row) => {
+          if (!row) return
+          set((s2) => ({
+            orgs: s2.orgs.map((o) => {
+              if (o.id !== orgId) return o
+              return {
+                ...o,
+                invitations: o.invitations.map((i) => (i.id === tempInv.id ? { ...i, id: row.id } : i)),
+              }
+            }),
+          }))
+        })
+      return {
+        orgs: s.orgs.map((o) => {
+          if (o.id !== orgId) return o
+          if (o.invitations.some((i) => i.email === email && i.status === 'pending')) return o
+          return { ...o, invitations: [...o.invitations, tempInv] }
+        }),
+      }
+    }),
 
   // Resend invitation (updates sent_at)
   resendInvite: (orgId, invId) =>
@@ -644,15 +707,18 @@ export const useOrgStore = create((set, get) => ({
       ),
     })),
 
-  // Cancel / revoke an invitation
-  cancelInvite: (orgId, invId) =>
+  // Cancel / revoke an invitation — deletes from Supabase
+  cancelInvite: (orgId, invId) => {
+    // Fire Supabase delete (invId may be a real uuid)
+    if (!invId.startsWith('inv-')) deleteOrgInvitation(invId)
     set((s) => ({
       orgs: s.orgs.map((o) =>
         o.id !== orgId
           ? o
           : { ...o, invitations: o.invitations.filter((i) => i.id !== invId) }
       ),
-    })),
+    }))
+  },
 
   // Accept an invitation — moves from invitations → members
   acceptInvite: (orgId, invId, userData) =>
@@ -689,8 +755,9 @@ export const useOrgStore = create((set, get) => ({
       }),
     })),
 
-  // Update a member's org_role
-  updateMemberRole: (orgId, userId, newRole) =>
+  // Update a member's org_role — writes to Supabase
+  updateMemberRole: (orgId, userId, newRole) => {
+    updateOrgMemberRole(orgId, userId, newRole)
     set((s) => ({
       orgs: s.orgs.map((o) =>
         o.id !== orgId
@@ -698,11 +765,12 @@ export const useOrgStore = create((set, get) => ({
           : {
               ...o,
               members: o.members.map((m) =>
-                m.user_id === userId ? { ...m, org_role: newRole } : m
+                m.user_id === userId ? { ...m, org_role: newRole, role: newRole } : m
               ),
             }
       ),
-    })),
+    }))
+  },
 
   // Toggle is_self_athlete for a member (head_coach tracking own workouts)
   toggleSelfAthlete: (orgId, userId) =>
@@ -719,15 +787,17 @@ export const useOrgStore = create((set, get) => ({
       ),
     })),
 
-  // Remove a member from an org
-  removeMember: (orgId, userId) =>
+  // Remove a member from an org — deletes from Supabase
+  removeMember: (orgId, userId) => {
+    removeOrgMember(orgId, userId)
     set((s) => ({
       orgs: s.orgs.map((o) =>
         o.id !== orgId
           ? o
           : { ...o, members: o.members.filter((m) => m.user_id !== userId) }
       ),
-    })),
+    }))
+  },
 
   // ── Staff–Athlete Assignments ────────────────────────────────────────────
   // Get all assignments in an org for a given staff member
