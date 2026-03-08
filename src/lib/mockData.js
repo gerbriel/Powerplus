@@ -100,25 +100,25 @@ export const MOCK_USERS = {
 // Mirrors what fetchAllPlatformUsers() returns from Supabase.
 // Iron North Athletics users are tagged so is_demo filtering works in demo mode.
 export const MOCK_PLATFORM_USERS = [
-  // Super admin (no org)
-  { id: MOCK_USER_IDS.super_admin, email: 'superadmin@powerplus.app', full_name: 'Alex Rivera', display_name: 'Alex (Platform Admin)', platform_role: 'super_admin', role: 'super_admin', created_at: '2023-10-01' },
-  // Iron North Athletics staff (demo org — will be filtered out of production views)
-  { id: MOCK_USER_IDS.admin,        email: 'admin@powerplus.app',      full_name: 'Marcus Webb',    display_name: 'Coach Marcus', platform_role: 'user', role: 'head_coach',   created_at: '2024-01-10' },
-  { id: MOCK_USER_IDS.coach,        email: 'coach@powerplus.app',      full_name: 'Elena Torres',   display_name: 'Coach Elena',  platform_role: 'user', role: 'coach',         created_at: '2024-01-15' },
-  { id: MOCK_USER_IDS.nutritionist, email: 'nutrition@powerplus.app',  full_name: 'Dr. Priya Nair', display_name: 'Dr. Priya',    platform_role: 'user', role: 'nutritionist',  created_at: '2024-02-10' },
-  { id: MOCK_USER_IDS.athlete,      email: 'athlete@powerplus.app',    full_name: 'Jordan Blake',   display_name: 'Jordan',       platform_role: 'user', role: 'athlete',       created_at: '2024-03-01' },
-  { id: MOCK_USER_IDS.athlete2,     email: 'sam.price@email.com',      full_name: 'Samantha Price', display_name: 'Samantha',     platform_role: 'user', role: 'athlete',       created_at: '2024-03-05' },
-  { id: MOCK_USER_IDS.assistant_coach, email: 'assistant@powerplus.app', full_name: 'Ryan Park', display_name: 'Coach Ryan', platform_role: 'user', role: 'coach', created_at: '2024-04-01' },
-  // Production orgs (external, non-demo)
-  { id: 'u-coach-ext-001', email: 'chris@ironbarbell.com',    full_name: 'Chris Nakamura', display_name: 'Chris Nakamura', platform_role: 'user', role: 'head_coach',  created_at: '2024-06-01' },
-  { id: 'u-ath-ext-001',   email: 'dana@email.com',           full_name: 'Dana Kowalski',  display_name: 'Dana Kowalski',  platform_role: 'user', role: 'athlete',     created_at: '2024-06-15' },
-  { id: 'u-ath-ext-002',   email: 'raj@email.com',            full_name: 'Raj Patel',      display_name: 'Raj Patel',      platform_role: 'user', role: 'athlete',     created_at: '2024-07-01' },
-  { id: 'u-coach-ext-002', email: 'tara@peaklabs.com',        full_name: 'Tara Osei',      display_name: 'Tara Osei',      platform_role: 'user', role: 'head_coach',  created_at: '2023-11-01' },
-  { id: 'u-coach-ext-003', email: 'ben@peaklabs.com',         full_name: 'Ben Foster',     display_name: 'Ben Foster',     platform_role: 'user', role: 'coach',       created_at: '2023-11-15' },
-  { id: 'u-nutri-ext-001', email: 'lucia@peaklabs.com',       full_name: 'Lucia Mendez',   display_name: 'Lucia Mendez',   platform_role: 'user', role: 'nutritionist', created_at: '2023-12-01' },
-  { id: 'u-coach-ext-004', email: 'omar@atlasstrength.com',   full_name: 'Omar Shafi',     display_name: 'Omar Shafi',     platform_role: 'user', role: 'head_coach',  created_at: '2025-01-15' },
-  { id: 'u-coach-002',     email: 'mike@powerplus.com',       full_name: 'Mike Rivera',    display_name: 'Mike Rivera',    platform_role: 'user', role: 'coach',       created_at: '2024-02-20' },
-  { id: 'u-ath-003',       email: 'devon@email.com',          full_name: 'Devon Park',     display_name: 'Devon Park',     platform_role: 'user', role: 'athlete',     created_at: '2024-03-10' },
+  // Super admin — not counted in production user metrics
+  { id: MOCK_USER_IDS.super_admin,    email: 'superadmin@powerplus.app',  full_name: 'Alex Rivera',    display_name: 'Alex (Platform Admin)', platform_role: 'super_admin', role: 'super_admin',  is_demo: true,  created_at: '2023-10-01' },
+  // Iron North Athletics — demo org, excluded from all production KPIs
+  { id: MOCK_USER_IDS.admin,          email: 'admin@powerplus.app',       full_name: 'Marcus Webb',    display_name: 'Coach Marcus',          platform_role: 'user',        role: 'head_coach',   is_demo: true,  created_at: '2024-01-10' },
+  { id: MOCK_USER_IDS.coach,          email: 'coach@powerplus.app',       full_name: 'Elena Torres',   display_name: 'Coach Elena',           platform_role: 'user',        role: 'coach',        is_demo: true,  created_at: '2024-01-15' },
+  { id: MOCK_USER_IDS.nutritionist,   email: 'nutrition@powerplus.app',   full_name: 'Dr. Priya Nair', display_name: 'Dr. Priya',             platform_role: 'user',        role: 'nutritionist', is_demo: true,  created_at: '2024-02-10' },
+  { id: MOCK_USER_IDS.athlete,        email: 'athlete@powerplus.app',     full_name: 'Jordan Blake',   display_name: 'Jordan',                platform_role: 'user',        role: 'athlete',      is_demo: true,  created_at: '2024-03-01' },
+  { id: MOCK_USER_IDS.athlete2,       email: 'sam.price@email.com',       full_name: 'Samantha Price', display_name: 'Samantha',              platform_role: 'user',        role: 'athlete',      is_demo: true,  created_at: '2024-03-05' },
+  { id: MOCK_USER_IDS.assistant_coach,email: 'assistant@powerplus.app',   full_name: 'Ryan Park',      display_name: 'Coach Ryan',            platform_role: 'user',        role: 'coach',        is_demo: true,  created_at: '2024-04-01' },
+  { id: 'u-coach-002',                email: 'mike@powerplus.com',        full_name: 'Mike Rivera',    display_name: 'Mike Rivera',           platform_role: 'user',        role: 'coach',        is_demo: true,  created_at: '2024-02-20' },
+  { id: 'u-ath-003',                  email: 'devon@email.com',           full_name: 'Devon Park',     display_name: 'Devon Park',            platform_role: 'user',        role: 'athlete',      is_demo: true,  created_at: '2024-03-10' },
+  // Production orgs — counted in all KPI metrics
+  { id: 'u-coach-ext-001', email: 'chris@ironbarbell.com',  full_name: 'Chris Nakamura', display_name: 'Chris Nakamura', platform_role: 'user', role: 'head_coach',   is_demo: false, created_at: '2024-06-01' },
+  { id: 'u-ath-ext-001',   email: 'dana@email.com',         full_name: 'Dana Kowalski',  display_name: 'Dana Kowalski',  platform_role: 'user', role: 'athlete',      is_demo: false, created_at: '2024-06-15' },
+  { id: 'u-ath-ext-002',   email: 'raj@email.com',          full_name: 'Raj Patel',      display_name: 'Raj Patel',      platform_role: 'user', role: 'athlete',      is_demo: false, created_at: '2024-07-01' },
+  { id: 'u-coach-ext-002', email: 'tara@peaklabs.com',      full_name: 'Tara Osei',      display_name: 'Tara Osei',      platform_role: 'user', role: 'head_coach',   is_demo: false, created_at: '2023-11-01' },
+  { id: 'u-coach-ext-003', email: 'ben@peaklabs.com',       full_name: 'Ben Foster',     display_name: 'Ben Foster',     platform_role: 'user', role: 'coach',        is_demo: false, created_at: '2023-11-15' },
+  { id: 'u-nutri-ext-001', email: 'lucia@peaklabs.com',     full_name: 'Lucia Mendez',   display_name: 'Lucia Mendez',   platform_role: 'user', role: 'nutritionist', is_demo: false, created_at: '2023-12-01' },
+  { id: 'u-coach-ext-004', email: 'omar@atlasstrength.com', full_name: 'Omar Shafi',     display_name: 'Omar Shafi',     platform_role: 'user', role: 'head_coach',   is_demo: false, created_at: '2025-01-15' },
 ]
 
 export const MOCK_ATHLETES = [
