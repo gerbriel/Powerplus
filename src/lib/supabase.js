@@ -1394,11 +1394,12 @@ export async function fetchUserGoals(userId) {
   if (!isSupabaseConfigured() || !userId) return []
   const { data, error } = await supabase
     .from('goals')
-    .select('id, athlete_id, title, goal_type, target_value, current_value, target_unit, target_date, completed, notes, linked_meet_id, progress_history, created_at')
+    .select('id, athlete_id, title, goal_type, target_value, current_value, target_unit, target_date, completed, notes, linked_meet_id, created_at')
     .eq('athlete_id', userId)
     .order('created_at', { ascending: false })
   if (error) { console.error('[supabase] fetchUserGoals:', error.message); return [] }
-  return data ?? []
+  // Ensure progress_history is always present as an array (column may not exist in all DB versions)
+  return (data ?? []).map(g => ({ progress_history: [], ...g }))
 }
 
 /**
