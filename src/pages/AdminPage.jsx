@@ -2016,11 +2016,13 @@ const ROLE_TIER = { head_coach: 0, coach: 1, nutritionist: 2, athlete: 3 }
 const ROLE_LABEL = { head_coach: 'Head Coach', coach: 'Coach', nutritionist: 'Nutritionist', athlete: 'Athlete' }
 
 function RosterBoardTab() {
-  const { orgs, platformUsers, loadAllOrgs, loadPlatformUsers, moveUserToOrg, changeOrgMemberRole, removeUserFromOrg } = useOrgStore()
+  const { orgs, platformUsers, loadAllOrgs, loadPlatformUsers, moveUserToOrg, changeOrgMemberRole, removeUserFromOrg, assignToStaff } = useOrgStore()
   const dragRef = useRef(null)
   const [dropTarget, setDropTarget] = useState(null)        // orgId being hovered
   const [pendingDrop, setPendingDrop] = useState(null)      // { userId, fromOrgId, toOrgId, memberData }
+  const [modalStep, setModalStep] = useState(1)             // 1 = pick role, 2 = assign to staff
   const [pickedRole, setPickedRole] = useState('athlete')
+  const [assignedStaff, setAssignedStaff] = useState([])    // array of user_ids selected in step 2
   const [search, setSearch] = useState('')
 
   useEffect(() => { loadAllOrgs(); loadPlatformUsers() }, [loadAllOrgs, loadPlatformUsers])
@@ -2053,6 +2055,25 @@ function RosterBoardTab() {
     })
   }, [productionOrgs, search])
 
+  // Staff members in the target org grouped by role tier (for step 2 assignment)
+  const targetOrgStaff = useMemo(() => {
+    if (!pendingDrop) return { headCoach: null, coaches: [], nutritionists: [] }
+    const org = productionOrgs.find((o) => o.id === pendingDrop.toOrgId)
+    if (!org) return { headCoach: null, coaches: [], nutritionists: [] }
+    const members = org.members || []
+    return {
+      headCoach: members.find((m) => (m.org_role || m.role) === 'head_coach') || null,
+      coaches: members.filter((m) => (m.org_role || m.role) === 'coach'),
+      nutritionists: members.filter((m) => (m.org_role || m.role) === 'nutritionist'),
+    }
+  }, [pendingDrop, productionOrgs])
+
+  // Whether step 2 (staff assignment) is needed for the picked role
+  const needsAssignment = useMemo(() => {
+    // head_coach doesn't get assigned to anyone; athletes/coaches/nutritionists do
+    return pickedRole !== 'head_coach'
+  }, [pickedRole])
+
   // ── Drag handlers ──────────────────────────────────────────────────────────
   const handleDragStart = useCallback((e, userId, fromOrgId, memberData) => {
     dragRef.current = { userId, fromOrgId, memberData }
@@ -2075,23 +2096,52 @@ function RosterBoardTab() {
     if (!dragRef.current) return
     const { userId, fromOrgId, memberData } = dragRef.current
     dragRef.current = null
-    if (fromOrgId === toOrgId) return   // same column — no-op (role change via dropdown)
-    setPendingDrop({ userId, fromOrgId, toOrgId, memberData })
+    if (fromOrgId === toOrgId) return   // same column — role change via dropdown
+    setModalStep(1)
     setPickedRole(memberData?.org_role || 'athlete')
+    setAssignedStaff([])
+    setPendingDrop({ userId, fromOrgId, toOrgId, memberData })
   }, [])
 
-  const confirmMove = useCallback(async () => {
+  const handleNextStep = useCallback(() => {
+    if (!needsAssignment) {
+      // head_coach — skip step 2, confirm immediately
+      handleConfirmMove()
+    } else {
+      setModalStep(2)
+    }
+  }, [needsAssignment]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleConfirmMove = useCallback(async () => {
     if (!pendingDrop) return
     const { userId, fromOrgId, toOrgId, memberData } = pendingDrop
     await moveUserToOrg(userId, memberData?.full_name, memberData?.email, fromOrgId, toOrgId, pickedRole)
+    if (assignedStaff.length > 0) {
+      await assignToStaff(toOrgId, userId, assignedStaff)
+    }
     toast.success(`Moved to ${productionOrgs.find((o) => o.id === toOrgId)?.name ?? 'org'}`)
     setPendingDrop(null)
-  }, [pendingDrop, pickedRole, moveUserToOrg, productionOrgs])
+    setModalStep(1)
+    setAssignedStaff([])
+  }, [pendingDrop, pickedRole, assignedStaff, moveUserToOrg, assignToStaff, productionOrgs])
+
+  const toggleStaff = useCallback((staffUserId) => {
+    setAssignedStaff((prev) =>
+      prev.includes(staffUserId) ? prev.filter((id) => id !== staffUserId) : [...prev, staffUserId]
+    )
+  }, [])
+
+  const closeModal = useCallback(() => {
+    setPendingDrop(null)
+    setModalStep(1)
+    setAssignedStaff([])
+  }, [])
 
   // ── Member card ────────────────────────────────────────────────────────────
   const MemberCard = useCallback(({ member, orgId }) => {
     const initials = (member.full_name || member.email || '?')
       .split(' ').slice(0, 2).map((w) => w[0]).join('').toUpperCase()
+    const role = member.org_role || member.role || 'athlete'
 
     return (
       <div
@@ -2110,7 +2160,7 @@ function RosterBoardTab() {
         <div className="flex items-center gap-1">
           {orgId && (
             <select
-              value={member.org_role || member.role || 'athlete'}
+              value={role}
               onChange={(e) => { e.stopPropagation(); changeOrgMemberRole(orgId, member.user_id || member.id, e.target.value) }}
               onClick={(e) => e.stopPropagation()}
               className="text-[10px] bg-zinc-700 border border-zinc-600 text-zinc-300 rounded px-1 py-0.5 cursor-pointer"
@@ -2175,7 +2225,48 @@ function RosterBoardTab() {
     )
   }, [dropTarget, handleDragOver, handleDragLeave, handleDrop])
 
+  // ── Staff picker row (step 2) ──────────────────────────────────────────────
+  const StaffPickerSection = useCallback(({ label, members }) => {
+    if (!members || members.length === 0) return null
+    return (
+      <div>
+        <p className="text-[11px] font-medium text-zinc-400 mb-1.5">{label}</p>
+        <div className="flex flex-col gap-1.5">
+          {members.map((m) => {
+            const uid = m.user_id || m.id
+            const checked = assignedStaff.includes(uid)
+            const initials = (m.full_name || m.email || '?').split(' ').slice(0, 2).map((w) => w[0]).join('').toUpperCase()
+            return (
+              <button
+                key={uid}
+                onClick={() => toggleStaff(uid)}
+                className={cn(
+                  'flex items-center gap-2.5 px-3 py-2 rounded-lg border text-left transition-colors w-full',
+                  checked ? 'bg-indigo-600/20 border-indigo-500 text-zinc-100' : 'bg-zinc-800 border-zinc-700 text-zinc-300 hover:border-zinc-500'
+                )}
+              >
+                <div className={cn('w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors', checked ? 'border-indigo-400 bg-indigo-500' : 'border-zinc-600')}>
+                  {checked && <Check className="w-3 h-3 text-white" />}
+                </div>
+                <div className="w-6 h-6 rounded-full bg-zinc-700 flex items-center justify-center text-[9px] font-bold text-zinc-300 flex-shrink-0">
+                  {initials}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium truncate">{m.full_name || '—'}</p>
+                  <p className="text-[10px] text-zinc-500 truncate">{m.email}</p>
+                </div>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+    )
+  }, [assignedStaff, toggleStaff])
+
   // ── Render ─────────────────────────────────────────────────────────────────
+  const targetOrgName = pendingDrop ? productionOrgs.find((o) => o.id === pendingDrop.toOrgId)?.name : ''
+  const hasAnyStaff = targetOrgStaff.headCoach || targetOrgStaff.coaches.length > 0 || targetOrgStaff.nutritionists.length > 0
+
   return (
     <div className="space-y-4">
       {/* Header */}
@@ -2225,37 +2316,109 @@ function RosterBoardTab() {
         })}
       </div>
 
-      {/* Role-picker confirmation modal */}
+      {/* ── Assignment modal (2 steps) ── */}
       {pendingDrop && (
-        <Modal open onClose={() => setPendingDrop(null)} title="Assign Role">
+        <Modal open onClose={closeModal} title={modalStep === 1 ? 'Assign Role' : 'Assign to Staff'}>
           <div className="space-y-4">
-            <p className="text-sm text-zinc-300">
-              Moving <span className="font-semibold text-zinc-100">{pendingDrop.memberData?.full_name || pendingDrop.memberData?.email}</span> to{' '}
-              <span className="font-semibold text-zinc-100">{productionOrgs.find((o) => o.id === pendingDrop.toOrgId)?.name}</span>.
-            </p>
-            <div>
-              <label className="text-xs text-zinc-400 block mb-1.5">Role in new org</label>
-              <div className="grid grid-cols-2 gap-2">
-                {ORG_ROLES.map((r) => (
-                  <button
-                    key={r}
-                    onClick={() => setPickedRole(r)}
-                    className={cn(
-                      'px-3 py-2 rounded-lg text-sm font-medium border transition-colors',
-                      pickedRole === r
-                        ? 'bg-indigo-600 border-indigo-500 text-white'
-                        : 'bg-zinc-800 border-zinc-700 text-zinc-300 hover:border-zinc-500'
-                    )}
-                  >
-                    {ROLE_LABEL[r]}
-                  </button>
+
+            {/* Step indicator */}
+            {needsAssignment && (
+              <div className="flex items-center gap-2">
+                {[1, 2].map((s) => (
+                  <div key={s} className="flex items-center gap-2">
+                    <div className={cn('w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold border', modalStep >= s ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-zinc-800 border-zinc-600 text-zinc-500')}>
+                      {s}
+                    </div>
+                    {s < 2 && <div className={cn('h-px w-8', modalStep > s ? 'bg-indigo-500' : 'bg-zinc-700')} />}
+                  </div>
                 ))}
+                <span className="text-[10px] text-zinc-500 ml-1">{modalStep === 1 ? 'Choose role' : 'Assign to staff'}</span>
+              </div>
+            )}
+
+            <p className="text-sm text-zinc-300">
+              {modalStep === 1 ? (
+                <>Moving <span className="font-semibold text-zinc-100">{pendingDrop.memberData?.full_name || pendingDrop.memberData?.email}</span> to <span className="font-semibold text-zinc-100">{targetOrgName}</span>.</>
+              ) : (
+                <>Assign <span className="font-semibold text-zinc-100">{pendingDrop.memberData?.full_name || pendingDrop.memberData?.email}</span> to staff in <span className="font-semibold text-zinc-100">{targetOrgName}</span>.</>
+              )}
+            </p>
+
+            {/* Step 1: Role picker */}
+            {modalStep === 1 && (
+              <div>
+                <label className="text-xs text-zinc-400 block mb-1.5">Role in {targetOrgName}</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {ORG_ROLES.map((r) => (
+                    <button
+                      key={r}
+                      onClick={() => setPickedRole(r)}
+                      className={cn(
+                        'px-3 py-2 rounded-lg text-sm font-medium border transition-colors',
+                        pickedRole === r
+                          ? 'bg-indigo-600 border-indigo-500 text-white'
+                          : 'bg-zinc-800 border-zinc-700 text-zinc-300 hover:border-zinc-500'
+                      )}
+                    >
+                      {ROLE_LABEL[r]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Step 2: Staff assignment */}
+            {modalStep === 2 && (
+              <div className="space-y-3">
+                {!hasAnyStaff ? (
+                  <p className="text-xs text-zinc-500 text-center py-2">No staff members found in this org yet.</p>
+                ) : (
+                  <>
+                    <p className="text-[11px] text-zinc-500">Select who this {ROLE_LABEL[pickedRole].toLowerCase()} will be assigned to. You can select multiple.</p>
+                    {targetOrgStaff.headCoach && (
+                      <StaffPickerSection
+                        label="Head Coach"
+                        members={[targetOrgStaff.headCoach]}
+                      />
+                    )}
+                    {targetOrgStaff.coaches.length > 0 && (
+                      <StaffPickerSection
+                        label={`Coach${targetOrgStaff.coaches.length > 1 ? 'es' : ''}`}
+                        members={targetOrgStaff.coaches}
+                      />
+                    )}
+                    {targetOrgStaff.nutritionists.length > 0 && (
+                      <StaffPickerSection
+                        label={`Nutritionist${targetOrgStaff.nutritionists.length > 1 ? 's' : ''}`}
+                        members={targetOrgStaff.nutritionists}
+                      />
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* Footer buttons */}
+            <div className="flex justify-between gap-2 pt-2">
+              <div>
+                {modalStep === 2 && (
+                  <Button variant="ghost" onClick={() => setModalStep(1)}>← Back</Button>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <Button variant="ghost" onClick={closeModal}>Cancel</Button>
+                {modalStep === 1 ? (
+                  <Button onClick={handleNextStep}>
+                    {needsAssignment ? 'Next →' : 'Confirm Move'}
+                  </Button>
+                ) : (
+                  <Button onClick={handleConfirmMove}>
+                    {assignedStaff.length > 0 ? 'Confirm & Assign' : 'Skip & Confirm'}
+                  </Button>
+                )}
               </div>
             </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <Button variant="ghost" onClick={() => setPendingDrop(null)}>Cancel</Button>
-              <Button onClick={confirmMove}>Confirm Move</Button>
-            </div>
+
           </div>
         </Modal>
       )}

@@ -1691,8 +1691,23 @@ export async function upsertOrgMember(orgId, userId, orgRole) {
 }
 
 /**
- * Update the org_role of an existing org_member row.
+ * Upsert a staff→athlete (or athlete→staff) assignment in staff_athlete_assignments.
+ * staffId  = the coach/nutritionist/head_coach profile id
+ * athleteId = the athlete (or lower-tier staff) profile id
  */
+export async function upsertStaffAssignment(orgId, staffId, athleteId) {
+  if (!isSupabaseConfigured()) return false
+  const { error } = await supabase
+    .from('staff_athlete_assignments')
+    .upsert(
+      { org_id: orgId, staff_id: staffId, athlete_id: athleteId, active: true, assigned_at: new Date().toISOString() },
+      { onConflict: 'org_id,staff_id,athlete_id' }
+    )
+  if (error) { console.error('[supabase] upsertStaffAssignment:', error.message); return false }
+  return true
+}
+
+
 export async function updateOrgMemberRole(orgId, userId, newRole) {
   if (!isSupabaseConfigured()) return false
   const { error } = await supabase
