@@ -3247,7 +3247,14 @@ function RolesTab({ isSuperAdmin }) {
   const { profile, activeOrgId } = useAuthStore()
   const isHeadCoach = profile?.role === 'admin'
   const orgs = useOrgStore(s => s.orgs)
+  const {
+    loadOrgRolePermissions,
+    saveOrgRolePermission,
+    loadMemberCustomPermissions,
+    saveMemberCustomPermissions,
+  } = useOrgStore()
   const org = orgs.find(o => o.id === (activeOrgId || profile?.org_id)) ?? orgs[0]
+  const orgId = org?.id
   const members = org?.members ?? []
 
   const cols = isSuperAdmin
@@ -3278,6 +3285,22 @@ function RolesTab({ isSuperAdmin }) {
     can_assign_meal_prep: ['admin','nutritionist'].includes(orgRole),
   })
 
+  // ── Role matrix edit state ─────────────────────────────────────────────────
+  // roleMatrix: { [role]: { [permissionLabel]: boolean } }
+  // Initialise from ROLE_MATRIX defaults; overwritten after DB load
+  const matrixFromDefaults = () =>
+    Object.fromEntries(
+      roleKeys.map(r => [
+        r,
+        Object.fromEntries(ROLE_MATRIX.map(row => [row.permission, row[r] ?? false]))
+      ])
+    )
+
+  const [roleMatrix, setRoleMatrix] = useState(matrixFromDefaults)
+  const [matrixLoaded, setMatrixLoaded] = useState(false)
+  const [savedRoles, setSavedRoles] = useState({}) // { [role]: true } while flashing
+
+  // ── Per-member state ────────────────────────────────────────────────────────
   const [memberPerms, setMemberPerms] = useState(() =>
     Object.fromEntries(members.map(m => [m.user_id, defaultPerms(m.org_role)]))
   )
@@ -3285,8 +3308,86 @@ function RolesTab({ isSuperAdmin }) {
     Object.fromEntries(members.map(m => [m.user_id, m.org_role]))
   )
   const [savedMembers, setSavedMembers] = useState({})
+  const [savingMembers, setSavingMembers] = useState({})
   const [upgradeModal, setUpgradeModal] = useState(null) // { member, newRole }
 
+  // ── Load saved permissions from Supabase on mount ──────────────────────────
+  useEffect(() => {
+    if (!orgId) return
+    // Load role-level overrides
+    loadOrgRolePermissions(orgId).then(() => {
+      const saved = useOrgStore.getState().orgs.find(o => o.id === orgId)?.rolePermissions ?? {}
+      if (Object.keys(saved).length > 0) {
+        setRoleMatrix(prev => {
+          const next = { ...prev }
+          Object.entries(saved).forEach(([role, permsObj]) => {
+            if (next[role]) {
+              next[role] = { ...next[role], ...permsObj }
+            }
+          })
+          return next
+        })
+      }
+      setMatrixLoaded(true)
+    })
+    // Load per-member overrides
+    loadMemberCustomPermissions(orgId).then(() => {
+      const saved = useOrgStore.getState().orgs.find(o => o.id === orgId)?.memberPermissions ?? {}
+      if (Object.keys(saved).length > 0) {
+        setMemberPerms(prev => {
+          const next = { ...prev }
+          Object.entries(saved).forEach(([uid, { permissions }]) => {
+            if (permissions && Object.keys(permissions).length > 0) {
+              next[uid] = { ...defaultPerms(memberRoles[uid] ?? 'athlete'), ...permissions }
+            }
+          })
+          return next
+        })
+      }
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orgId])
+
+  // Re-seed members that weren't in state when we first loaded
+  useEffect(() => {
+    setMemberPerms(prev => {
+      const next = { ...prev }
+      members.forEach(m => {
+        if (!next[m.user_id]) next[m.user_id] = defaultPerms(m.org_role)
+      })
+      return next
+    })
+    setMemberRoles(prev => {
+      const next = { ...prev }
+      members.forEach(m => {
+        if (!next[m.user_id]) next[m.user_id] = m.org_role
+      })
+      return next
+    })
+  }, [members.length]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Role matrix handlers ────────────────────────────────────────────────────
+  const toggleMatrixCell = (role, permLabel) => {
+    setRoleMatrix(prev => ({
+      ...prev,
+      [role]: { ...prev[role], [permLabel]: !prev[role]?.[permLabel] },
+    }))
+  }
+
+  const saveRoleDefaults = async (role) => {
+    if (!orgId) return
+    // Convert matrix row back to DB-friendly permissions object
+    // We store each permission label as key for the matrix display,
+    // but also persist as a flat object that maps label -> bool
+    const permissions = roleMatrix[role] ?? {}
+    const ok = await saveOrgRolePermission(orgId, role, permissions)
+    if (ok) {
+      setSavedRoles(prev => ({ ...prev, [role]: true }))
+      setTimeout(() => setSavedRoles(prev => ({ ...prev, [role]: false })), 2000)
+    }
+  }
+
+  // ── Per-member handlers ─────────────────────────────────────────────────────
   const togglePerm = (userId, key) =>
     setMemberPerms(prev => ({
       ...prev,
@@ -3309,35 +3410,96 @@ function RolesTab({ isSuperAdmin }) {
     setUpgradeModal(null)
   }
 
-  const savePerms = (userId) => {
-    setSavedMembers(prev => ({ ...prev, [userId]: true }))
-    setTimeout(() => setSavedMembers(prev => ({ ...prev, [userId]: false })), 2000)
+  const savePerms = async (userId) => {
+    if (!orgId) return
+    setSavingMembers(prev => ({ ...prev, [userId]: true }))
+    const perms = memberPerms[userId] ?? defaultPerms(memberRoles[userId] ?? 'athlete')
+    const role = memberRoles[userId] ?? 'athlete'
+    const ok = await saveMemberCustomPermissions(orgId, userId, perms, role)
+    setSavingMembers(prev => ({ ...prev, [userId]: false }))
+    if (ok) {
+      setSavedMembers(prev => ({ ...prev, [userId]: true }))
+      setTimeout(() => setSavedMembers(prev => ({ ...prev, [userId]: false })), 2000)
+    }
+  }
+
+  // Check if a member has custom permissions that differ from role defaults
+  const hasCustomPerms = (userId) => {
+    const role = memberRoles[userId] ?? 'athlete'
+    const defaults = defaultPerms(role)
+    const custom = memberPerms[userId] ?? defaults
+    return PERM_KEYS.some(({ key }) => custom[key] !== defaults[key])
   }
 
   return (
     <div className="space-y-6">
-      {/* ── Role permission matrix (read-only reference) ── */}
+      {/* ── Role permission matrix (editable for admins) ── */}
       <Card className="p-0 overflow-hidden">
         <CardHeader className="px-4 pt-4 pb-2">
           <CardTitle>Role Permission Matrix</CardTitle>
-          <CardSubtitle>Default capabilities assigned to each role</CardSubtitle>
+          <CardSubtitle>
+            {(isHeadCoach || isSuperAdmin)
+              ? 'Click any cell to toggle a permission for that role, then save the column'
+              : 'Default capabilities assigned to each role'}
+          </CardSubtitle>
         </CardHeader>
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
               <tr className="border-b border-zinc-800">
-                {cols.map((c, i) => <th key={c} className={`px-4 py-3 text-xs font-semibold uppercase tracking-wide text-zinc-400 ${i === 0 ? 'text-left' : 'text-center'}`}>{c}</th>)}
+                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-zinc-400 text-left">{cols[0]}</th>
+                {roleKeys.map((r, i) => (
+                  <th key={r} className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-zinc-400 text-center">
+                    <div className="flex flex-col items-center gap-1">
+                      <span>{cols[i + 1]}</span>
+                      {(isHeadCoach || isSuperAdmin) && (
+                        <button
+                          onClick={() => saveRoleDefaults(r)}
+                          className={cn(
+                            'text-[10px] font-medium px-2 py-0.5 rounded-full transition-all',
+                            savedRoles[r]
+                              ? 'bg-green-500/20 text-green-400 border border-green-500/30'
+                              : 'bg-zinc-700/60 text-zinc-400 border border-zinc-600/40 hover:bg-purple-500/20 hover:text-purple-300 hover:border-purple-500/30'
+                          )}
+                        >
+                          {savedRoles[r] ? '✓ Saved' : 'Save'}
+                        </button>
+                      )}
+                    </div>
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
               {ROLE_MATRIX.map((row, i) => (
                 <tr key={row.permission} className={`border-b border-zinc-800 last:border-0 ${i % 2 === 0 ? 'bg-zinc-800/10' : ''}`}>
                   <td className="px-4 py-2.5 text-sm text-zinc-300">{row.permission}</td>
-                  {roleKeys.map((r) => (
-                    <td key={r} className="px-4 py-2.5 text-center">
-                      {row[r] ? <span className="text-green-400 text-base">✓</span> : <span className="text-zinc-700 text-base">—</span>}
-                    </td>
-                  ))}
+                  {roleKeys.map((r) => {
+                    const on = matrixLoaded ? (roleMatrix[r]?.[row.permission] ?? row[r]) : row[r]
+                    const canEdit = isHeadCoach || isSuperAdmin
+                    return (
+                      <td key={r} className="px-4 py-2.5 text-center">
+                        {canEdit ? (
+                          <button
+                            onClick={() => toggleMatrixCell(r, row.permission)}
+                            className={cn(
+                              'w-7 h-7 rounded-lg border transition-all mx-auto flex items-center justify-center',
+                              on
+                                ? 'bg-green-500/20 border-green-500/40 text-green-400 hover:bg-green-500/30'
+                                : 'bg-zinc-800/60 border-zinc-700/40 text-zinc-600 hover:border-zinc-500'
+                            )}
+                            title={`Toggle ${row.permission} for ${r}`}
+                          >
+                            {on ? <Check className="w-3.5 h-3.5" /> : <X className="w-3.5 h-3.5" />}
+                          </button>
+                        ) : (
+                          on
+                            ? <span className="text-green-400 text-base">✓</span>
+                            : <span className="text-zinc-700 text-base">—</span>
+                        )}
+                      </td>
+                    )
+                  })}
                 </tr>
               ))}
             </tbody>
@@ -3360,15 +3522,30 @@ function RolesTab({ isSuperAdmin }) {
               const perms = memberPerms[member.user_id] ?? defaultPerms(role)
               const isSelf = member.user_id === profile?.id
               const saved = savedMembers[member.user_id]
+              const saving = savingMembers[member.user_id]
+              const isCustom = hasCustomPerms(member.user_id)
 
               return (
-                <div key={member.user_id} className="p-4 bg-zinc-800/30 border border-zinc-700/40 rounded-2xl space-y-3">
+                <div
+                  key={member.user_id}
+                  className={cn(
+                    'p-4 bg-zinc-800/30 border rounded-2xl space-y-3 transition-colors',
+                    isCustom ? 'border-purple-500/30' : 'border-zinc-700/40'
+                  )}
+                >
                   {/* Member header */}
                   <div className="flex items-center justify-between flex-wrap gap-3">
                     <div className="flex items-center gap-3">
                       <Avatar name={member.full_name} size="sm" />
                       <div>
-                        <p className="text-sm font-semibold text-zinc-100">{member.full_name}</p>
+                        <p className="text-sm font-semibold text-zinc-100 flex items-center gap-2">
+                          {member.full_name}
+                          {isCustom && (
+                            <span className="text-[10px] font-medium bg-purple-500/15 text-purple-400 border border-purple-500/25 px-1.5 py-0.5 rounded-full">
+                              Custom
+                            </span>
+                          )}
+                        </p>
                         <p className="text-xs text-zinc-500">{member.email}</p>
                       </div>
                     </div>
@@ -3386,8 +3563,17 @@ function RolesTab({ isSuperAdmin }) {
                         <option value="admin">Admin</option>
                       </select>
                       {/* Save button */}
-                      <Button size="xs" variant={saved ? 'outline' : 'primary'} onClick={() => savePerms(member.user_id)} disabled={isSelf}>
-                        {saved ? <><Check className="w-3 h-3 text-green-400" /> Saved</> : 'Save'}
+                      <Button
+                        size="xs"
+                        variant={saved ? 'outline' : 'primary'}
+                        onClick={() => savePerms(member.user_id)}
+                        disabled={isSelf || saving}
+                      >
+                        {saving
+                          ? <span className="opacity-60">Saving…</span>
+                          : saved
+                            ? <><Check className="w-3 h-3 text-green-400" /> Saved</>
+                            : 'Save'}
                       </Button>
                     </div>
                   </div>
@@ -3459,6 +3645,7 @@ function RolesTab({ isSuperAdmin }) {
     </div>
   )
 }
+
 
 // ─── Public Page Editor (Head Coach) ─────────────────────────────────────────
 export function PublicPageTab() {

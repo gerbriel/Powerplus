@@ -2134,6 +2134,77 @@ $$;
 grant execute on function get_org_review_queue(uuid) to authenticated;
 
 -- ============================================================
+-- ── org_role_permissions ─────────────────────────────────────
+-- Stores org-level overrides to the default role permission matrix.
+-- One row per (org, role) — permissions stored as JSONB.
+-- ============================================================
+create table if not exists org_role_permissions (
+  id          uuid primary key default uuid_generate_v4(),
+  org_id      uuid references organizations(id) on delete cascade not null,
+  role        text not null check (role in ('super_admin','admin','coach','nutritionist','athlete')),
+  permissions jsonb not null default '{}',
+  updated_at  timestamptz default now(),
+  unique(org_id, role)
+);
+alter table org_role_permissions enable row level security;
+drop policy if exists "org_role_perms: admins can manage" on org_role_permissions;
+create policy "org_role_perms: admins can manage" on org_role_permissions for all
+  using (
+    is_platform_super_admin()
+    or exists (
+      select 1 from org_members
+      where org_id = org_role_permissions.org_id
+        and user_id = auth.uid()
+        and org_role in ('admin','head_coach','owner')
+    )
+  );
+drop policy if exists "org_role_perms: members can read own org" on org_role_permissions;
+create policy "org_role_perms: members can read own org" on org_role_permissions for select
+  using (
+    exists (
+      select 1 from org_members
+      where org_id = org_role_permissions.org_id
+        and user_id = auth.uid()
+    )
+  );
+
+-- ── member_custom_permissions ─────────────────────────────────
+-- Per-member individual permission overrides beyond what their role grants.
+-- One row per (org, user) — permissions stored as JSONB.
+-- ─────────────────────────────────────────────────────────────
+create table if not exists member_custom_permissions (
+  id          uuid primary key default uuid_generate_v4(),
+  org_id      uuid references organizations(id) on delete cascade not null,
+  user_id     uuid references profiles(id) on delete cascade not null,
+  org_role    text,
+  permissions jsonb not null default '{}',
+  updated_at  timestamptz default now(),
+  unique(org_id, user_id)
+);
+alter table member_custom_permissions enable row level security;
+drop policy if exists "member_perms: admins can manage" on member_custom_permissions;
+create policy "member_perms: admins can manage" on member_custom_permissions for all
+  using (
+    is_platform_super_admin()
+    or exists (
+      select 1 from org_members
+      where org_id = member_custom_permissions.org_id
+        and user_id = auth.uid()
+        and org_role in ('admin','head_coach','owner')
+    )
+  );
+drop policy if exists "member_perms: members can read own" on member_custom_permissions;
+create policy "member_perms: members can read own" on member_custom_permissions for select
+  using (
+    user_id = auth.uid()
+    or exists (
+      select 1 from org_members
+      where org_id = member_custom_permissions.org_id
+        and user_id = auth.uid()
+    )
+  );
+
+-- ============================================================
 -- GRANT super_admin TO YOUR ACCOUNT (run once, then remove)
 -- ============================================================
 -- UPDATE profiles

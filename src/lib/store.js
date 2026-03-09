@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { MOCK_USERS, MOCK_GOALS, MOCK_TRAINING_BLOCKS, MOCK_MEETS, MOCK_ORGS, MOCK_PLATFORM_USERS, MOCK_ORG_MEMBERS, MOCK_STAFF_ASSIGNMENTS, MOCK_ATHLETE_RECIPES, MOCK_ATHLETE_PREP_LOG, MOCK_ATHLETE_SHOPPING_LISTS, MOCK_ATHLETE_MEAL_PLANS, MOCK_CHANNELS, MOCK_MESSAGES, MOCK_DIRECT_MESSAGES, MOCK_EXERCISES } from './mockData'
-import { upsertProfile, isSupabaseConfigured, onAuthStateChange, fetchProfile, fetchOrgMemberships, signOut as supabaseSignOut, getSession, fetchChannels as sbFetchChannels, createChannel as sbCreateChannel, updateChannel as sbUpdateChannel, archiveChannel as sbArchiveChannel, fetchMessages as sbFetchMessages, sendMessage as sbSendMessage, editMessage as sbEditMessage, deleteMessage as sbDeleteMessage, toggleReaction as sbToggleReaction, togglePinMessage as sbTogglePinMessage, findOrCreateDM as sbFindOrCreateDM, findOrCreateGroup as sbFindOrCreateGroup, markChannelRead as sbMarkChannelRead, subscribeToChannel as sbSubscribeToChannel, uploadMessageFile as sbUploadMessageFile, subscribeToOrgEvents as sbSubscribeToOrgEvents, fetchOrgAthletes, fetchOrgReviewQueue, fetchExercises, fetchProgramTemplates, fetchOrgTrainingBlocks, fetchPrepLog, fetchShoppingLists, fetchOrgRecipes, fetchNutritionLogs, fetchOrgEvents, fetchUserEvents, fetchAthleteSessions, fetchAthleteWorkoutSets, fetchAthleteCheckIns, fetchAthleteInjuries, fetchOrgWorkoutSessions, fetchOrgWorkoutSets, fetchOrgCheckIns, fetchOrgInjuries, fetchOrgStaffMembers, fetchOrgNutritionLogs, fetchUserMeets, fetchUserTrainingBlocks, fetchUserGoals, fetchAthleteMeetHistory, fetchAllOrgsForSuperAdmin, fetchAllPlatformUsers, insertOrgInvitation, deleteOrgInvitation, updateOrgMemberRole, removeOrgMember, upsertOrgMember, upsertStaffAssignment, fetchOrgMembers, fetchOrgInvitations } from './supabase'
+import { upsertProfile, isSupabaseConfigured, onAuthStateChange, fetchProfile, fetchOrgMemberships, signOut as supabaseSignOut, getSession, fetchChannels as sbFetchChannels, createChannel as sbCreateChannel, updateChannel as sbUpdateChannel, archiveChannel as sbArchiveChannel, fetchMessages as sbFetchMessages, sendMessage as sbSendMessage, editMessage as sbEditMessage, deleteMessage as sbDeleteMessage, toggleReaction as sbToggleReaction, togglePinMessage as sbTogglePinMessage, findOrCreateDM as sbFindOrCreateDM, findOrCreateGroup as sbFindOrCreateGroup, markChannelRead as sbMarkChannelRead, subscribeToChannel as sbSubscribeToChannel, uploadMessageFile as sbUploadMessageFile, subscribeToOrgEvents as sbSubscribeToOrgEvents, fetchOrgAthletes, fetchOrgReviewQueue, fetchExercises, fetchProgramTemplates, fetchOrgTrainingBlocks, fetchPrepLog, fetchShoppingLists, fetchOrgRecipes, fetchNutritionLogs, fetchOrgEvents, fetchUserEvents, fetchAthleteSessions, fetchAthleteWorkoutSets, fetchAthleteCheckIns, fetchAthleteInjuries, fetchOrgWorkoutSessions, fetchOrgWorkoutSets, fetchOrgCheckIns, fetchOrgInjuries, fetchOrgStaffMembers, fetchOrgNutritionLogs, fetchUserMeets, fetchUserTrainingBlocks, fetchUserGoals, fetchAthleteMeetHistory, fetchAllOrgsForSuperAdmin, fetchAllPlatformUsers, insertOrgInvitation, deleteOrgInvitation, updateOrgMemberRole, removeOrgMember, upsertOrgMember, upsertStaffAssignment, fetchOrgMembers, fetchOrgInvitations, fetchOrgRolePermissions, saveOrgRolePermission, fetchMemberCustomPermissions, saveMemberCustomPermissions } from './supabase'
 import { saveMessageRecord, updateMessageRecord, saveChannelRecord, updateChannelRecord, saveOrgPublicPage, loadOrgPublicPage, loadOrgLeads, submitIntakeLead, saveLead, removeLead, loadOrgResources, saveNewResource, updateResource, removeResource } from './db'
 import { subscribeToOrgLeads, subscribeToOrgResources } from './supabase'
 
@@ -735,6 +735,63 @@ export const useOrgStore = create((set, get) => ({
         o.id === orgId ? { ...o, members, invitations } : o
       ),
     }))
+  },
+
+  // ── Permission persistence ────────────────────────────────────────────────
+
+  // Load org-level role permission overrides from Supabase.
+  // Stores result in org.rolePermissions: { admin: {…}, coach: {…}, … }
+  loadOrgRolePermissions: async (orgId) => {
+    if (!orgId || !isSupabaseConfigured()) return
+    const rolePermissions = await fetchOrgRolePermissions(orgId)
+    set((s) => ({
+      orgs: s.orgs.map((o) => o.id === orgId ? { ...o, rolePermissions } : o),
+    }))
+  },
+
+  // Save one role's permission overrides and update local state immediately.
+  saveOrgRolePermission: async (orgId, role, permissions) => {
+    if (!orgId || !isSupabaseConfigured()) return false
+    const ok = await saveOrgRolePermission(orgId, role, permissions)
+    if (!ok) return false
+    set((s) => ({
+      orgs: s.orgs.map((o) => {
+        if (o.id !== orgId) return o
+        return { ...o, rolePermissions: { ...(o.rolePermissions || {}), [role]: permissions } }
+      }),
+    }))
+    return true
+  },
+
+  // Load per-member custom permission overrides from Supabase.
+  // Stores result in org.memberPermissions: { [userId]: { org_role, permissions } }
+  loadMemberCustomPermissions: async (orgId) => {
+    if (!orgId || !isSupabaseConfigured()) return
+    const rows = await fetchMemberCustomPermissions(orgId)
+    const memberPermissions = Object.fromEntries(rows.map(r => [r.user_id, { org_role: r.org_role, permissions: r.permissions }]))
+    set((s) => ({
+      orgs: s.orgs.map((o) => o.id === orgId ? { ...o, memberPermissions } : o),
+    }))
+  },
+
+  // Save one member's custom permissions and update local state immediately.
+  saveMemberCustomPermissions: async (orgId, userId, permissions, orgRole) => {
+    if (!orgId || !isSupabaseConfigured()) return false
+    const ok = await saveMemberCustomPermissions(orgId, userId, permissions, orgRole)
+    if (!ok) return false
+    set((s) => ({
+      orgs: s.orgs.map((o) => {
+        if (o.id !== orgId) return o
+        return {
+          ...o,
+          memberPermissions: {
+            ...(o.memberPermissions || {}),
+            [userId]: { org_role: orgRole, permissions },
+          },
+        }
+      }),
+    }))
+    return true
   },
 
   // Send an invitation — writes to Supabase then updates local state
