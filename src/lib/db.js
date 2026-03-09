@@ -284,22 +284,36 @@ export async function deleteMeet(meetId) {
 }
 
 /**
- * Save attempt planner for a specific meet (updates attempts jsonb column).
+ * Save attempt planner for a specific meet.
+ * Persists planned attempts, pass/miss results, and actual weights lifted.
  */
-export async function saveMeetAttempts(meetId, attempts) {
+export async function saveMeetAttempts(meetId, attempts, results, actuals) {
   if (!isSupabaseConfigured() || !meetId) return null
-  // Validate structure: { squat:{1,2,3}, bench:{1,2,3}, deadlift:{1,2,3} }
   const lifts = ['squat','bench','deadlift']
-  const clean = {}
+  const STATUSES = ['pending','made','miss']
+  const cleanAttempts = {}
+  const cleanResults  = {}
+  const cleanActuals  = {}
   for (const lift of lifts) {
-    if (!attempts[lift]) { clean[lift] = { 1: 0, 2: 0, 3: 0 }; continue }
-    clean[lift] = {
-      1: sanitizeNumber(attempts[lift][1], 0, 1500),
-      2: sanitizeNumber(attempts[lift][2], 0, 1500),
-      3: sanitizeNumber(attempts[lift][3], 0, 1500),
+    cleanAttempts[lift] = {
+      1: sanitizeNumber(attempts?.[lift]?.[1], 0, 1500),
+      2: sanitizeNumber(attempts?.[lift]?.[2], 0, 1500),
+      3: sanitizeNumber(attempts?.[lift]?.[3], 0, 1500),
+    }
+    cleanResults[lift] = {
+      1: STATUSES.includes(results?.[lift]?.[1]) ? results[lift][1] : 'pending',
+      2: STATUSES.includes(results?.[lift]?.[2]) ? results[lift][2] : 'pending',
+      3: STATUSES.includes(results?.[lift]?.[3]) ? results[lift][3] : 'pending',
+    }
+    cleanActuals[lift] = {
+      1: actuals?.[lift]?.[1] ? sanitizeNumber(actuals[lift][1], 0, 1500) : null,
+      2: actuals?.[lift]?.[2] ? sanitizeNumber(actuals[lift][2], 0, 1500) : null,
+      3: actuals?.[lift]?.[3] ? sanitizeNumber(actuals[lift][3], 0, 1500) : null,
     }
   }
-  const { data, error } = await supabase.from('meets').update({ attempts: clean }).eq('id', meetId).select().single()
+  const { data, error } = await supabase.from('meets')
+    .update({ attempts: cleanAttempts, attempt_results: cleanResults, attempt_actuals: cleanActuals })
+    .eq('id', meetId).select().single()
   if (error) { console.error('[db] saveMeetAttempts:', error.message); return null }
   return data
 }
@@ -411,6 +425,8 @@ export async function saveProfile(userId, updates) {
   if (updates.pr_squat    != null) row.pr_squat    = sanitizeNumber(updates.pr_squat, 0, 9999)
   if (updates.pr_bench    != null) row.pr_bench    = sanitizeNumber(updates.pr_bench, 0, 9999)
   if (updates.pr_deadlift != null) row.pr_deadlift = sanitizeNumber(updates.pr_deadlift, 0, 9999)
+  // prs_detail: { squat: { gym_1rm, meet_1rm, rm3, e1rm }, bench: {…}, deadlift: {…} }
+  if (updates.prs_detail  != null) row.prs_detail  = updates.prs_detail
 
   if (Object.keys(row).length === 0) return null
 
