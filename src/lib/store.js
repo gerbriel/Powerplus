@@ -606,8 +606,34 @@ export const useOrgStore = create((set, get) => ({
   // Super-admin: assign a user to one or more staff members within an org.
   // staffIds = array of profile IDs (head_coach, coach, nutritionist)
   // userId   = the athlete/coach being assigned
+  // Optimistically merges assigned_staff_ids into the member record so it persists
+  // in local state immediately; Supabase writes happen in parallel.
   assignToStaff: async (orgId, userId, staffIds) => {
+    if (!staffIds || staffIds.length === 0) return
+    // Optimistic: merge new staffIds into the member's assigned_staff_ids
+    set((s) => ({
+      orgs: s.orgs.map((o) => {
+        if (o.id !== orgId) return o
+        return {
+          ...o,
+          members: (o.members || []).map((m) => {
+            if (m.user_id !== userId) return m
+            const existing = m.assigned_staff_ids || []
+            const merged = [...new Set([...existing, ...staffIds])]
+            return { ...m, assigned_staff_ids: merged }
+          }),
+        }
+      }),
+    }))
+    // Persist all assignments to Supabase
     await Promise.all(staffIds.map((staffId) => upsertStaffAssignment(orgId, staffId, userId)))
+  },
+
+  // Super-admin: force-reload all orgs + assignments (clears guard so fresh data is fetched)
+  reloadAllOrgs: async () => {
+    set({ _allOrgsLoaded: false })
+    const orgs = await fetchAllOrgsForSuperAdmin()
+    set({ orgs, _allOrgsLoaded: true })
   },
 
   // Get a single org by id
