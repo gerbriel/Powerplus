@@ -1812,10 +1812,9 @@ export async function fetchAllPlatformUsers() {
   if (!isSupabaseConfigured()) return []
   const { data, error } = await supabase
     .from('profiles')
-    .select('id, full_name, display_name, email, avatar_url, role, platform_role, created_at')
+    .select('id, full_name, display_name, email, avatar_url, role, platform_role, is_demo, created_at')
     .order('created_at', { ascending: false })
   if (error) { console.error('[supabase] fetchAllPlatformUsers:', error.message); return [] }
-  // memberships are enriched in PlatformUsersTab from the already-loaded orgs data
   return (data ?? []).map((u) => ({ ...u, memberships: null }))
 }
 

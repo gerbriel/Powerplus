@@ -408,8 +408,8 @@ function PlatformUsersTab() {
   }, [userOrgMap])
 
   // A user is "demo-only" if:
-  //  (a) explicitly flagged is_demo: true (mock data), OR
-  //  (b) has at least one org membership and every org is a demo org
+  //  (a) is_demo === true on their profile (set in DB for test accounts, or in mock data), OR
+  //  (b) has at least one org membership and every org is a demo org (belt-and-suspenders)
   // Users with NO org memberships are NOT demo — they're real users without an org yet.
   const isUserDemo = useCallback((u) => {
     if (u.is_demo === true) return true
