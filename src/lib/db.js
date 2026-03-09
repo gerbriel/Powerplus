@@ -238,8 +238,20 @@ export async function deleteGoal(goalId) {
 export async function saveMeet(createdBy, orgId, meet) {
   if (!isSupabaseConfigured() || !createdBy) return null
 
-  const validFeds = ['USAPL','IPF','USPA','NASA','RPS','SPF','WPC','Other']
-  const validStatuses = ['upcoming','registered','completed','cancelled']
+  const validFeds = [
+    'USA Powerlifting (USAPL)', 'International Powerlifting Federation (IPF)',
+    'US Powerlifting Association (USPA)', 'North American Powerlifting Federation (NAPF)',
+    'National Strength Association (NASA)', 'Revolution Powerlifting Syndicate (RPS)',
+    'Southern Powerlifting Federation (SPF)', 'World Powerlifting Congress (WPC)',
+    'World Powerlifting (WP)', 'Global Powerlifting Committee (GPC)',
+    'American Powerlifting Federation (APF)', '100% RAW Powerlifting',
+    'Xtreme Powerlifting Coalition (XPC)', 'World Raw Powerlifting Federation (WRPF)',
+    'Canadian Powerlifting Union (CPU)', 'European Powerlifting Federation (EPF)',
+    'British Powerlifting (BP)', 'Powerlifting Australia (PA)',
+    // legacy short codes kept for backward compat
+    'USAPL','IPF','USPA','NASA','RPS','SPF','WPC','Other',
+  ]
+  const validStatuses = ['planned','active','completed','cancelled']
   const validEquipment = ['raw','single-ply','multi-ply','wraps']
 
   const row = {
@@ -251,7 +263,7 @@ export async function saveMeet(createdBy, orgId, meet) {
     location:              sanitizeText(meet.location, 200),
     meet_date:             sanitizeDate(meet.meet_date),
     registration_deadline: sanitizeDate(meet.registration_deadline),
-    status:                validStatuses.includes(meet.status) ? meet.status : 'upcoming',
+    status:                validStatuses.includes(meet.status) ? meet.status : 'planned',
     website_url:           sanitizeText(meet.website_url, 500),
     notes:                 sanitizeText(meet.notes, 1000),
     // linked arrays — only valid UUIDs (filter out mock 'g1'/'tb-1' style ids)
@@ -408,7 +420,6 @@ export async function updateInjury(injuryId, updates) {
 export async function saveProfile(userId, updates) {
   if (!isSupabaseConfigured() || !userId) return null
 
-  const allowedFederations = ['USAPL','IPF','USPA','NASA','RPS','SPF','WPC','Other','']
   const allowedEquipment   = ['raw','raw w/ wraps','single-ply','multi-ply','']
 
   const row = {}
@@ -417,7 +428,7 @@ export async function saveProfile(userId, updates) {
   if (updates.bio         != null) row.bio          = sanitizeText(updates.bio, 500)
   if (updates.weight_class!= null) row.weight_class = sanitizeText(updates.weight_class, 20)
   if (updates.member_id   != null) row.member_id    = sanitizeText(updates.member_id, 60)
-  if (updates.federation  != null) row.federation   = allowedFederations.includes(updates.federation?.toLowerCase?.() ?? updates.federation) ? updates.federation : null
+  if (updates.federation  != null) row.federation   = sanitizeText(updates.federation, 100) || null
   if (updates.equipment_type != null) {
     const eq = (updates.equipment_type ?? '').toLowerCase()
     row.equipment_type = allowedEquipment.includes(eq) ? eq : null

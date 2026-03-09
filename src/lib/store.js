@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { MOCK_USERS, MOCK_GOALS, MOCK_TRAINING_BLOCKS, MOCK_MEETS, MOCK_ORGS, MOCK_PLATFORM_USERS, MOCK_ORG_MEMBERS, MOCK_STAFF_ASSIGNMENTS, MOCK_ATHLETE_RECIPES, MOCK_ATHLETE_PREP_LOG, MOCK_ATHLETE_SHOPPING_LISTS, MOCK_ATHLETE_MEAL_PLANS, MOCK_CHANNELS, MOCK_MESSAGES, MOCK_DIRECT_MESSAGES, MOCK_EXERCISES } from './mockData'
-import { upsertProfile, isSupabaseConfigured, onAuthStateChange, fetchProfile, fetchOrgMemberships, signOut as supabaseSignOut, getSession, fetchChannels as sbFetchChannels, createChannel as sbCreateChannel, updateChannel as sbUpdateChannel, archiveChannel as sbArchiveChannel, fetchMessages as sbFetchMessages, sendMessage as sbSendMessage, editMessage as sbEditMessage, deleteMessage as sbDeleteMessage, toggleReaction as sbToggleReaction, togglePinMessage as sbTogglePinMessage, findOrCreateDM as sbFindOrCreateDM, findOrCreateGroup as sbFindOrCreateGroup, markChannelRead as sbMarkChannelRead, subscribeToChannel as sbSubscribeToChannel, uploadMessageFile as sbUploadMessageFile, subscribeToOrgEvents as sbSubscribeToOrgEvents, fetchOrgAthletes, fetchOrgReviewQueue, fetchExercises, fetchProgramTemplates, fetchOrgTrainingBlocks, fetchPrepLog, fetchShoppingLists, fetchOrgRecipes, fetchNutritionLogs, fetchOrgEvents, fetchUserEvents, fetchAthleteSessions, fetchAthleteWorkoutSets, fetchAthleteCheckIns, fetchAthleteInjuries, fetchOrgWorkoutSessions, fetchOrgWorkoutSets, fetchOrgCheckIns, fetchOrgInjuries, fetchOrgStaffMembers, fetchOrgNutritionLogs, fetchUserMeets, fetchUserTrainingBlocks, fetchUserGoals, fetchAthleteMeetHistory, fetchAllOrgsForSuperAdmin, fetchAllPlatformUsers, insertOrgInvitation, deleteOrgInvitation, updateOrgMemberRole, removeOrgMember, upsertOrgMember, upsertStaffAssignment, fetchOrgMembers, fetchOrgInvitations, fetchOrgRolePermissions, saveOrgRolePermission, fetchMemberCustomPermissions, saveMemberCustomPermissions } from './supabase'
+import { upsertProfile, isSupabaseConfigured, onAuthStateChange, fetchProfile, fetchOrgMemberships, signOut as supabaseSignOut, getSession, fetchChannels as sbFetchChannels, createChannel as sbCreateChannel, updateChannel as sbUpdateChannel, archiveChannel as sbArchiveChannel, fetchMessages as sbFetchMessages, sendMessage as sbSendMessage, editMessage as sbEditMessage, deleteMessage as sbDeleteMessage, toggleReaction as sbToggleReaction, togglePinMessage as sbTogglePinMessage, findOrCreateDM as sbFindOrCreateDM, findOrCreateGroup as sbFindOrCreateGroup, markChannelRead as sbMarkChannelRead, subscribeToChannel as sbSubscribeToChannel, uploadMessageFile as sbUploadMessageFile, subscribeToOrgEvents as sbSubscribeToOrgEvents, fetchOrgAthletes, fetchOrgReviewQueue, fetchExercises, fetchProgramTemplates, fetchOrgTrainingBlocks, fetchPrepLog, fetchShoppingLists, fetchOrgRecipes, fetchNutritionLogs, fetchOrgEvents, fetchUserEvents, fetchAthleteSessions, fetchAthleteWorkoutSets, fetchAthleteCheckIns, fetchAthleteInjuries, fetchOrgWorkoutSessions, fetchOrgWorkoutSets, fetchOrgCheckIns, fetchOrgInjuries, fetchOrgStaffMembers, fetchOrgNutritionLogs, fetchUserMeets, fetchUserTrainingBlocks, fetchUserGoals, fetchAthleteMeetHistory, fetchAllOrgsForSuperAdmin, fetchAllPlatformUsers, insertOrgInvitation, deleteOrgInvitation, updateOrgMemberRole, removeOrgMember, upsertOrgMember, upsertStaffAssignment, fetchOrgMembers, fetchOrgInvitations, fetchOrgRolePermissions, saveOrgRolePermission, fetchMemberCustomPermissions, saveMemberCustomPermissions, fetchOrgMeets, fetchMeetAthletes, assignAthleteToMeet, removeAthleteFromMeet, fetchAthleteCoachView } from './supabase'
 import { saveMessageRecord, updateMessageRecord, saveChannelRecord, updateChannelRecord, saveOrgPublicPage, loadOrgPublicPage, loadOrgLeads, submitIntakeLead, saveLead, removeLead, loadOrgResources, saveNewResource, updateResource, removeResource, saveProfile } from './db'
 import { subscribeToOrgLeads, subscribeToOrgResources } from './supabase'
 
@@ -2366,3 +2366,70 @@ export const useAnalyticsStore = create((set, get) => ({
 
 // Helper re-exported so AnalyticsPage can import without re-defining
 export { calcE1RM }
+
+// ─── Org Meets Store (coach/admin perspective) ────────────────────────────────
+export const useOrgMeetsStore = create((set, get) => ({
+  meets:       [],
+  loading:     false,
+  loadedFor:   null,    // orgId last loaded for
+
+  // meet_id → [{ id, athlete_id, full_name, avatar_url, weight_class, equipment, status, ... }]
+  meetAthletes: {},
+
+  // athlete_id → { meets, blocks, goals, history } — lazy loaded on drill-down
+  athleteViews: {},
+  athleteViewLoading: {},
+
+  load: async (orgId, force = false) => {
+    if (!orgId) return
+    if (!force && get().loadedFor === orgId && get().meets.length > 0) return
+    set({ loading: true })
+    const meets = await fetchOrgMeets(orgId)
+    set({ meets, loading: false, loadedFor: orgId })
+  },
+
+  addMeet: (meet) => set(s => ({ meets: [meet, ...s.meets] })),
+  updateMeet: (id, updates) => set(s => ({ meets: s.meets.map(m => m.id === id ? { ...m, ...updates } : m) })),
+  removeMeet: (id) => set(s => ({ meets: s.meets.filter(m => m.id !== id) })),
+
+  loadMeetAthletes: async (meetId, force = false) => {
+    if (!meetId) return
+    if (!force && get().meetAthletes[meetId]) return
+    const athletes = await fetchMeetAthletes(meetId)
+    set(s => ({ meetAthletes: { ...s.meetAthletes, [meetId]: athletes } }))
+  },
+
+  assignAthlete: async (meetId, athleteId, orgId, opts = {}) => {
+    const row = await assignAthleteToMeet(meetId, athleteId, orgId, opts)
+    if (!row) return false
+    // Reload athletes for this meet
+    const athletes = await fetchMeetAthletes(meetId)
+    set(s => ({ meetAthletes: { ...s.meetAthletes, [meetId]: athletes } }))
+    return true
+  },
+
+  unassignAthlete: async (meetId, athleteId) => {
+    const ok = await removeAthleteFromMeet(meetId, athleteId)
+    if (!ok) return false
+    set(s => ({
+      meetAthletes: {
+        ...s.meetAthletes,
+        [meetId]: (s.meetAthletes[meetId] ?? []).filter(a => a.athlete_id !== athleteId),
+      }
+    }))
+    return true
+  },
+
+  loadAthleteView: async (athleteId, orgId, force = false) => {
+    if (!athleteId) return
+    if (!force && get().athleteViews[athleteId]) return
+    set(s => ({ athleteViewLoading: { ...s.athleteViewLoading, [athleteId]: true } }))
+    const view = await fetchAthleteCoachView(athleteId, orgId)
+    set(s => ({
+      athleteViews: { ...s.athleteViews, [athleteId]: view ?? { meets: [], blocks: [], goals: [], history: [] } },
+      athleteViewLoading: { ...s.athleteViewLoading, [athleteId]: false },
+    }))
+  },
+
+  reset: () => set({ meets: [], loading: false, loadedFor: null, meetAthletes: {}, athleteViews: {}, athleteViewLoading: {} }),
+}))

@@ -1931,3 +1931,127 @@ export async function saveMemberCustomPermissions(orgId, userId, permissions, or
   if (error) { console.error('saveMemberCustomPermissions:', error.message); return false }
   return true
 }
+
+// ─── Org Meets (coach/staff perspective) ─────────────────────────────────────
+
+/**
+ * Fetch all meets belonging to an org (created by any staff member).
+ */
+export async function fetchOrgMeets(orgId) {
+  if (!isSupabaseConfigured() || !orgId) return []
+  const { data, error } = await supabase
+    .from('meets')
+    .select(`
+      id, org_id, created_by, name, federation, location,
+      meet_date, registration_deadline, weigh_in_date, status,
+      website_url, notes, equipment, athletes_registered, athletes_confirmed,
+      attempts, attempt_results, attempt_actuals,
+      linked_goal_ids, linked_block_ids, created_at
+    `)
+    .eq('org_id', orgId)
+    .order('meet_date', { ascending: true })
+  if (error) { console.error('[supabase] fetchOrgMeets:', error.message); return [] }
+  return data ?? []
+}
+
+/**
+ * Fetch all athletes assigned to a meet (meet_athletes junction).
+ */
+export async function fetchMeetAthletes(meetId) {
+  if (!isSupabaseConfigured() || !meetId) return []
+  const { data, error } = await supabase
+    .from('meet_athletes')
+    .select(`
+      id, meet_id, athlete_id, org_id, weight_class, equipment, status, notes, assigned_at,
+      athlete:profiles!meet_athletes_athlete_id_fkey(id, full_name, display_name, avatar_url, weight_class, federation, equipment_type, prs_detail)
+    `)
+    .eq('meet_id', meetId)
+    .order('assigned_at', { ascending: true })
+  if (error) { console.error('[supabase] fetchMeetAthletes:', error.message); return [] }
+  return (data ?? []).map(row => ({
+    id:           row.id,
+    meet_id:      row.meet_id,
+    athlete_id:   row.athlete_id,
+    org_id:       row.org_id,
+    weight_class: row.weight_class ?? row.athlete?.weight_class ?? '',
+    equipment:    row.equipment ?? row.athlete?.equipment_type ?? 'raw',
+    status:       row.status ?? 'registered',
+    notes:        row.notes ?? '',
+    assigned_at:  row.assigned_at,
+    full_name:    row.athlete?.full_name ?? row.athlete?.display_name ?? 'Athlete',
+    avatar_url:   row.athlete?.avatar_url ?? null,
+    prs_detail:   row.athlete?.prs_detail ?? {},
+    federation:   row.athlete?.federation ?? '',
+  }))
+}
+
+/**
+ * Assign an athlete to a meet (upsert).
+ */
+export async function assignAthleteToMeet(meetId, athleteId, orgId, opts = {}) {
+  if (!isSupabaseConfigured() || !meetId || !athleteId) return null
+  const row = {
+    meet_id:     meetId,
+    athlete_id:  athleteId,
+    org_id:      orgId ?? null,
+    weight_class: opts.weight_class ?? null,
+    equipment:   opts.equipment ?? 'raw',
+    status:      opts.status ?? 'registered',
+    notes:       opts.notes ?? null,
+  }
+  const { data, error } = await supabase
+    .from('meet_athletes')
+    .upsert(row, { onConflict: 'meet_id,athlete_id' })
+    .select()
+    .single()
+  if (error) { console.error('[supabase] assignAthleteToMeet:', error.message); return null }
+  return data
+}
+
+/**
+ * Remove an athlete from a meet.
+ */
+export async function removeAthleteFromMeet(meetId, athleteId) {
+  if (!isSupabaseConfigured() || !meetId || !athleteId) return false
+  const { error } = await supabase
+    .from('meet_athletes')
+    .delete()
+    .eq('meet_id', meetId)
+    .eq('athlete_id', athleteId)
+  if (error) { console.error('[supabase] removeAthleteFromMeet:', error.message); return false }
+  return true
+}
+
+/**
+ * Fetch full athlete data for coach view: meets, blocks, goals, history.
+ */
+export async function fetchAthleteCoachView(athleteId, orgId) {
+  if (!isSupabaseConfigured() || !athleteId) return null
+  const [meets, blocks, goals, history] = await Promise.all([
+    supabase
+      .from('meets')
+      .select('id, name, federation, location, meet_date, status, equipment, attempts, attempt_results, attempt_actuals, linked_goal_ids, linked_block_ids')
+      .or(`created_by.eq.${athleteId},org_id.eq.${orgId}`)
+      .order('meet_date', { ascending: true })
+      .then(r => r.data ?? []),
+    supabase
+      .from('training_blocks')
+      .select('id, name, phase, weeks, status, focus, start_date, end_date, sessions_planned, sessions_completed, linked_meet_id, linked_goal_ids, notes')
+      .or(`athlete_id.eq.${athleteId},org_id.eq.${orgId}`)
+      .order('start_date', { ascending: false })
+      .then(r => r.data ?? []),
+    supabase
+      .from('goals')
+      .select('id, title, goal_type, target_value, current_value, target_unit, target_date, completed, notes, linked_meet_id')
+      .eq('athlete_id', athleteId)
+      .order('created_at', { ascending: false })
+      .then(r => r.data ?? []),
+    supabase
+      .from('athlete_meet_entries')
+      .select('id, weight_class, equipment_type, squat_result, bench_result, deadlift_result, total_result, dots_score, wilks_score, placement, notes, updated_at, meet:meet_id(id, name, meet_date, federation, location)')
+      .eq('athlete_id', athleteId)
+      .order('updated_at', { ascending: false })
+      .then(r => r.data ?? []),
+  ])
+  return { meets, blocks, goals, history }
+}

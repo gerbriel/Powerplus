@@ -12,7 +12,8 @@ import {
   Link2, Eye, EyeOff, ExternalLink, GripVertical, Plus, FileText,
   MessageSquare, Star, HelpCircle, Image, ChevronUp, Palette,
   Phone, UserCheck, UserX, Clock, Filter, SlidersHorizontal, Copy,
-  CheckSquare, XSquare, ArrowUpRight, Server
+  CheckSquare, XSquare, ArrowUpRight, Server, Trophy, MapPin,
+  Calendar, Layers, Circle, Save, Loader2
 } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardSubtitle, CardBody } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
@@ -22,8 +23,10 @@ import { StatCard } from '../components/ui/StatCard'
 import { Tabs } from '../components/ui/Tabs'
 import { Modal } from '../components/ui/Modal'
 import { MOCK_ATHLETES, MOCK_USERS, MOCK_ORGS, MOCK_TRAINING_BLOCKS, PLAN_META, DEFAULT_INTAKE_FIELDS } from '../lib/mockData'
-import { useAuthStore, useOrgStore, useGoalsStore, useTrainingStore, useAnalyticsStore } from '../lib/store'
-import { cn } from '../lib/utils'
+import { useAuthStore, useOrgStore, useGoalsStore, useTrainingStore, useAnalyticsStore, useOrgMeetsStore } from '../lib/store'
+import { cn, formatDate, kgToLbs } from '../lib/utils'
+import { saveMeet, deleteMeet } from '../lib/db'
+import { MOCK_MEETS } from '../lib/mockData'
 import { fetchOrgJoinRequests, approveJoinRequest, denyJoinRequest } from '../lib/supabase'
 
 const ROLE_MATRIX = [
@@ -91,6 +94,7 @@ export function AdminPage() {
   const ADMIN_TABS = [
     { id: 'overview', label: 'Overview' },
     { id: 'team', label: 'Team Members' },
+    { id: 'meets', label: 'Meets' },
     { id: 'invitations', label: 'Invitations' },
     { id: 'roles', label: 'Roles & Permissions' },
     { id: 'org', label: 'Org Settings' },
@@ -150,6 +154,7 @@ export function AdminPage() {
       {tab === 'system'    && isSuperAdmin && <PlatformSystemTab />}
       {tab === 'overview' && isHeadCoach && <OverviewTab />}
       {tab === 'team' && isHeadCoach && <TeamTab onInvite={() => setInviteOpen(true)} />}
+      {tab === 'meets' && isHeadCoach && <OrgMeetsTab />}
       {tab === 'invitations' && isHeadCoach && <InvitationsTab />}
       {tab === 'org' && isHeadCoach && <OrgSettingsTab />}
       {tab === 'roles' && canManage && <RolesTab isSuperAdmin={isSuperAdmin} />}
@@ -2710,6 +2715,939 @@ function OrgFormModal({ open, onClose, initial = null, onSave }) {
         </div>
       </div>
     </Modal>
+  )
+}
+
+// ─── Head Coach: Org Meets ────────────────────────────────────────────────────
+
+// Federation list matches MeetsPage
+const ORG_FEDERATIONS = [
+  'USA Powerlifting (USAPL)', 'International Powerlifting Federation (IPF)',
+  'US Powerlifting Association (USPA)', 'North American Powerlifting Federation (NAPF)',
+  'National Strength Association (NASA)', 'Revolution Powerlifting Syndicate (RPS)',
+  'Southern Powerlifting Federation (SPF)', 'World Powerlifting Congress (WPC)',
+  'World Powerlifting (WP)', 'Global Powerlifting Committee (GPC)',
+  'American Powerlifting Federation (APF)', '100% RAW Powerlifting',
+  'Xtreme Powerlifting Coalition (XPC)', 'World Raw Powerlifting Federation (WRPF)',
+  'Canadian Powerlifting Union (CPU)', 'European Powerlifting Federation (EPF)',
+  'British Powerlifting (BP)', 'Powerlifting Australia (PA)', 'Other',
+]
+const ORG_EQUIPMENT_OPTS = ['raw','single-ply','multi-ply','wraps']
+const ORG_MEET_STATUS = ['planned','active','completed','cancelled']
+
+const phaseColorOrg = {
+  accumulation:    { dot: 'bg-blue-400',   badge: 'text-blue-300 bg-blue-400/10 border-blue-400/20' },
+  intensification: { dot: 'bg-purple-400', badge: 'text-purple-300 bg-purple-400/10 border-purple-400/20' },
+  peaking:         { dot: 'bg-orange-400', badge: 'text-orange-300 bg-orange-400/10 border-orange-400/20' },
+  deload:          { dot: 'bg-green-400',  badge: 'text-green-300 bg-green-400/10 border-green-400/20' },
+}
+
+// ── Org Meet Form Modal ───────────────────────────────────────────────────────
+function OrgMeetFormModal({ open, onClose, existingMeet = null, orgId }) {
+  const { profile, isDemo } = useAuthStore()
+  const { addMeet, updateMeet } = useOrgMeetsStore()
+  const isEdit = !!existingMeet
+  const [saving, setSaving] = useState(false)
+  const EMPTY = {
+    name: '', federation: 'USA Powerlifting (USAPL)', location: '', meet_date: '',
+    registration_deadline: '', equipment: 'raw', status: 'planned', notes: '',
+  }
+  const [form, setForm] = useState(existingMeet || EMPTY)
+  useEffect(() => {
+    if (open) setForm(existingMeet || EMPTY)
+  }, [open, existingMeet]) // eslint-disable-line react-hooks/exhaustive-deps
+  const upd = (k, v) => setForm(f => ({ ...f, [k]: v }))
+
+  const handleSave = async () => {
+    if (!form.name?.trim() || !form.meet_date) return
+    setSaving(true)
+    if (!isDemo && profile?.id) {
+      const saved = await saveMeet(profile.id, orgId, { ...form, org_id: orgId })
+      if (saved) {
+        if (isEdit) updateMeet(saved.id, saved)
+        else addMeet(saved)
+      }
+    }
+    setSaving(false)
+    onClose()
+  }
+
+  const inputCls = 'w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500'
+
+  return (
+    <Modal open={open} onClose={onClose} title={isEdit ? 'Edit Meet' : 'Create Org Meet'} size="md">
+      <div className="p-5 space-y-4 max-h-[75vh] overflow-y-auto">
+        <div>
+          <label className="block text-xs font-medium text-zinc-400 mb-1.5">Meet Name *</label>
+          <input value={form.name} onChange={e => upd('name', e.target.value)} placeholder="e.g. USAPL Spring Classic 2026" className={inputCls} />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-medium text-zinc-400 mb-1.5">Federation</label>
+            <select value={form.federation} onChange={e => upd('federation', e.target.value)} className={inputCls}>
+              {ORG_FEDERATIONS.map(f => <option key={f}>{f}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-zinc-400 mb-1.5">Equipment</label>
+            <select value={form.equipment} onChange={e => upd('equipment', e.target.value)} className={inputCls}>
+              {ORG_EQUIPMENT_OPTS.map(e => <option key={e}>{e}</option>)}
+            </select>
+          </div>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-zinc-400 mb-1.5">Status</label>
+          <select value={form.status || 'planned'} onChange={e => upd('status', e.target.value)} className={inputCls}>
+            <option value="planned">Planned — upcoming / registered</option>
+            <option value="active">Active — meet day / in progress</option>
+            <option value="completed">Completed — meet has passed</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-zinc-400 mb-1.5">Location</label>
+          <input value={form.location} onChange={e => upd('location', e.target.value)} placeholder="City, State" className={inputCls} />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-medium text-zinc-400 mb-1.5">Meet Date *</label>
+            <input type="date" value={form.meet_date} onChange={e => upd('meet_date', e.target.value)} className={inputCls} />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-zinc-400 mb-1.5">Registration Deadline</label>
+            <input type="date" value={form.registration_deadline} onChange={e => upd('registration_deadline', e.target.value)} className={inputCls} />
+          </div>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-zinc-400 mb-1.5">Notes</label>
+          <textarea rows={2} value={form.notes || ''} onChange={e => upd('notes', e.target.value)} placeholder="Weigh-in details, logistics, etc." className={`${inputCls} resize-none`} />
+        </div>
+        <div className="flex gap-2 pt-2">
+          <button onClick={onClose} className="flex-1 px-4 py-2 rounded-lg border border-zinc-700 text-sm text-zinc-400 hover:text-zinc-200 hover:border-zinc-500 transition-colors">Cancel</button>
+          <button onClick={handleSave} disabled={saving || !form.name?.trim() || !form.meet_date}
+            className="flex-1 px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-sm font-semibold text-white transition-colors flex items-center justify-center gap-2">
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trophy className="w-4 h-4" />}
+            {isEdit ? 'Save Changes' : 'Create Meet'}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+// ── Athlete Assign Modal ──────────────────────────────────────────────────────
+function AssignAthleteModal({ open, onClose, meet, orgId, alreadyAssigned }) {
+  const { orgs } = useOrgStore()
+  const { assignAthlete } = useOrgMeetsStore()
+  const [saving, setSaving] = useState(null) // athleteId being saved
+  const org = orgs.find(o => o.id === orgId)
+  const allAthletes = (org?.members || []).filter(m => (m.org_role || m.role) === 'athlete')
+  const unassigned = allAthletes.filter(a => !alreadyAssigned.includes(a.user_id))
+
+  const handleAssign = async (athlete) => {
+    setSaving(athlete.user_id)
+    await assignAthlete(meet.id, athlete.user_id, orgId, { weight_class: athlete.weight_class })
+    setSaving(null)
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title="Assign Athletes" size="sm">
+      <div className="p-4 space-y-3 max-h-[60vh] overflow-y-auto">
+        {unassigned.length === 0 && (
+          <p className="text-sm text-zinc-500 text-center py-8">All athletes are already assigned to this meet.</p>
+        )}
+        {unassigned.map(athlete => (
+          <div key={athlete.user_id} className="flex items-center justify-between gap-3 p-3 bg-zinc-800/60 border border-zinc-700/50 rounded-xl">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-purple-500/20 border border-purple-500/30 flex items-center justify-center flex-shrink-0">
+                <span className="text-xs font-bold text-purple-300">{(athlete.full_name||'?')[0]?.toUpperCase()}</span>
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-zinc-200">{athlete.full_name || 'Athlete'}</p>
+                {athlete.weight_class && <p className="text-xs text-zinc-500">{athlete.weight_class}</p>}
+              </div>
+            </div>
+            <button onClick={() => handleAssign(athlete)} disabled={saving === athlete.user_id}
+              className="px-3 py-1.5 text-xs font-semibold bg-purple-600/80 hover:bg-purple-500 text-white rounded-lg disabled:opacity-50 transition-colors flex items-center gap-1">
+              {saving === athlete.user_id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />} Assign
+            </button>
+          </div>
+        ))}
+      </div>
+    </Modal>
+  )
+}
+
+// ── Athlete Coach Drill-Down ──────────────────────────────────────────────────
+function AthleteCoachView({ athleteId, athleteName, meetId, orgId, onBack }) {
+  const { athleteViews, athleteViewLoading, loadAthleteView } = useOrgMeetsStore()
+  const [activeTab, setActiveTab] = useState('goals')
+  useEffect(() => { loadAthleteView(athleteId, orgId) }, [athleteId, orgId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const isLoading = athleteViewLoading[athleteId]
+  const view = athleteViews[athleteId] || { meets: [], blocks: [], goals: [], history: [] }
+
+  // Context: the specific meet this athlete was clicked from
+  const currentMeet = view.meets.find(m => m.id === meetId)
+  const meetBlocks  = view.blocks.filter(b => b.linked_meet_id === meetId)
+  const meetGoals   = view.goals.filter(g => g.linked_meet_id === meetId)
+  const meetHistory = view.history.filter(h => h.meet?.id === meetId)
+  const allHistory  = view.history
+
+  const tabs = [
+    { id: 'goals',    label: `Goals (${meetGoals.length})` },
+    { id: 'attempts', label: 'Attempts' },
+    { id: 'blocks',   label: `Blocks (${meetBlocks.length})` },
+    { id: 'history',  label: 'Meet History' },
+  ]
+
+  const phaseC = (phase) => phaseColorOrg[phase] || phaseColorOrg.deload
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center gap-3">
+        <button onClick={onBack} className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-zinc-200 transition-colors">
+          <ArrowLeft className="w-3.5 h-3.5" /> Back to meet
+        </button>
+      </div>
+      <Card>
+        <CardBody>
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-full bg-purple-500/20 border border-purple-500/30 flex items-center justify-center flex-shrink-0">
+              <span className="text-lg font-black text-purple-300">{athleteName[0]?.toUpperCase()}</span>
+            </div>
+            <div>
+              <p className="text-base font-bold text-zinc-100">{athleteName}</p>
+              {currentMeet && (
+                <div className="flex items-center gap-2 mt-1">
+                  <Trophy className="w-3.5 h-3.5 text-yellow-400" />
+                  <span className="text-xs text-zinc-400">{currentMeet.name}</span>
+                  <span className="text-xs text-zinc-600">·</span>
+                  <span className="text-xs text-zinc-500">{currentMeet.meet_date ? formatDate(currentMeet.meet_date) : ''}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </CardBody>
+      </Card>
+
+      {/* Tabs */}
+      <div className="flex gap-1 overflow-x-auto pb-1">
+        {tabs.map(t => (
+          <button key={t.id} onClick={() => setActiveTab(t.id)}
+            className={cn('px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors',
+              activeTab === t.id ? 'bg-purple-600 text-white' : 'bg-zinc-800 text-zinc-400 hover:text-zinc-200')}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {isLoading && (
+        <div className="flex items-center justify-center py-16 gap-3 text-zinc-500">
+          <Loader2 className="w-5 h-5 animate-spin text-purple-400" />
+          <span className="text-sm">Loading athlete data…</span>
+        </div>
+      )}
+
+      {!isLoading && (
+        <div className="space-y-3">
+          {/* GOALS TAB */}
+          {activeTab === 'goals' && (
+            <>
+              {meetGoals.length === 0 && (
+                <div className="text-center py-12 text-zinc-600">
+                  <Target className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                  <p className="text-sm">No goals linked to this meet.</p>
+                </div>
+              )}
+              {meetGoals.map(g => (
+                <Card key={g.id}>
+                  <CardBody>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start gap-3">
+                        <div className={cn('w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5',
+                          g.completed ? 'bg-green-500/15' : 'bg-purple-500/15')}>
+                          {g.completed ? <CheckCircle2 className="w-4 h-4 text-green-400" /> : <Target className="w-4 h-4 text-purple-400" />}
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold text-zinc-200">{g.title}</p>
+                          {g.notes && <p className="text-xs text-zinc-500 mt-0.5 italic">{g.notes}</p>}
+                          {g.target_value != null && (
+                            <p className="text-xs text-zinc-400 mt-1">Target: <span className="text-zinc-200 font-semibold">{g.target_value} {g.target_unit}</span></p>
+                          )}
+                        </div>
+                      </div>
+                      <div className="text-right flex-shrink-0">
+                        <span className={cn('text-xs px-2 py-0.5 rounded-full border',
+                          g.goal_type === 'strength' ? 'text-purple-300 bg-purple-400/10 border-purple-400/20'
+                          : g.goal_type === 'meet' ? 'text-yellow-300 bg-yellow-400/10 border-yellow-400/20'
+                          : 'text-zinc-300 bg-zinc-700/50 border-zinc-600')}>
+                          {g.goal_type}
+                        </span>
+                        {g.target_date && <p className="text-xs text-zinc-500 mt-1">{formatDate(g.target_date)}</p>}
+                      </div>
+                    </div>
+                    {g.current_value != null && g.target_value != null && g.target_value > 0 && (
+                      <div className="mt-3 space-y-1">
+                        <div className="flex justify-between text-xs text-zinc-500">
+                          <span>Progress</span>
+                          <span>{Math.min(100, Math.round((g.current_value / g.target_value) * 100))}%</span>
+                        </div>
+                        <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                          <div className="h-full bg-purple-500 rounded-full transition-all"
+                            style={{ width: `${Math.min(100, Math.round((g.current_value / g.target_value) * 100))}%` }} />
+                        </div>
+                      </div>
+                    )}
+                  </CardBody>
+                </Card>
+              ))}
+              {/* All other goals */}
+              {view.goals.filter(g => !g.linked_meet_id || g.linked_meet_id !== meetId).length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-zinc-500 mb-2">Other Goals</p>
+                  {view.goals.filter(g => !g.linked_meet_id || g.linked_meet_id !== meetId).map(g => (
+                    <div key={g.id} className="flex items-center gap-2 p-2.5 bg-zinc-800/40 border border-zinc-700/40 rounded-lg mb-1.5">
+                      {g.completed ? <CheckCircle2 className="w-3.5 h-3.5 text-green-400 flex-shrink-0" /> : <Circle className="w-3.5 h-3.5 text-zinc-600 flex-shrink-0" />}
+                      <span className="text-xs text-zinc-300 flex-1">{g.title}</span>
+                      <span className="text-xs text-zinc-600 capitalize">{g.goal_type}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
+          {/* ATTEMPTS TAB */}
+          {activeTab === 'attempts' && (
+            <AthleteAttemptsView meet={currentMeet} />
+          )}
+
+          {/* TRAINING BLOCKS TAB */}
+          {activeTab === 'blocks' && (
+            <>
+              {meetBlocks.length === 0 && view.blocks.length === 0 && (
+                <div className="text-center py-12 text-zinc-600">
+                  <Layers className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                  <p className="text-sm">No training blocks found.</p>
+                </div>
+              )}
+              {meetBlocks.length > 0 && (
+                <>
+                  <p className="text-xs font-semibold text-zinc-400 flex items-center gap-1.5"><Trophy className="w-3 h-3 text-yellow-400" /> Meet Prep Blocks</p>
+                  {meetBlocks.map(tb => <BlockCard key={tb.id} block={tb} />)}
+                </>
+              )}
+              {view.blocks.filter(b => b.linked_meet_id !== meetId).length > 0 && (
+                <>
+                  <p className="text-xs font-semibold text-zinc-500 mt-3 mb-2">All Training Blocks</p>
+                  {view.blocks.filter(b => b.linked_meet_id !== meetId).map(tb => <BlockCard key={tb.id} block={tb} />)}
+                </>
+              )}
+            </>
+          )}
+
+          {/* MEET HISTORY TAB */}
+          {activeTab === 'history' && (
+            <>
+              {allHistory.length === 0 && (
+                <div className="text-center py-12 text-zinc-600">
+                  <Award className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                  <p className="text-sm">No meet results logged yet.</p>
+                </div>
+              )}
+              {allHistory.map((entry, i) => (
+                <Card key={entry.id || i}>
+                  <CardBody>
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <h3 className="text-sm font-bold text-zinc-100">{entry.meet?.name ?? 'Meet'}</h3>
+                        <p className="text-xs text-zinc-500 mt-0.5">
+                          {entry.meet?.meet_date ? formatDate(entry.meet.meet_date) : ''}
+                          {entry.weight_class && ` · ${entry.weight_class}`}
+                        </p>
+                        {entry.meet?.federation && (
+                          <span className="inline-block mt-1 text-xs px-2 py-0.5 rounded-full border text-yellow-300 bg-yellow-400/10 border-yellow-400/20">{entry.meet.federation}</span>
+                        )}
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm font-black text-yellow-400">{entry.total_result ? `${entry.total_result} kg` : '—'}</p>
+                        {entry.dots_score && <p className="text-xs text-zinc-400">DOTS: {Number(entry.dots_score).toFixed(1)}</p>}
+                        {entry.placement && <p className="text-xs text-zinc-400">#{entry.placement} place</p>}
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 mt-3 text-center">
+                      {[
+                        { l: 'Squat',    v: entry.squat_result,    c: 'text-purple-400' },
+                        { l: 'Bench',    v: entry.bench_result,    c: 'text-blue-400'   },
+                        { l: 'Deadlift', v: entry.deadlift_result, c: 'text-orange-400' },
+                      ].map(({ l, v, c }) => (
+                        <div key={l} className="bg-zinc-700/30 rounded-lg py-2">
+                          <p className="text-xs text-zinc-500">{l}</p>
+                          <p className={cn('text-sm font-bold', c)}>{v ? `${v} kg` : '—'}</p>
+                        </div>
+                      ))}
+                    </div>
+                    {entry.notes && <p className="text-xs text-zinc-500 mt-2 italic">"{entry.notes}"</p>}
+                  </CardBody>
+                </Card>
+              ))}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Sub-component: athlete attempts read-only view for a specific meet
+function AthleteAttemptsView({ meet }) {
+  if (!meet) {
+    return (
+      <div className="text-center py-12 text-zinc-600">
+        <Trophy className="w-8 h-8 mx-auto mb-2 opacity-30" />
+        <p className="text-sm">No meet data available.</p>
+      </div>
+    )
+  }
+  const attempts = meet.attempts || {}
+  const results  = meet.attempt_results  || {}
+  const actuals  = meet.attempt_actuals  || {}
+  const lifts = ['squat', 'bench', 'deadlift']
+  const liftColor = { squat: 'text-purple-400', bench: 'text-blue-400', deadlift: 'text-orange-400' }
+  const resultStyle = {
+    pending: 'bg-zinc-800/60 border-zinc-700/40 text-zinc-500',
+    made:    'bg-green-500/15 border-green-500/40 text-green-400',
+    miss:    'bg-red-500/15 border-red-500/30 text-red-400 line-through opacity-70',
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{meet.name} — Attempt Plan</CardTitle>
+        <CardSubtitle>Planned attempts · tap status reflects athlete&apos;s live tracking</CardSubtitle>
+      </CardHeader>
+      <CardBody>
+        {lifts.map(lift => {
+          const liftAttempts = attempts[lift] || {}
+          const liftResults  = results[lift]  || {}
+          const liftActuals  = actuals[lift]  || {}
+          if (Object.keys(liftAttempts).length === 0) return null
+          return (
+            <div key={lift} className="mb-5">
+              <p className={cn('text-sm font-bold capitalize mb-2', liftColor[lift])}>{lift}</p>
+              <div className="grid grid-cols-3 gap-2">
+                {[1,2,3].map(att => {
+                  const planned = liftAttempts[att]
+                  const res     = liftResults[att] || 'pending'
+                  const actual  = liftActuals[att]
+                  return (
+                    <div key={att} className="space-y-1">
+                      <p className="text-xs text-zinc-500">{att===1?'Opener':att===2?'2nd':'3rd'}</p>
+                      <div className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 text-center font-bold">
+                        {planned ? `${planned} kg` : '—'}
+                      </div>
+                      <div className={cn('px-2 py-1 rounded-lg border text-xs font-bold text-center', resultStyle[res])}>
+                        {res === 'pending' ? 'pending' : res === 'made' ? `✓ ${actual ?? planned} kg` : '✕ miss'}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )
+        })}
+        {Object.keys(attempts).length === 0 && (
+          <p className="text-sm text-zinc-500 text-center py-4">No attempt data logged yet.</p>
+        )}
+      </CardBody>
+    </Card>
+  )
+}
+
+// Sub-component: training block card
+function BlockCard({ block }) {
+  const c = phaseColorOrg[block.phase] || phaseColorOrg.deload
+  const pct = block.sessions_planned > 0 ? Math.min(100, Math.round((block.sessions_completed / block.sessions_planned) * 100)) : 0
+  const statusColors = {
+    completed: 'text-green-300 bg-green-400/10 border-green-400/20',
+    active:    'text-purple-300 bg-purple-400/10 border-purple-400/20',
+    planned:   'text-zinc-300 bg-zinc-400/10 border-zinc-400/20',
+  }
+  return (
+    <Card className="mb-2">
+      <CardBody>
+        <div className="flex items-start gap-3">
+          <span className={cn('w-2.5 h-2.5 rounded-full mt-1.5 flex-shrink-0', c.dot)} />
+          <div className="flex-1 min-w-0">
+            <div className="flex items-start justify-between gap-2">
+              <p className="text-sm font-semibold text-zinc-200">{block.name}</p>
+              <span className={cn('text-xs px-2 py-0.5 rounded-full border flex-shrink-0', statusColors[block.status] || statusColors.planned)}>
+                {block.status}
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-2 mt-1.5 text-xs text-zinc-400">
+              <span className={cn('px-2 py-0.5 rounded-full border text-xs', c.badge)}>{block.phase}</span>
+              {block.start_date && <span>{block.start_date} → {block.end_date}</span>}
+              {block.focus && <span>· {block.focus}</span>}
+            </div>
+            {block.sessions_planned > 0 && (
+              <div className="mt-2 space-y-1">
+                <div className="flex justify-between text-xs text-zinc-500">
+                  <span>{block.sessions_completed}/{block.sessions_planned} sessions</span>
+                  <span>{pct}%</span>
+                </div>
+                <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                  <div className="h-full bg-purple-500 rounded-full transition-all" style={{ width: `${pct}%` }} />
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </CardBody>
+    </Card>
+  )
+}
+
+// ── Meet Athlete Roster ───────────────────────────────────────────────────────
+function MeetAthleteRoster({ meet, orgId, onViewAthlete, onBack }) {
+  const { meetAthletes, loadMeetAthletes, unassignAthlete } = useOrgMeetsStore()
+  const { orgs } = useOrgStore()
+  const { isDemo } = useAuthStore()
+  const [assignOpen, setAssignOpen] = useState(false)
+  const [removing, setRemoving] = useState(null)
+  const [editingAthlete, setEditingAthlete] = useState(null) // {athlete_id, weight_class, notes, status}
+  const [saving, setSaving] = useState(null)
+  const { assignAthlete } = useOrgMeetsStore()
+
+  useEffect(() => { loadMeetAthletes(meet.id) }, [meet.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const athletes = meetAthletes[meet.id] ?? []
+  const daysOut  = Math.max(0, Math.round((new Date(meet.meet_date) - new Date()) / 86400000))
+  const isPast   = meet.status === 'completed' || new Date(meet.meet_date) < new Date()
+  const org      = orgs.find(o => o.id === orgId)
+  const orgAthletes = (org?.members || []).filter(m => (m.org_role || m.role) === 'athlete')
+
+  const handleRemove = async (athleteId) => {
+    if (!window.confirm('Remove this athlete from the meet?')) return
+    setRemoving(athleteId)
+    await unassignAthlete(meet.id, athleteId)
+    setRemoving(null)
+  }
+
+  const handleUpdateAssignment = async () => {
+    if (!editingAthlete) return
+    setSaving(editingAthlete.athlete_id)
+    await assignAthlete(meet.id, editingAthlete.athlete_id, orgId, {
+      weight_class: editingAthlete.weight_class,
+      status: editingAthlete.status,
+      notes: editingAthlete.notes,
+    })
+    setSaving(null)
+    setEditingAthlete(null)
+  }
+
+  const statusBadge = {
+    registered: 'text-blue-300 bg-blue-400/10 border-blue-400/20',
+    confirmed:  'text-green-300 bg-green-400/10 border-green-400/20',
+    scratched:  'text-red-300 bg-red-400/10 border-red-400/20',
+  }
+
+  return (
+    <div className="space-y-4">
+      <button onClick={onBack} className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-zinc-200 transition-colors">
+        <ArrowLeft className="w-3.5 h-3.5" /> Back to all meets
+      </button>
+
+      {/* Meet header */}
+      <Card>
+        <CardBody>
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-xl bg-yellow-500/10 border border-yellow-500/20 flex items-center justify-center flex-shrink-0">
+                <Trophy className="w-6 h-6 text-yellow-400" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-zinc-100">{meet.name}</h3>
+                <div className="flex flex-wrap gap-3 mt-1.5 text-xs text-zinc-400">
+                  <span className="flex items-center gap-1"><Calendar className="w-3 h-3" />{formatDate(meet.meet_date)}</span>
+                  {meet.location && <span className="flex items-center gap-1"><MapPin className="w-3 h-3" />{meet.location}</span>}
+                </div>
+                <div className="flex items-center gap-2 mt-2 flex-wrap">
+                  {meet.federation && <span className="text-xs px-2 py-0.5 rounded-full border text-yellow-300 bg-yellow-400/10 border-yellow-400/20">{meet.federation}</span>}
+                  {meet.equipment  && <span className="text-xs px-2 py-0.5 rounded-full border text-zinc-300 bg-zinc-700/50 border-zinc-600">{meet.equipment}</span>}
+                  <span className={cn('text-xs px-2 py-0.5 rounded-full border',
+                    meet.status === 'completed' ? 'text-green-300 bg-green-400/10 border-green-400/20'
+                    : meet.status === 'active' ? 'text-purple-300 bg-purple-400/10 border-purple-400/20'
+                    : 'text-zinc-300 bg-zinc-700/50 border-zinc-600')}>
+                    {meet.status || 'planned'}
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div className="text-right flex-shrink-0">
+              {isPast ? (
+                <p className="text-xs text-zinc-500">completed</p>
+              ) : (
+                <>
+                  <p className="text-2xl font-black text-yellow-400">{daysOut}</p>
+                  <p className="text-xs text-zinc-500">days out</p>
+                </>
+              )}
+            </div>
+          </div>
+        </CardBody>
+      </Card>
+
+      {/* Athletes header */}
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-semibold text-zinc-300 flex items-center gap-2">
+          <Users className="w-4 h-4 text-zinc-500" />
+          Athletes <span className="text-zinc-500 font-normal">({athletes.length})</span>
+        </p>
+        {!isDemo && (
+          <button onClick={() => setAssignOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-600/80 hover:bg-purple-500 text-white text-xs font-semibold rounded-lg transition-colors">
+            <Plus className="w-3.5 h-3.5" /> Assign Athlete
+          </button>
+        )}
+      </div>
+
+      {athletes.length === 0 && (
+        <div className="text-center py-12 text-zinc-600">
+          <Users className="w-8 h-8 mx-auto mb-2 opacity-30" />
+          <p className="text-sm">No athletes assigned yet.</p>
+          <p className="text-xs mt-1">Click "Assign Athlete" to add athletes to this meet.</p>
+        </div>
+      )}
+
+      {athletes.map(athlete => (
+        <Card key={athlete.athlete_id} className="hover:border-zinc-600 transition-colors">
+          <CardBody>
+            {editingAthlete?.athlete_id === athlete.athlete_id ? (
+              // Inline edit mode
+              <div className="space-y-3">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="w-9 h-9 rounded-full bg-purple-500/20 border border-purple-500/30 flex items-center justify-center flex-shrink-0">
+                    <span className="text-sm font-bold text-purple-300">{athlete.full_name[0]?.toUpperCase()}</span>
+                  </div>
+                  <p className="text-sm font-semibold text-zinc-200">{athlete.full_name}</p>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs text-zinc-400 mb-1">Weight Class</label>
+                    <input value={editingAthlete.weight_class || ''}
+                      onChange={e => setEditingAthlete(a => ({ ...a, weight_class: e.target.value }))}
+                      placeholder="e.g. 93kg"
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-purple-500/50" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-zinc-400 mb-1">Status</label>
+                    <select value={editingAthlete.status || 'registered'}
+                      onChange={e => setEditingAthlete(a => ({ ...a, status: e.target.value }))}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-purple-500/50">
+                      <option value="registered">Registered</option>
+                      <option value="confirmed">Confirmed</option>
+                      <option value="scratched">Scratched</option>
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs text-zinc-400 mb-1">Notes</label>
+                  <input value={editingAthlete.notes || ''}
+                    onChange={e => setEditingAthlete(a => ({ ...a, notes: e.target.value }))}
+                    placeholder="Optional coach notes…"
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-purple-500/50" />
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => setEditingAthlete(null)} className="flex-1 px-3 py-1.5 text-xs border border-zinc-700 rounded-lg text-zinc-400 hover:text-zinc-200">Cancel</button>
+                  <button onClick={handleUpdateAssignment} disabled={saving === athlete.athlete_id}
+                    className="flex-1 px-3 py-1.5 text-xs bg-purple-600 hover:bg-purple-500 text-white rounded-lg flex items-center justify-center gap-1 disabled:opacity-50">
+                    {saving === athlete.athlete_id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />} Save
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-purple-500/20 border border-purple-500/30 flex items-center justify-center flex-shrink-0">
+                    <span className="text-sm font-bold text-purple-300">{athlete.full_name[0]?.toUpperCase()}</span>
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-zinc-200">{athlete.full_name}</p>
+                    <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                      {athlete.weight_class && <span className="text-xs text-zinc-400">{athlete.weight_class}</span>}
+                      {athlete.equipment && <span className="text-xs text-zinc-500">· {athlete.equipment}</span>}
+                      <span className={cn('text-xs px-1.5 py-0.5 rounded-full border', statusBadge[athlete.status] || statusBadge.registered)}>
+                        {athlete.status || 'registered'}
+                      </span>
+                    </div>
+                    {athlete.notes && <p className="text-xs text-zinc-500 mt-1 italic">{athlete.notes}</p>}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  <button onClick={() => onViewAthlete(athlete)}
+                    className="px-2.5 py-1.5 text-xs bg-zinc-800 border border-zinc-700 hover:border-zinc-500 text-zinc-300 rounded-lg transition-colors flex items-center gap-1">
+                    <ChevronRight className="w-3 h-3" /> View
+                  </button>
+                  <button onClick={() => setEditingAthlete({ athlete_id: athlete.athlete_id, weight_class: athlete.weight_class, status: athlete.status, notes: athlete.notes })}
+                    className="px-2.5 py-1.5 text-xs bg-zinc-800 border border-zinc-700 hover:border-zinc-500 text-zinc-400 rounded-lg transition-colors">
+                    <Edit2 className="w-3 h-3" />
+                  </button>
+                  {!isDemo && (
+                    <button onClick={() => handleRemove(athlete.athlete_id)} disabled={removing === athlete.athlete_id}
+                      className="px-2.5 py-1.5 text-xs bg-zinc-800 border border-zinc-700 hover:border-red-500/50 text-red-400 rounded-lg transition-colors disabled:opacity-50">
+                      {removing === athlete.athlete_id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+          </CardBody>
+        </Card>
+      ))}
+
+      <AssignAthleteModal
+        open={assignOpen}
+        onClose={() => setAssignOpen(false)}
+        meet={meet}
+        orgId={orgId}
+        alreadyAssigned={athletes.map(a => a.athlete_id)}
+      />
+    </div>
+  )
+}
+
+// ── Main OrgMeetsTab ──────────────────────────────────────────────────────────
+function OrgMeetsTab() {
+  const { profile, activeOrgId, isDemo } = useAuthStore()
+  const { orgs } = useOrgStore()
+  const orgId = activeOrgId || profile?.org_id
+  const { meets, loading, load, removeMeet } = useOrgMeetsStore()
+
+  const [addMeetOpen, setAddMeetOpen] = useState(false)
+  const [editMeet, setEditMeet]       = useState(null)
+  // drill-down state: null | { type:'meet', meet } | { type:'athlete', athlete, meet }
+  const [drilldown, setDrilldown]     = useState(null)
+
+  useEffect(() => {
+    if (orgId) {
+      load(orgId)
+      // Also make sure org members are loaded (for athlete assignment picker)
+      const orgStore = orgs.find(o => o.id === orgId)
+      if (!orgStore?.members?.length) {
+        useOrgStore.getState().loadOrgMembers?.(orgId)
+      }
+    }
+  }, [orgId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Use demo meets if in demo mode, real org meets otherwise
+  const allMeets = isDemo ? MOCK_MEETS : meets
+
+  const daysOut = (ds) => Math.max(0, Math.round((new Date(ds) - new Date()) / 86400000))
+  const isMeetPast = (m) => m.status === 'completed' || m.status === 'cancelled' || new Date(m.meet_date) < new Date()
+
+  const handleDeleteMeet = async (meetId) => {
+    if (isDemo) return
+    if (!window.confirm('Delete this meet and all athlete assignments?')) return
+    await deleteMeet(meetId)
+    removeMeet(meetId)
+    if (drilldown?.meet?.id === meetId) setDrilldown(null)
+  }
+
+  // Athlete drill-down from meet roster
+  const handleViewAthlete = (athlete, meet) => {
+    setDrilldown({ type: 'athlete', athlete, meet })
+    useOrgMeetsStore.getState().loadAthleteView(athlete.athlete_id, orgId)
+  }
+
+  if (drilldown?.type === 'athlete') {
+    return (
+      <AthleteCoachView
+        athleteId={drilldown.athlete.athlete_id}
+        athleteName={drilldown.athlete.full_name}
+        meetId={drilldown.meet.id}
+        orgId={orgId}
+        onBack={() => setDrilldown({ type: 'meet', meet: drilldown.meet })}
+      />
+    )
+  }
+
+  if (drilldown?.type === 'meet') {
+    return (
+      <MeetAthleteRoster
+        meet={drilldown.meet}
+        orgId={orgId}
+        onBack={() => setDrilldown(null)}
+        onViewAthlete={(athlete) => handleViewAthlete(athlete, drilldown.meet)}
+      />
+    )
+  }
+
+  // ── Meet list view ─────────────────────────────────────────────────────────
+  const upcoming = allMeets.filter(m => !isMeetPast(m))
+  const past     = allMeets.filter(m => isMeetPast(m))
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm font-semibold text-zinc-300">Org Meets</p>
+          <p className="text-xs text-zinc-500 mt-0.5">Create meets, assign athletes, track attempts &amp; warm-ups</p>
+        </div>
+        <div className="flex items-center gap-2">
+          {!isDemo && (
+            <button onClick={() => load(orgId, true)}
+              className="p-1.5 bg-zinc-800 border border-zinc-700 rounded-lg text-zinc-400 hover:text-zinc-200 hover:border-zinc-500 transition-colors">
+              <RefreshCw className="w-3.5 h-3.5" />
+            </button>
+          )}
+          <button onClick={() => setAddMeetOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-600/80 hover:bg-purple-500 text-white text-xs font-semibold rounded-lg transition-colors">
+            <Plus className="w-3.5 h-3.5" /> Add Meet
+          </button>
+        </div>
+      </div>
+
+      {loading && (
+        <div className="flex items-center justify-center py-12 gap-3 text-zinc-500">
+          <Loader2 className="w-5 h-5 animate-spin text-purple-400" />
+          <span className="text-sm">Loading meets…</span>
+        </div>
+      )}
+
+      {!loading && allMeets.length === 0 && (
+        <div className="text-center py-16 text-zinc-600">
+          <Trophy className="w-8 h-8 mx-auto mb-2 opacity-30" />
+          <p className="text-sm">No meets yet.</p>
+          <p className="text-xs mt-1">Create your first org meet to start assigning athletes.</p>
+        </div>
+      )}
+
+      {!loading && upcoming.length > 0 && (
+        <div className="space-y-3">
+          {upcoming.map(meet => {
+            const d = daysOut(meet.meet_date)
+            return (
+              <Card key={meet.id} className="hover:border-zinc-600 transition-colors">
+                <CardBody>
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex items-start gap-4">
+                      <div className="w-11 h-11 rounded-xl bg-yellow-500/10 border border-yellow-500/20 flex items-center justify-center flex-shrink-0">
+                        <Trophy className="w-5 h-5 text-yellow-400" />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-bold text-zinc-100">{meet.name}</h3>
+                        <div className="flex flex-wrap gap-3 mt-1 text-xs text-zinc-400">
+                          <span className="flex items-center gap-1"><Calendar className="w-3 h-3" />{formatDate(meet.meet_date)}</span>
+                          {meet.location && <span className="flex items-center gap-1"><MapPin className="w-3 h-3" />{meet.location}</span>}
+                        </div>
+                        <div className="flex items-center gap-2 mt-2 flex-wrap">
+                          {meet.federation && <span className="text-xs px-2 py-0.5 rounded-full border text-yellow-300 bg-yellow-400/10 border-yellow-400/20">{meet.federation}</span>}
+                          {meet.equipment  && <span className="text-xs px-2 py-0.5 rounded-full border text-zinc-300 bg-zinc-700/50 border-zinc-600">{meet.equipment}</span>}
+                          {meet.status && meet.status !== 'planned' && (
+                            <span className="text-xs px-2 py-0.5 rounded-full border text-purple-300 bg-purple-400/10 border-purple-400/20">{meet.status}</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <p className="text-2xl font-black text-yellow-400">{d}</p>
+                      <p className="text-xs text-zinc-500">days out</p>
+                    </div>
+                  </div>
+                  <div className="mt-3 flex gap-2 flex-wrap">
+                    <button onClick={() => setDrilldown({ type: 'meet', meet })}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 border border-zinc-700 hover:border-zinc-500 text-xs font-semibold text-zinc-300 rounded-lg transition-colors">
+                      <Users className="w-3 h-3" /> Athletes
+                    </button>
+                    <button onClick={() => setEditMeet(meet)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 border border-zinc-700 hover:border-zinc-500 text-xs text-zinc-400 rounded-lg transition-colors">
+                      <Edit2 className="w-3 h-3" /> Edit
+                    </button>
+                    {!isDemo && (
+                      <button onClick={() => handleDeleteMeet(meet.id)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 border border-zinc-700 hover:border-red-500/50 text-xs text-red-400 rounded-lg transition-colors">
+                        <Trash2 className="w-3 h-3" /> Delete
+                      </button>
+                    )}
+                  </div>
+                </CardBody>
+              </Card>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Past meets collapsible */}
+      {!loading && past.length > 0 && <PastOrgMeets past={past} isDemo={isDemo} onView={(meet) => setDrilldown({ type: 'meet', meet })} onEdit={setEditMeet} onDelete={handleDeleteMeet} />}
+
+      <OrgMeetFormModal open={addMeetOpen} onClose={() => setAddMeetOpen(false)} orgId={orgId} />
+      {editMeet && <OrgMeetFormModal open={!!editMeet} onClose={() => setEditMeet(null)} existingMeet={editMeet} orgId={orgId} />}
+    </div>
+  )
+}
+
+function PastOrgMeets({ past, isDemo, onView, onEdit, onDelete }) {
+  const [expanded, setExpanded] = useState(false)
+  const daysAgo = (ds) => Math.max(0, Math.round((new Date() - new Date(ds)) / 86400000))
+  return (
+    <div>
+      <button onClick={() => setExpanded(e => !e)}
+        className="w-full flex items-center justify-between px-4 py-2.5 bg-zinc-800/60 border border-zinc-700/60 rounded-xl text-xs font-semibold text-zinc-400 hover:text-zinc-200 hover:border-zinc-600 transition-colors">
+        <span className="flex items-center gap-2">
+          <Trophy className="w-3.5 h-3.5 text-zinc-500" />
+          Past Meets
+          <span className="ml-1 px-1.5 py-0.5 bg-zinc-700 rounded-full text-zinc-400">{past.length}</span>
+        </span>
+        {expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+      </button>
+      {expanded && (
+        <div className="mt-3 space-y-3">
+          {past.map(meet => {
+            const ago = daysAgo(meet.meet_date)
+            return (
+              <Card key={meet.id} className="opacity-80 hover:opacity-100 transition-opacity">
+                <CardBody>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-zinc-700/60 border border-zinc-600/60 flex items-center justify-center flex-shrink-0">
+                        <Trophy className="w-5 h-5 text-zinc-400" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-zinc-300">{meet.name}</p>
+                        <div className="flex gap-2 mt-1 text-xs text-zinc-500">
+                          <span>{formatDate(meet.meet_date)}</span>
+                          {meet.location && <span>· {meet.location}</span>}
+                        </div>
+                        {meet.federation && (
+                          <span className="inline-block mt-1 text-xs px-2 py-0.5 rounded-full border text-yellow-300 bg-yellow-400/10 border-yellow-400/20">{meet.federation}</span>
+                        )}
+                      </div>
+                    </div>
+                    <p className="text-xs text-zinc-500 flex-shrink-0">{ago === 0 ? 'Today' : `${ago}d ago`}</p>
+                  </div>
+                  <div className="mt-3 flex gap-2 flex-wrap">
+                    <button onClick={() => onView(meet)} className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 border border-zinc-700 hover:border-zinc-500 text-xs text-zinc-300 rounded-lg transition-colors">
+                      <Users className="w-3 h-3" /> Athletes
+                    </button>
+                    <button onClick={() => onEdit(meet)} className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 border border-zinc-700 hover:border-zinc-500 text-xs text-zinc-400 rounded-lg transition-colors">
+                      <Edit2 className="w-3 h-3" /> Edit
+                    </button>
+                    {!isDemo && (
+                      <button onClick={() => onDelete(meet.id)} className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 border border-zinc-700 hover:border-red-500/50 text-xs text-red-400 rounded-lg transition-colors">
+                        <Trash2 className="w-3 h-3" /> Delete
+                      </button>
+                    )}
+                  </div>
+                </CardBody>
+              </Card>
+            )
+          })}
+        </div>
+      )}
+    </div>
   )
 }
 
