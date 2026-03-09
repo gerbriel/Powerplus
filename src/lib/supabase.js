@@ -1790,27 +1790,36 @@ export async function fetchAllOrgsForSuperAdmin() {
     .order('created_at', { ascending: false })
   if (orgErr) { console.error('[supabase] fetchAllOrgs:', orgErr.message); return [] }
 
-  // Fetch all members and invitations in parallel
-  const { data: members } = await supabase
-    .from('org_members')
-    .select('*, profiles(id, full_name, display_name, email, avatar_url, role)')
-  const { data: invitations } = await supabase
-    .from('org_invitations')
-    .select('*')
+  // Fetch members, invitations, and staff assignments in parallel
+  const [{ data: members }, { data: invitations }, { data: assignments }] = await Promise.all([
+    supabase.from('org_members').select('*, profiles(id, full_name, display_name, email, avatar_url, role)'),
+    supabase.from('org_invitations').select('*'),
+    supabase.from('staff_athlete_assignments').select('org_id, staff_id, athlete_id, active').eq('active', true),
+  ])
+
+  // Build a map: orgId → athleteId → [staffId, ...]
+  const assignmentMap = {}
+  ;(assignments || []).forEach((a) => {
+    if (!assignmentMap[a.org_id]) assignmentMap[a.org_id] = {}
+    if (!assignmentMap[a.org_id][a.athlete_id]) assignmentMap[a.org_id][a.athlete_id] = []
+    assignmentMap[a.org_id][a.athlete_id].push(a.staff_id)
+  })
 
   const membersMap = {}
   const invitationsMap = {}
   ;(members || []).forEach((m) => {
     if (!membersMap[m.org_id]) membersMap[m.org_id] = []
     membersMap[m.org_id].push({
-      user_id:    m.user_id,
-      full_name:  m.profiles?.full_name || m.profiles?.display_name || m.profiles?.email || '',
-      email:      m.profiles?.email || '',
-      role:       m.org_role,
-      org_role:   m.org_role,
-      is_self_athlete: m.is_self_athlete,
-      status:     m.status,
-      joined_at:  m.joined_at ? m.joined_at.slice(0, 10) : '',
+      user_id:          m.user_id,
+      full_name:        m.profiles?.full_name || m.profiles?.display_name || m.profiles?.email || '',
+      email:            m.profiles?.email || '',
+      role:             m.org_role,
+      org_role:         m.org_role,
+      is_self_athlete:  m.is_self_athlete,
+      status:           m.status,
+      joined_at:        m.joined_at ? m.joined_at.slice(0, 10) : '',
+      // Staff this member is assigned to (populated from staff_athlete_assignments)
+      assigned_staff_ids: (assignmentMap[m.org_id]?.[m.user_id]) || [],
     })
   })
   ;(invitations || []).forEach((i) => {

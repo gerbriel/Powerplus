@@ -2016,7 +2016,7 @@ const ROLE_TIER = { head_coach: 0, coach: 1, nutritionist: 2, athlete: 3 }
 const ROLE_LABEL = { head_coach: 'Head Coach', coach: 'Coach', nutritionist: 'Nutritionist', athlete: 'Athlete' }
 
 function RosterBoardTab() {
-  const { orgs, platformUsers, loadAllOrgs, loadPlatformUsers, moveUserToOrg, changeOrgMemberRole, removeUserFromOrg, assignToStaff } = useOrgStore()
+  const { orgs, platformUsers, reloadAllOrgs, loadPlatformUsers, moveUserToOrg, changeOrgMemberRole, removeUserFromOrg, assignToStaff } = useOrgStore()
   const dragRef = useRef(null)
   const [dropTarget, setDropTarget] = useState(null)        // orgId being hovered
   const [pendingDrop, setPendingDrop] = useState(null)      // { userId, fromOrgId, toOrgId, memberData }
@@ -2024,8 +2024,13 @@ function RosterBoardTab() {
   const [pickedRole, setPickedRole] = useState('athlete')
   const [assignedStaff, setAssignedStaff] = useState([])    // array of user_ids selected in step 2
   const [search, setSearch] = useState('')
+  const [loading, setLoading] = useState(false)
 
-  useEffect(() => { loadAllOrgs(); loadPlatformUsers() }, [loadAllOrgs, loadPlatformUsers])
+  // Always reload fresh from Supabase (incl. staff_athlete_assignments) on mount
+  useEffect(() => {
+    reloadAllOrgs()
+    loadPlatformUsers()
+  }, [reloadAllOrgs, loadPlatformUsers])
 
   const productionOrgs = useMemo(() => (orgs || []).filter((o) => !o.is_demo), [orgs])
 
@@ -2114,16 +2119,20 @@ function RosterBoardTab() {
 
   const handleConfirmMove = useCallback(async () => {
     if (!pendingDrop) return
+    setLoading(true)
     const { userId, fromOrgId, toOrgId, memberData } = pendingDrop
     await moveUserToOrg(userId, memberData?.full_name, memberData?.email, fromOrgId, toOrgId, pickedRole)
     if (assignedStaff.length > 0) {
       await assignToStaff(toOrgId, userId, assignedStaff)
     }
+    // Reload from Supabase so assignments are reflected from the DB
+    await reloadAllOrgs()
+    setLoading(false)
     toast.success(`Moved to ${productionOrgs.find((o) => o.id === toOrgId)?.name ?? 'org'}`)
     setPendingDrop(null)
     setModalStep(1)
     setAssignedStaff([])
-  }, [pendingDrop, pickedRole, assignedStaff, moveUserToOrg, assignToStaff, productionOrgs])
+  }, [pendingDrop, pickedRole, assignedStaff, moveUserToOrg, assignToStaff, reloadAllOrgs, productionOrgs])
 
   const toggleStaff = useCallback((staffUserId) => {
     setAssignedStaff((prev) =>
@@ -2137,50 +2146,74 @@ function RosterBoardTab() {
     setAssignedStaff([])
   }, [])
 
+  // Build a flat map of user_id → full_name/email across all org members (for assignment labels)
+  const memberNameMap = useMemo(() => {
+    const map = {}
+    productionOrgs.forEach((o) => {
+      (o.members || []).forEach((m) => {
+        map[m.user_id] = m.full_name || m.email || m.user_id
+      })
+    })
+    return map
+  }, [productionOrgs])
+
   // ── Member card ────────────────────────────────────────────────────────────
   const MemberCard = useCallback(({ member, orgId }) => {
     const initials = (member.full_name || member.email || '?')
       .split(' ').slice(0, 2).map((w) => w[0]).join('').toUpperCase()
     const role = member.org_role || member.role || 'athlete'
+    const staffIds = member.assigned_staff_ids || []
 
     return (
       <div
         draggable
         onDragStart={(e) => handleDragStart(e, member.user_id || member.id, orgId, member)}
-        className="flex items-center gap-2 p-2 bg-zinc-800 hover:bg-zinc-750 border border-zinc-700/60 rounded-lg cursor-grab active:cursor-grabbing group transition-colors"
+        className="flex flex-col gap-1.5 p-2 bg-zinc-800 hover:bg-zinc-750 border border-zinc-700/60 rounded-lg cursor-grab active:cursor-grabbing group transition-colors"
       >
-        <GripVertical className="w-3 h-3 text-zinc-600 flex-shrink-0" />
-        <div className="w-7 h-7 rounded-full bg-zinc-700 flex items-center justify-center text-[10px] font-bold text-zinc-300 flex-shrink-0">
-          {initials}
+        <div className="flex items-center gap-2">
+          <GripVertical className="w-3 h-3 text-zinc-600 flex-shrink-0" />
+          <div className="w-7 h-7 rounded-full bg-zinc-700 flex items-center justify-center text-[10px] font-bold text-zinc-300 flex-shrink-0">
+            {initials}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-medium text-zinc-200 truncate">{member.full_name || '—'}</p>
+            <p className="text-[10px] text-zinc-500 truncate">{member.email}</p>
+          </div>
+          <div className="flex items-center gap-1">
+            {orgId && (
+              <select
+                value={role}
+                onChange={(e) => { e.stopPropagation(); changeOrgMemberRole(orgId, member.user_id || member.id, e.target.value) }}
+                onClick={(e) => e.stopPropagation()}
+                className="text-[10px] bg-zinc-700 border border-zinc-600 text-zinc-300 rounded px-1 py-0.5 cursor-pointer"
+              >
+                {ORG_ROLES.map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
+              </select>
+            )}
+            {orgId && (
+              <button
+                onClick={(e) => { e.stopPropagation(); removeUserFromOrg(orgId, member.user_id || member.id) }}
+                className="opacity-0 group-hover:opacity-100 p-0.5 text-zinc-500 hover:text-red-400 transition-all"
+                title="Remove from org"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            )}
+          </div>
         </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-xs font-medium text-zinc-200 truncate">{member.full_name || '—'}</p>
-          <p className="text-[10px] text-zinc-500 truncate">{member.email}</p>
-        </div>
-        <div className="flex items-center gap-1">
-          {orgId && (
-            <select
-              value={role}
-              onChange={(e) => { e.stopPropagation(); changeOrgMemberRole(orgId, member.user_id || member.id, e.target.value) }}
-              onClick={(e) => e.stopPropagation()}
-              className="text-[10px] bg-zinc-700 border border-zinc-600 text-zinc-300 rounded px-1 py-0.5 cursor-pointer"
-            >
-              {ORG_ROLES.map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
-            </select>
-          )}
-          {orgId && (
-            <button
-              onClick={(e) => { e.stopPropagation(); removeUserFromOrg(orgId, member.user_id || member.id) }}
-              className="opacity-0 group-hover:opacity-100 p-0.5 text-zinc-500 hover:text-red-400 transition-all"
-              title="Remove from org"
-            >
-              <X className="w-3 h-3" />
-            </button>
-          )}
-        </div>
+        {/* Assigned-to staff pills */}
+        {staffIds.length > 0 && (
+          <div className="flex flex-wrap gap-1 pl-5">
+            {staffIds.map((sid) => (
+              <span key={sid} className="text-[9px] bg-indigo-900/50 text-indigo-300 border border-indigo-700/40 rounded-full px-1.5 py-0.5 truncate max-w-[100px]">
+                {memberNameMap[sid] ? memberNameMap[sid].split(' ')[0] : '…'}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
     )
-  }, [handleDragStart, changeOrgMemberRole, removeUserFromOrg])
+  }, [handleDragStart, changeOrgMemberRole, removeUserFromOrg, memberNameMap])
 
   // ── Column ─────────────────────────────────────────────────────────────────
   const Column = useCallback(({ orgId, title, plan, memberCount, children }) => {
@@ -2273,16 +2306,25 @@ function RosterBoardTab() {
       <div className="flex items-center justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold text-zinc-200">Roster Board</h2>
-          <p className="text-xs text-zinc-500">Drag users between orgs · Use dropdowns to change roles</p>
+          <p className="text-xs text-zinc-500">Drag users between orgs · Use dropdowns to change roles · Assignments persist across devices</p>
         </div>
-        <div className="relative">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
-          <input
-            className="bg-zinc-800 border border-zinc-700 rounded-lg pl-8 pr-3 py-1.5 text-xs text-zinc-200 placeholder-zinc-500 w-52"
-            placeholder="Search users or orgs…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => reloadAllOrgs()}
+            className="p-1.5 text-zinc-500 hover:text-zinc-200 hover:bg-zinc-700 rounded-lg transition-colors"
+            title="Refresh board"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+          </button>
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
+            <input
+              className="bg-zinc-800 border border-zinc-700 rounded-lg pl-8 pr-3 py-1.5 text-xs text-zinc-200 placeholder-zinc-500 w-52"
+              placeholder="Search users or orgs…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
         </div>
       </div>
 
@@ -2402,18 +2444,21 @@ function RosterBoardTab() {
             <div className="flex justify-between gap-2 pt-2">
               <div>
                 {modalStep === 2 && (
-                  <Button variant="ghost" onClick={() => setModalStep(1)}>← Back</Button>
+                  <Button variant="ghost" onClick={() => setModalStep(1)} disabled={loading}>← Back</Button>
                 )}
               </div>
               <div className="flex gap-2">
-                <Button variant="ghost" onClick={closeModal}>Cancel</Button>
+                <Button variant="ghost" onClick={closeModal} disabled={loading}>Cancel</Button>
                 {modalStep === 1 ? (
-                  <Button onClick={handleNextStep}>
+                  <Button onClick={handleNextStep} disabled={loading}>
                     {needsAssignment ? 'Next →' : 'Confirm Move'}
                   </Button>
                 ) : (
-                  <Button onClick={handleConfirmMove}>
-                    {assignedStaff.length > 0 ? 'Confirm & Assign' : 'Skip & Confirm'}
+                  <Button onClick={handleConfirmMove} disabled={loading}>
+                    {loading
+                      ? <><RefreshCw className="w-3 h-3 animate-spin" /> Saving…</>
+                      : assignedStaff.length > 0 ? 'Confirm & Assign' : 'Skip & Confirm'
+                    }
                   </Button>
                 )}
               </div>
