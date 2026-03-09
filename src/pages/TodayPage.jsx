@@ -53,14 +53,15 @@ function PlatformDashboard() {
 
   const PLAN_MRR = { starter: 0, team_pro: 149, enterprise: 499 }
 
-  const activeOrgs  = orgs.filter((o) => o.status === 'active')
-  const totalMRR    = activeOrgs.reduce((s, o) => s + (PLAN_MRR[o.plan] || 0), 0)
-  const paidOrgs    = activeOrgs.filter((o) => o.plan !== 'starter')
-  const totalUsers  = orgs.reduce((s, o) => s + o.members.length, 0)
-  const suspendedOrgs = orgs.filter((o) => o.status === 'suspended')
+  const productionOrgs = orgs.filter((o) => !o.is_demo)
+  const activeOrgs     = productionOrgs.filter((o) => o.status === 'active')
+  const totalMRR       = activeOrgs.reduce((s, o) => s + (PLAN_MRR[o.plan] || 0), 0)
+  const paidOrgs       = activeOrgs.filter((o) => o.plan !== 'starter')
+  const totalUsers     = productionOrgs.reduce((s, o) => s + (o.members || []).filter(m => m.is_demo !== true).length, 0)
+  const suspendedOrgs  = productionOrgs.filter((o) => o.status === 'suspended')
 
-  // Mock recent signups (last 24 h)
-  const recentSignups = orgs.slice(0, 3).map((o, i) => ({
+  // Mock recent signups (last 24 h) — production orgs only
+  const recentSignups = productionOrgs.slice(0, 3).map((o, i) => ({
     ...o,
     hoursAgo: [2, 7, 14][i],
   }))
@@ -130,7 +131,7 @@ function PlatformDashboard() {
                 </div>
               ))
             )}
-            {orgs.filter((o) => {
+            {productionOrgs.filter((o) => {
               const pct = (o.members.filter((m) => m.role === 'athlete').length / o.athlete_limit) * 100
               return pct >= 90 && o.status === 'active'
             }).map((o) => (
