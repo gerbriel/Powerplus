@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
 import toast from 'react-hot-toast'
 import { ResponsiveContainer, BarChart, Bar, CartesianGrid, XAxis, YAxis, Tooltip, Legend } from 'recharts'
 import {
@@ -391,16 +391,28 @@ function PlatformUsersTab() {
     return map
   }, [orgs])
 
-  // Production users: exclude anyone explicitly flagged is_demo — real Supabase users have no is_demo field (undefined = not demo)
+  // A user is "demo-only" if:
+  //  (a) explicitly flagged is_demo: true (mock data), OR
+  //  (b) every org they belong to is a demo org (real Supabase test accounts)
+  // A user with NO org memberships is NOT automatically demo — they could be a real
+  // user who hasn't joined an org yet (e.g. Gabriel Rios).
+  const isUserDemo = useCallback((u) => {
+    if (u.is_demo === true) return true
+    const memberships = userOrgMap[u.id] || []
+    if (memberships.length === 0) return false
+    return memberships.every((m) => m.is_demo)
+  }, [userOrgMap])
+
+  // Production users: not demo-only
   const productionUsers = useMemo(
-    () => platformUsers.filter((u) => !u.is_demo),
-    [platformUsers]
+    () => platformUsers.filter((u) => !isUserDemo(u)),
+    [platformUsers, isUserDemo]
   )
 
-  // Demo users: explicitly flagged true
+  // Demo users count for the info banner
   const demoUserCount = useMemo(
-    () => platformUsers.filter((u) => u.is_demo === true).length,
-    [platformUsers]
+    () => platformUsers.filter((u) => isUserDemo(u)).length,
+    [platformUsers, isUserDemo]
   )
 
   const filtered = productionUsers.filter((u) => {
@@ -474,8 +486,6 @@ function PlatformUsersTab() {
               <tbody>
                 {filtered.map((u, i) => {
                   const memberships = userOrgMap[u.id] || []
-                  // Use org role for display; fall back to flat u.role if no memberships
-                  const primaryRole = memberships[0]?.org_role || u.role
                   return (
                     <tr key={u.id} className={`border-b border-zinc-800/60 last:border-0 hover:bg-zinc-800/30 cursor-pointer ${i % 2 === 0 ? 'bg-zinc-800/10' : ''}`} onClick={() => setSelectedUser({ ...u, memberships })}>
                       <td className="px-4 py-3">
@@ -535,7 +545,18 @@ function PlatformUsersTab() {
                 <div className="flex items-center gap-2 mt-1.5">
                   {selectedUser.platform_role === 'super_admin'
                     ? <Badge color="red">Super Admin</Badge>
-                    : <Badge color={roleBadge(selectedUser.role)} className="capitalize">{selectedUser.role || 'user'}</Badge>}
+                    : (() => {
+                        // Prefer the role from their primary org membership; fall back to platform_role label
+                        const primaryOrgRole = selectedUser.memberships?.[0]?.org_role
+                        const displayRole = primaryOrgRole || (selectedUser.platform_role !== 'user' ? selectedUser.platform_role : null)
+                        if (!displayRole) return <Badge color="default">Member</Badge>
+                        return (
+                          <Badge color={roleBadge(displayRole)} className="capitalize">
+                            {displayRole === 'head_coach' ? 'Head Coach' : displayRole}
+                          </Badge>
+                        )
+                      })()
+                  }
                 </div>
               </div>
             </div>
