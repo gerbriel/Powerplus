@@ -1127,15 +1127,22 @@ function PastMeetsSection({ pastMeets, allBlocks, allGoals, daysAgo, isDemo, onV
 
 // ── Main MeetsPage ────────────────────────────────────────────────────────
 export function MeetsPage() {
-  const { isDemo, user, activeOrgId, profile, viewAsAthlete } = useAuthStore()
+  const { isDemo, user, activeOrgId, profile, viewAsAthlete, orgMemberships, isLoading } = useAuthStore()
 
-  // Staff roles: when viewAsAthlete is OFF, show the org coach view
-  const orgRole = profile?.org_role || profile?.role || ''
-  const isStaff = ['owner', 'head_coach', 'coach', 'analyst', 'nutritionist', 'admin'].includes(orgRole)
-  if (isStaff && !viewAsAthlete) {
-    return <OrgMeetsTab />
-  }
+  // Derive staff status from profile.role (resolved role) OR the active org membership org_role
+  const activeMembership = orgMemberships?.find(m => m.org_id === activeOrgId) ?? orgMemberships?.[0]
+  const membershipOrgRole = activeMembership?.org_role ?? ''
+  const profileRole = profile?.role ?? ''
+  const STAFF_ROLES = ['owner', 'head_coach', 'coach', 'analyst', 'nutritionist', 'admin', 'super_admin']
+  const isStaff = STAFF_ROLES.includes(profileRole) || STAFF_ROLES.includes(membershipOrgRole)
 
+  // While auth is still resolving, don't make a premature routing decision
+  if (isLoading) return null
+
+  // Staff in coach mode → show org meets management view
+  if (isStaff && !viewAsAthlete) return <OrgMeetsTab />
+
+  // Athlete, or staff toggled into "View as Athlete"
   return <AthleteMeetsPage />
 }
 
