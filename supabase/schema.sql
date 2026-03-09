@@ -2210,3 +2210,39 @@ create policy "member_perms: members can read own" on member_custom_permissions 
 -- UPDATE profiles
 -- SET role = 'super_admin', platform_role = 'super_admin'
 -- WHERE id = (SELECT id FROM auth.users WHERE email = 'thepowerplusapp@gmail.com');
+
+-- ── meet_athletes junction (org meets → assigned athletes) ──────────────
+-- Run this in Supabase SQL editor
+create table if not exists meet_athletes (
+  id          uuid primary key default uuid_generate_v4(),
+  meet_id     uuid not null references meets(id) on delete cascade,
+  athlete_id  uuid not null references profiles(id) on delete cascade,
+  org_id      uuid references organizations(id) on delete cascade,
+  weight_class text,
+  equipment   text default 'raw',
+  status      text default 'registered',   -- registered | confirmed | scratched
+  notes       text,
+  assigned_by uuid references profiles(id),
+  assigned_at timestamptz default now(),
+  unique (meet_id, athlete_id)
+);
+
+alter table meet_athletes enable row level security;
+
+-- Org staff can read/write assignments for their org
+drop policy if exists "meet_athletes: org staff rw" on meet_athletes;
+create policy "meet_athletes: org staff rw" on meet_athletes
+  for all using (
+    exists (
+      select 1 from org_members
+      where org_id = meet_athletes.org_id
+        and user_id = auth.uid()
+        and org_role in ('owner','head_coach','coach','analyst')
+    )
+    or athlete_id = auth.uid()
+  );
+
+-- Idempotent columns for meets table (attempt_results, attempt_actuals, prs_detail on profiles)
+alter table meets    add column if not exists attempt_results jsonb default '{}';
+alter table meets    add column if not exists attempt_actuals jsonb default '{}';
+alter table profiles add column if not exists prs_detail      jsonb default '{}';

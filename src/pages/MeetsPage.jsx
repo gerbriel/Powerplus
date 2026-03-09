@@ -16,7 +16,27 @@ import { cn, formatDate, kgToLbs } from '../lib/utils'
 import { useSettingsStore, useAuthStore, useMeetsStore } from '../lib/store'
 import { saveMeet, saveMeetEntry, saveTrainingBlock, deleteMeet, deleteTrainingBlock, saveMeetAttempts } from '../lib/db'
 
-const FEDERATIONS = ['USAPL','IPF','USPA','NASA','RPS','SPF','WPC','Other']
+const FEDERATIONS = [
+  'USA Powerlifting (USAPL)',
+  'International Powerlifting Federation (IPF)',
+  'US Powerlifting Association (USPA)',
+  'North American Powerlifting Federation (NAPF)',
+  'National Strength Association (NASA)',
+  'Revolution Powerlifting Syndicate (RPS)',
+  'Southern Powerlifting Federation (SPF)',
+  'World Powerlifting Congress (WPC)',
+  'World Powerlifting (WP)',
+  'Global Powerlifting Committee (GPC)',
+  'American Powerlifting Federation (APF)',
+  '100% RAW Powerlifting',
+  'Xtreme Powerlifting Coalition (XPC)',
+  'World Raw Powerlifting Federation (WRPF)',
+  'Canadian Powerlifting Union (CPU)',
+  'European Powerlifting Federation (EPF)',
+  'British Powerlifting (BP)',
+  'Powerlifting Australia (PA)',
+  'Other',
+]
 const EQUIPMENT_OPTS = ['raw','single-ply','multi-ply','wraps']
 const PHASES = [
   { id: 'accumulation',   label: 'Accumulation',   desc: 'High volume, lower intensity' },
@@ -152,13 +172,13 @@ function MeetFormModal({ open, onClose, existingMeet = null }) {
   const allGoals  = isDemo ? MOCK_GOALS : liveGoals
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState(existingMeet || {
-    name: '', federation: 'USAPL', location: '', meet_date: '',
-    registration_deadline: '', equipment: 'raw', notes: '',
+    name: '', federation: 'USA Powerlifting (USAPL)', location: '', meet_date: '',
+    registration_deadline: '', equipment: 'raw', status: 'planned', notes: '',
     linked_goal_ids: [], linked_block_ids: [],
   })
 
   useEffect(() => {
-    if (open) setForm(existingMeet || { name: '', federation: 'USAPL', location: '', meet_date: '', registration_deadline: '', equipment: 'raw', notes: '', linked_goal_ids: [], linked_block_ids: [] })
+    if (open) setForm(existingMeet || { name: '', federation: 'USA Powerlifting (USAPL)', location: '', meet_date: '', registration_deadline: '', equipment: 'raw', status: 'planned', notes: '', linked_goal_ids: [], linked_block_ids: [] })
   }, [open, existingMeet])
 
   const upd = (k, v) => setForm(f => ({ ...f, [k]: v }))
@@ -202,6 +222,16 @@ function MeetFormModal({ open, onClose, existingMeet = null }) {
               {EQUIPMENT_OPTS.map(e => <option key={e}>{e}</option>)}
             </select>
           </div>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-zinc-400 mb-1.5">Status</label>
+          <select value={form.status || 'planned'} onChange={e => upd('status', e.target.value)}
+            className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500">
+            <option value="planned">Planned — upcoming / registered</option>
+            <option value="active">Active — meet day / in progress</option>
+            <option value="completed">Completed — meet has passed</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
         </div>
         <div>
           <label className="block text-xs font-medium text-zinc-400 mb-1.5">Location</label>
@@ -809,7 +839,7 @@ function MeetDetailView({ meet, onBack, onEdit }) {
   const linkedBlocks = allBlocks.filter(tb => tb.linked_meet_id === meet.id)
   const linkedGoals  = allGoals.filter(g => meet.linked_goal_ids?.includes(g.id))
   const daysOut = Math.max(0, Math.round((new Date(meet.meet_date) - new Date()) / 86400000))
-  const isPast  = new Date(meet.meet_date) < new Date()
+  const isPast  = meet.status === 'completed' || meet.status === 'cancelled' || new Date(meet.meet_date) < new Date()
   const tabs = [
     { id:'overview', label:'Overview' },
     { id:'attempts', label:'Attempts & Warm-Up' },
@@ -1012,6 +1042,88 @@ function MeetHistory() {
   )
 }
 
+// ── Past Meets collapsible section ───────────────────────────────────────
+function PastMeetsSection({ pastMeets, allBlocks, allGoals, daysAgo, isDemo, onView, onEdit, onDelete }) {
+  const [expanded, setExpanded] = useState(false)
+  return (
+    <div className="mt-2">
+      <button
+        onClick={() => setExpanded(e => !e)}
+        className="w-full flex items-center justify-between px-4 py-2.5 bg-zinc-800/60 border border-zinc-700/60 rounded-xl text-xs font-semibold text-zinc-400 hover:text-zinc-200 hover:border-zinc-600 transition-colors">
+        <span className="flex items-center gap-2">
+          <Trophy className="w-3.5 h-3.5 text-zinc-500" />
+          Past Meets <span className="ml-1 px-1.5 py-0.5 bg-zinc-700 rounded-full text-zinc-400">{pastMeets.length}</span>
+        </span>
+        {expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+      </button>
+      {expanded && (
+        <div className="mt-3 space-y-3">
+          {pastMeets.map(meet => {
+            const ago = daysAgo(meet.meet_date)
+            const agoLabel = ago === 0 ? 'Today' : ago === 1 ? '1 day ago' : `${ago} days ago`
+            const lBlocks = allBlocks.filter(tb => tb.linked_meet_id === meet.id)
+            const lGoals  = allGoals.filter(g  => meet.linked_goal_ids?.includes(g.id))
+            const isCancelled = meet.status === 'cancelled'
+            return (
+              <Card key={meet.id} className="opacity-80 hover:opacity-100 hover:border-zinc-600 transition-all">
+                <CardBody>
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex items-start gap-4">
+                      <div className={cn('w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0', isCancelled ? 'bg-zinc-700/40 border border-zinc-700' : 'bg-zinc-700/60 border border-zinc-600/60')}>
+                        <Trophy className={cn('w-6 h-6', isCancelled ? 'text-zinc-600' : 'text-zinc-400')} />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-bold text-zinc-300">{meet.name}</h3>
+                        <div className="flex flex-wrap gap-3 mt-1.5 text-xs text-zinc-500">
+                          <span className="flex items-center gap-1"><Calendar className="w-3 h-3" />{formatDate(meet.meet_date)}</span>
+                          {meet.location && <span className="flex items-center gap-1"><MapPin className="w-3 h-3" />{meet.location}</span>}
+                        </div>
+                        <div className="flex items-center gap-2 mt-2 flex-wrap">
+                          {meet.federation && <Badge color="yellow">{meet.federation}</Badge>}
+                          {meet.equipment  && <Badge color="default">{meet.equipment}</Badge>}
+                          {isCancelled
+                            ? <span className="text-xs px-2 py-0.5 rounded-full border text-red-400 bg-red-400/10 border-red-400/20">cancelled</span>
+                            : <span className="text-xs px-2 py-0.5 rounded-full border text-green-300 bg-green-400/10 border-green-400/20">completed</span>}
+                          {lBlocks.length > 0 && (
+                            <span className="text-xs text-blue-300 bg-blue-400/10 border border-blue-400/20 px-2 py-0.5 rounded-full flex items-center gap-1">
+                              <Layers className="w-2.5 h-2.5" /> {lBlocks.length} blocks
+                            </span>
+                          )}
+                          {lGoals.length > 0 && (
+                            <span className="text-xs text-purple-300 bg-purple-400/10 border border-purple-400/20 px-2 py-0.5 rounded-full flex items-center gap-1">
+                              <Target className="w-2.5 h-2.5" /> {lGoals.length} goals
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <p className="text-xs text-zinc-500">{agoLabel}</p>
+                    </div>
+                  </div>
+                  <div className="mt-4 flex gap-2 flex-wrap">
+                    <Button size="xs" variant="outline" onClick={() => onView(meet)}>
+                      <ChevronRight className="w-3.5 h-3.5" /> View
+                    </Button>
+                    <Button size="xs" variant="ghost" onClick={() => onEdit(meet)}>
+                      <Edit2 className="w-3.5 h-3.5" /> Edit
+                    </Button>
+                    {!isDemo && (
+                      <Button size="xs" variant="ghost" className="text-red-400 hover:text-red-300" onClick={() => onDelete(meet.id)}>
+                        <Trash2 className="w-3.5 h-3.5" /> Delete
+                      </Button>
+                    )}
+                  </div>
+                </CardBody>
+              </Card>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Main MeetsPage ────────────────────────────────────────────────────────
 export function MeetsPage() {
   const [tab, setTab] = useState('upcoming')
@@ -1032,6 +1144,8 @@ export function MeetsPage() {
   const allGoals  = isDemo ? MOCK_GOALS  : liveGoals
 
   const daysOut = (ds) => Math.max(0, Math.round((new Date(ds) - new Date()) / 86400000))
+  const daysAgo = (ds) => Math.max(0, Math.round((new Date() - new Date(ds)) / 86400000))
+  const isMeetPast = (m) => m.status === 'completed' || m.status === 'cancelled' || new Date(m.meet_date) < new Date()
 
   // Keep selectedMeet in sync if it was updated
   useEffect(() => {
@@ -1104,13 +1218,13 @@ export function MeetsPage() {
           {allMeets.length === 0 ? (
             <div className="text-center py-16 text-zinc-600">
               <Trophy className="w-8 h-8 mx-auto mb-2 opacity-30" />
-              <p className="text-sm">No upcoming meets.</p>
+              <p className="text-sm">No meets yet.</p>
               <p className="text-xs mt-1">Add your first competition to get started.</p>
             </div>
           ) : (
-            <>
+          <>
               {(() => {
-                const upcomingMeets = allMeets.filter(m => new Date(m.meet_date) >= new Date())
+                const upcomingMeets = allMeets.filter(m => !isMeetPast(m))
                 const nextMeet = upcomingMeets[0]
                 if (!nextMeet) return null
                 const nextDate = new Date(nextMeet.meet_date)
@@ -1123,11 +1237,13 @@ export function MeetsPage() {
                   </div>
                 )
               })()}
-              {allMeets.map(meet => {
+
+              {/* Upcoming / active meets */}
+              {allMeets.filter(m => !isMeetPast(m)).map(meet => {
                 const d = daysOut(meet.meet_date)
-                const isPast = new Date(meet.meet_date) < new Date()
                 const lBlocks = allBlocks.filter(tb => tb.linked_meet_id === meet.id)
                 const lGoals  = allGoals.filter(g  => meet.linked_goal_ids?.includes(g.id))
+                const statusBadgeColor = meet.status === 'active' ? 'purple' : 'default'
                 return (
                   <Card key={meet.id} className="hover:border-zinc-600 transition-colors">
                     <CardBody>
@@ -1146,7 +1262,7 @@ export function MeetsPage() {
                             <div className="flex items-center gap-2 mt-2 flex-wrap">
                               {meet.federation && <Badge color="yellow">{meet.federation}</Badge>}
                               {meet.equipment  && <Badge color="default">{meet.equipment}</Badge>}
-                              {meet.status     && <Badge color={isPast ? 'green' : 'purple'}>{meet.status}</Badge>}
+                              {meet.status && meet.status !== 'planned' && <Badge color={statusBadgeColor}>{meet.status}</Badge>}
                               {lBlocks.length > 0 && (
                                 <span className="text-xs text-blue-300 bg-blue-400/10 border border-blue-400/20 px-2 py-0.5 rounded-full flex items-center gap-1">
                                   <Layers className="w-2.5 h-2.5" /> {lBlocks.length} blocks
@@ -1161,25 +1277,17 @@ export function MeetsPage() {
                           </div>
                         </div>
                         <div className="text-right flex-shrink-0">
-                          {isPast ? (
-                            <span className="text-xs text-zinc-500 bg-zinc-700/50 px-2 py-1 rounded-lg">Past</span>
-                          ) : (
-                            <>
-                              <p className="text-2xl font-black text-yellow-400">{d}</p>
-                              <p className="text-xs text-zinc-500">days out</p>
-                            </>
-                          )}
+                          <p className="text-2xl font-black text-yellow-400">{d}</p>
+                          <p className="text-xs text-zinc-500">days out</p>
                         </div>
                       </div>
                       <div className="mt-4 flex gap-2 flex-wrap">
                         <Button size="xs" onClick={() => setSelectedMeet(meet)}>
                           <ChevronRight className="w-3.5 h-3.5" /> View Meet
                         </Button>
-                        {!isPast && (
-                          <Button size="xs" variant="outline" onClick={() => { setSelectedMeet(meet) }}>
-                            <Target className="w-3.5 h-3.5" /> Plan Attempts
-                          </Button>
-                        )}
+                        <Button size="xs" variant="outline" onClick={() => { setSelectedMeet(meet) }}>
+                          <Target className="w-3.5 h-3.5" /> Plan Attempts
+                        </Button>
                         <Button size="xs" variant="ghost" onClick={() => setEditMeet(meet)}>
                           <Edit2 className="w-3.5 h-3.5" /> Edit
                         </Button>
@@ -1193,6 +1301,24 @@ export function MeetsPage() {
                   </Card>
                 )
               })}
+
+              {/* Past / completed meets */}
+              {(() => {
+                const pastMeets = allMeets.filter(m => isMeetPast(m))
+                if (pastMeets.length === 0) return null
+                return (
+                  <PastMeetsSection
+                    pastMeets={pastMeets}
+                    allBlocks={allBlocks}
+                    allGoals={allGoals}
+                    daysAgo={daysAgo}
+                    isDemo={isDemo}
+                    onView={setSelectedMeet}
+                    onEdit={setEditMeet}
+                    onDelete={handleDeleteMeet}
+                  />
+                )
+              })()}
             </>
           )}
         </div>
