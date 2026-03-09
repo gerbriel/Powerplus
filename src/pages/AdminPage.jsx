@@ -374,34 +374,37 @@ function PlatformAnalyticsTab() {
 
 // ─── Platform Users (Super Admin) ─────────────────────────────────────────────
 function PlatformUsersTab() {
-  const { platformUsers, orgs } = useOrgStore()
+  const { platformUsers } = useOrgStore()
   const [search, setSearch] = useState('')
   const [roleFilter, setRoleFilter] = useState('all')
   const [selectedUser, setSelectedUser] = useState(null)
 
-  // Build a map of userId → org memberships from the loaded orgs
-  const userOrgMap = useMemo(() => {
-    const map = {}
-    orgs.forEach((org) => {
-      ;(org.members || []).forEach((m) => {
-        if (!map[m.user_id]) map[m.user_id] = []
-        map[m.user_id].push({ orgName: org.name, orgId: org.id, org_role: m.org_role || m.role, joined_at: m.joined_at, is_demo: org.is_demo })
-      })
-    })
-    return map
-  }, [orgs])
+  // memberships come directly on each user from fetchAllPlatformUsers (Supabase join)
+  // or from the mock data seeding. Build a helper to resolve them uniformly.
+  const getMemberships = useCallback((u) => {
+    // Supabase path: u.memberships is already shaped correctly
+    if (Array.isArray(u.memberships)) return u.memberships
+    // Mock/demo path: no memberships array — return empty (userOrgMap is not used here anymore)
+    return []
+  }, [])
 
   // A user is "demo-only" if:
   //  (a) explicitly flagged is_demo: true (mock data), OR
-  //  (b) every org they belong to is a demo org (real Supabase test accounts)
-  // A user with NO org memberships is NOT automatically demo — they could be a real
-  // user who hasn't joined an org yet (e.g. Gabriel Rios).
+  //  (b) has at least one org and every org they belong to is a demo org
+  // A user with NO org memberships is NOT automatically demo.
   const isUserDemo = useCallback((u) => {
     if (u.is_demo === true) return true
-    const memberships = userOrgMap[u.id] || []
+    const memberships = getMemberships(u)
     if (memberships.length === 0) return false
     return memberships.every((m) => m.is_demo)
-  }, [userOrgMap])
+  }, [getMemberships])
+
+  // Primary display role: first non-demo org role → profile role field → null
+  const getPrimaryRole = useCallback((u) => {
+    const memberships = getMemberships(u)
+    const prodMembership = memberships.find((m) => !m.is_demo)
+    return prodMembership?.org_role || u.role || null
+  }, [getMemberships])
 
   // Production users: not demo-only
   const productionUsers = useMemo(
@@ -418,21 +421,21 @@ function PlatformUsersTab() {
   const filtered = productionUsers.filter((u) => {
     const matchSearch = (u.full_name || u.display_name || '').toLowerCase().includes(search.toLowerCase()) ||
       (u.email || '').toLowerCase().includes(search.toLowerCase())
-    const orgRole = userOrgMap[u.id]?.[0]?.org_role || u.role
-    const matchRole = roleFilter === 'all' || u.platform_role === roleFilter || orgRole === roleFilter
+    const primaryRole = getPrimaryRole(u)
+    const matchRole = roleFilter === 'all' || u.platform_role === roleFilter || primaryRole === roleFilter
     return matchSearch && matchRole
   })
 
   const athleteCount = useMemo(
-    () => productionUsers.filter((u) => (userOrgMap[u.id]?.[0]?.org_role || u.role) === 'athlete').length,
-    [productionUsers, userOrgMap]
+    () => productionUsers.filter((u) => getPrimaryRole(u) === 'athlete').length,
+    [productionUsers, getPrimaryRole]
   )
   const staffCount = useMemo(
     () => productionUsers.filter((u) => {
-      const r = userOrgMap[u.id]?.[0]?.org_role || u.role
+      const r = getPrimaryRole(u)
       return r !== 'athlete' && u.platform_role !== 'super_admin'
     }).length,
-    [productionUsers, userOrgMap]
+    [productionUsers, getPrimaryRole]
   )
   const superAdminCount = productionUsers.filter((u) => u.platform_role === 'super_admin').length
 
@@ -485,7 +488,8 @@ function PlatformUsersTab() {
               </thead>
               <tbody>
                 {filtered.map((u, i) => {
-                  const memberships = userOrgMap[u.id] || []
+                  const memberships = getMemberships(u)
+                  const primaryRole = getPrimaryRole(u)
                   return (
                     <tr key={u.id} className={`border-b border-zinc-800/60 last:border-0 hover:bg-zinc-800/30 cursor-pointer ${i % 2 === 0 ? 'bg-zinc-800/10' : ''}`} onClick={() => setSelectedUser({ ...u, memberships })}>
                       <td className="px-4 py-3">
@@ -499,7 +503,14 @@ function PlatformUsersTab() {
                       </td>
                       <td className="px-4 py-3">
                         {memberships.length === 0 ? (
-                          <span className="text-xs text-zinc-600">No org</span>
+                          <div className="flex items-center gap-1.5">
+                            {primaryRole ? (
+                              <Badge color={roleBadge(primaryRole)} className="capitalize text-xs">
+                                {primaryRole === 'head_coach' ? 'Head Coach' : primaryRole}
+                              </Badge>
+                            ) : null}
+                            <span className="text-xs text-zinc-600">No org yet</span>
+                          </div>
                         ) : (
                           <div className="space-y-1">
                             {memberships.map((m) => (
@@ -546,9 +557,9 @@ function PlatformUsersTab() {
                   {selectedUser.platform_role === 'super_admin'
                     ? <Badge color="red">Super Admin</Badge>
                     : (() => {
-                        // Prefer the role from their primary org membership; fall back to platform_role label
-                        const primaryOrgRole = selectedUser.memberships?.[0]?.org_role
-                        const displayRole = primaryOrgRole || (selectedUser.platform_role !== 'user' ? selectedUser.platform_role : null)
+                        // First non-demo org role → profile.role field → "Member"
+                        const primaryOrgRole = (selectedUser.memberships || []).find(m => !m.is_demo)?.org_role
+                        const displayRole = primaryOrgRole || selectedUser.role || null
                         if (!displayRole) return <Badge color="default">Member</Badge>
                         return (
                           <Badge color={roleBadge(displayRole)} className="capitalize">
@@ -573,18 +584,29 @@ function PlatformUsersTab() {
             <div>
               <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wide mb-2">Organization Memberships ({selectedUser.memberships.length})</p>
               {selectedUser.memberships.length === 0 ? (
-                <p className="text-sm text-zinc-600">No org memberships</p>
+                <div className="space-y-2">
+                  <p className="text-sm text-zinc-500">No org memberships yet</p>
+                  {selectedUser.role && selectedUser.role !== 'athlete' && (
+                    <p className="text-xs text-zinc-600">Profile role: <span className="text-zinc-400 capitalize">{selectedUser.role === 'head_coach' ? 'Head Coach' : selectedUser.role}</span> — user has not been added to an org</p>
+                  )}
+                </div>
               ) : (
                 <div className="space-y-2">
                   {selectedUser.memberships.map((m) => (
-                    <div key={m.orgId} className="flex items-center justify-between p-2.5 bg-zinc-800/40 rounded-lg">
-                      <div>
-                        <span className="text-sm text-zinc-200">{m.orgName}</span>
-                        {m.is_demo && <Badge color="default" className="ml-2 text-xs">Demo</Badge>}
+                    <div key={m.orgId} className="p-2.5 bg-zinc-800/40 rounded-lg space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium text-zinc-200">{m.orgName}</span>
+                          {m.is_demo && <Badge color="default" className="text-xs">Demo</Badge>}
+                        </div>
+                        <Badge color={roleBadge(m.org_role)} className="capitalize text-xs">
+                          {m.org_role === 'head_coach' ? 'Head Coach' : m.org_role}
+                        </Badge>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <Badge color={roleBadge(m.org_role)} className="capitalize text-xs">{m.org_role}</Badge>
-                        <span className="text-xs text-zinc-600">{m.joined_at}</span>
+                      <div className="flex items-center gap-3 text-xs text-zinc-500">
+                        {m.orgPlan && <span className="capitalize">{PLAN_META[m.orgPlan]?.label || m.orgPlan}</span>}
+                        {m.orgStatus && <span className={m.orgStatus === 'active' ? 'text-green-500' : 'text-red-400'}>{m.orgStatus}</span>}
+                        {m.joined_at && <span>Joined {m.joined_at}</span>}
                       </div>
                     </div>
                   ))}
