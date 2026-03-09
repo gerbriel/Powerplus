@@ -1678,6 +1678,19 @@ export async function deleteOrgInvitation(invitationId) {
 }
 
 /**
+ * Add or update a user's membership in an org (upsert).
+ * Used by the super-admin roster board drag-and-drop.
+ */
+export async function upsertOrgMember(orgId, userId, orgRole) {
+  if (!isSupabaseConfigured()) return false
+  const { error } = await supabase
+    .from('org_members')
+    .upsert({ org_id: orgId, user_id: userId, org_role: orgRole, status: 'active', joined_at: new Date().toISOString() }, { onConflict: 'org_id,user_id' })
+  if (error) { console.error('[supabase] upsertOrgMember:', error.message); return false }
+  return true
+}
+
+/**
  * Update the org_role of an existing org_member row.
  */
 export async function updateOrgMemberRole(orgId, userId, newRole) {
