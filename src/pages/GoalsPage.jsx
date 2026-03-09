@@ -11,7 +11,7 @@ import { Modal } from '../components/ui/Modal'
 import { StatCard } from '../components/ui/StatCard'
 import { MOCK_PAST_WORKOUTS, MOCK_TRAINING_BLOCKS, MOCK_MEETS } from '../lib/mockData'
 import { cn, kgToLbs, calcE1RM } from '../lib/utils'
-import { useGoalsStore, useSettingsStore, useAuthStore } from '../lib/store'
+import { useGoalsStore, useSettingsStore, useAuthStore, useMeetsStore } from '../lib/store'
 import { saveGoal, completeGoal, deleteGoal as dbDeleteGoal } from '../lib/db'
 
 const GOAL_TYPES = [
@@ -571,96 +571,136 @@ function GoalCard({ goal }) {
 // ── PR Board ─────────────────────────────────────────────────────────────────
 function PRBoard({ weightUnit, isDemo }) {
   const conv = (kg) => weightUnit === 'lbs' ? Math.round(kgToLbs(kg) / 2.5) * 2.5 : kg
+  const unconvert = (v) => weightUnit === 'lbs' ? v / 2.20462 : v
   const unit = weightUnit
+  const { profile } = useAuthStore()
+  const { updateProfile } = useAuthStore()
+  const { history: liveHistory } = useMeetsStore()
 
-  const DEMO_LIFTS = [
-    {
-      lift: 'Squat', color: 'text-purple-400', border: 'border-purple-500/30',
-      prs: [
-        { type: '1RM (Gym)', weight_kg: 210, date: 'Feb 28, 2026' },
-        { type: '1RM (Meet)', weight_kg: 195, date: 'Oct 2025' },
-        { type: '3RM', weight_kg: 200, date: 'Feb 21, 2026' },
-        { type: 'e1RM Top Set', weight_kg: 220, date: 'Feb 28, 2026' },
-      ],
-    },
-    {
-      lift: 'Bench', color: 'text-blue-400', border: 'border-blue-500/30',
-      prs: [
-        { type: '1RM (Gym)', weight_kg: 147, date: 'Feb 24, 2026' },
-        { type: '1RM (Meet)', weight_kg: 140, date: 'Oct 2025' },
-        { type: '3RM', weight_kg: 140, date: 'Feb 17, 2026' },
-        { type: 'e1RM Top Set', weight_kg: 155, date: 'Feb 24, 2026' },
-      ],
-    },
-    {
-      lift: 'Deadlift', color: 'text-orange-400', border: 'border-orange-500/30',
-      prs: [
-        { type: '1RM (Gym)', weight_kg: 272.5, date: 'Feb 25, 2026' },
-        { type: '1RM (Meet)', weight_kg: 267.5, date: 'Oct 2025' },
-        { type: '3RM', weight_kg: 260, date: 'Feb 18, 2026' },
-        { type: 'e1RM Top Set', weight_kg: 280, date: 'Feb 25, 2026' },
-      ],
-    },
+  // Build meet-derived 1RMs from history (best squat/bench/deadlift across all logged meets)
+  const DEMO_HISTORY = [
+    { squat_result: 195, bench_result: 140, deadlift_result: 267.5 },
+    { squat_result: 185, bench_result: 132.5, deadlift_result: 255 },
+  ]
+  const history = isDemo ? DEMO_HISTORY : liveHistory
+  const meetBest = {
+    squat:    Math.max(0, ...history.map(h => h.squat_result    || 0)) || null,
+    bench:    Math.max(0, ...history.map(h => h.bench_result    || 0)) || null,
+    deadlift: Math.max(0, ...history.map(h => h.deadlift_result || 0)) || null,
+  }
+
+  // prs_detail: { squat: { gym_1rm, rm3, e1rm }, bench: {…}, deadlift: {…} }
+  const DEMO_DETAIL = {
+    squat:    { gym_1rm: 210, rm3: 200, e1rm: 220 },
+    bench:    { gym_1rm: 147, rm3: 140, e1rm: 155 },
+    deadlift: { gym_1rm: 272.5, rm3: 260, e1rm: 280 },
+  }
+  const detail = isDemo ? DEMO_DETAIL : (profile?.prs_detail || {})
+
+  const [editing, setEditing] = useState(null) // { lift, type } e.g. { lift:'squat', type:'gym_1rm' }
+  const [editVal, setEditVal] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const PR_TYPES = [
+    { key: 'gym_1rm',  label: '1RM (Gym)',    src: 'detail' },
+    { key: 'meet_1rm', label: '1RM (Meet)',   src: 'meet'   },
+    { key: 'rm3',      label: '3RM',          src: 'detail' },
+    { key: 'e1rm',     label: 'e1RM Top Set', src: 'detail' },
   ]
 
-  const EMPTY_LIFTS = [
-    {
-      lift: 'Squat', color: 'text-purple-400', border: 'border-purple-500/30',
-      prs: [
-        { type: '1RM (Gym)', weight_kg: null, date: null },
-        { type: '1RM (Meet)', weight_kg: null, date: null },
-        { type: '3RM', weight_kg: null, date: null },
-        { type: 'e1RM Top Set', weight_kg: null, date: null },
-      ],
-    },
-    {
-      lift: 'Bench', color: 'text-blue-400', border: 'border-blue-500/30',
-      prs: [
-        { type: '1RM (Gym)', weight_kg: null, date: null },
-        { type: '1RM (Meet)', weight_kg: null, date: null },
-        { type: '3RM', weight_kg: null, date: null },
-        { type: 'e1RM Top Set', weight_kg: null, date: null },
-      ],
-    },
-    {
-      lift: 'Deadlift', color: 'text-orange-400', border: 'border-orange-500/30',
-      prs: [
-        { type: '1RM (Gym)', weight_kg: null, date: null },
-        { type: '1RM (Meet)', weight_kg: null, date: null },
-        { type: '3RM', weight_kg: null, date: null },
-        { type: 'e1RM Top Set', weight_kg: null, date: null },
-      ],
-    },
-  ]
+  const getValue = (lift, key, src) => {
+    if (src === 'meet') return meetBest[lift]
+    return detail[lift]?.[key] ?? null
+  }
 
-  const lifts = isDemo ? DEMO_LIFTS : EMPTY_LIFTS
+  const startEdit = (lift, key) => {
+    const cur = getValue(lift, key, 'detail')
+    setEditing({ lift, key })
+    setEditVal(cur != null ? String(conv(cur)) : '')
+  }
+
+  const cancelEdit = () => { setEditing(null); setEditVal('') }
+
+  const commitEdit = async () => {
+    if (!editing || isDemo) { cancelEdit(); return }
+    const kg = editVal !== '' ? unconvert(Number(editVal)) : null
+    const newDetail = {
+      ...detail,
+      [editing.lift]: { ...(detail[editing.lift] || {}), [editing.key]: kg },
+    }
+    setSaving(true)
+    await updateProfile({ prs_detail: newDetail })
+    setSaving(false)
+    cancelEdit()
+  }
+
+  const LIFT_META = [
+    { lift: 'squat',    color: 'text-purple-400', border: 'border-purple-500/30', icon: 'text-purple-400' },
+    { lift: 'bench',    color: 'text-blue-400',   border: 'border-blue-500/30',   icon: 'text-blue-400'   },
+    { lift: 'deadlift', color: 'text-orange-400', border: 'border-orange-500/30', icon: 'text-orange-400' },
+  ]
 
   return (
     <div>
       <h2 className="text-sm font-semibold text-zinc-400 mb-3">Personal Records</h2>
       <div className="grid md:grid-cols-3 gap-4">
-        {lifts.map((lift) => (
-          <Card key={lift.lift} className={`border ${lift.border}`}>
+        {LIFT_META.map(({ lift, color, border }) => (
+          <Card key={lift} className={`border ${border}`}>
             <div className="flex items-center justify-between mb-3">
-              <h3 className={cn('text-base font-black', lift.color)}>{lift.lift}</h3>
-              <Trophy className={cn('w-4 h-4', lift.color)} />
+              <h3 className={cn('text-base font-black capitalize', color)}>{lift}</h3>
+              <Trophy className={cn('w-4 h-4', color)} />
             </div>
-            <div className="space-y-2">
-              {lift.prs.map((pr) => (
-                <div key={pr.type} className="flex items-center justify-between py-1.5 border-b border-zinc-800 last:border-0">
-                  <span className="text-xs text-zinc-400">{pr.type}</span>
-                  <div className="text-right">
-                    {pr.weight_kg != null ? (
-                      <>
-                        <span className={cn('text-sm font-bold', lift.color)}>{conv(pr.weight_kg)} {unit}</span>
-                        <p className="text-xs text-zinc-600">{pr.date}</p>
-                      </>
+            <div className="space-y-1">
+              {PR_TYPES.map(({ key, label, src }) => {
+                const val = getValue(lift, key, src)
+                const isEditing = editing?.lift === lift && editing?.key === key
+                const isMeet = src === 'meet'
+                return (
+                  <div key={key} className="flex items-center justify-between py-1.5 border-b border-zinc-800 last:border-0 gap-2">
+                    <span className="text-xs text-zinc-400 flex-shrink-0">{label}</span>
+                    {isEditing ? (
+                      <div className="flex items-center gap-1.5 flex-1 justify-end">
+                        <input
+                          autoFocus
+                          type="number" step="0.5" min="0" max="9999"
+                          value={editVal}
+                          onChange={e => setEditVal(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') commitEdit(); if (e.key === 'Escape') cancelEdit() }}
+                          className="w-20 bg-zinc-700 border border-zinc-600 rounded px-2 py-1 text-xs text-zinc-100 text-right focus:outline-none focus:ring-1 focus:ring-purple-500"
+                          placeholder="kg"
+                        />
+                        <span className="text-xs text-zinc-500">{unit}</span>
+                        <button onClick={commitEdit} disabled={saving} className="text-green-400 hover:text-green-300 text-xs font-bold px-1">
+                          {saving ? '…' : '✓'}
+                        </button>
+                        <button onClick={cancelEdit} className="text-zinc-500 hover:text-zinc-300 text-xs px-1">✕</button>
+                      </div>
                     ) : (
-                      <span className="text-sm font-bold text-zinc-600">—</span>
+                      <div className="flex items-center gap-2">
+                        <div className="text-right">
+                          {val != null ? (
+                            <span className={cn('text-sm font-bold', color)}>{conv(val)} {unit}</span>
+                          ) : (
+                            <span className="text-sm font-bold text-zinc-600">—</span>
+                          )}
+                        </div>
+                        {!isMeet && !isDemo && (
+                          <button
+                            onClick={() => startEdit(lift, key)}
+                            className="text-zinc-600 hover:text-zinc-300 transition-colors"
+                            title={`Edit ${label}`}
+                          >
+                            <Edit2 className="w-3 h-3" />
+                          </button>
+                        )}
+                        {isMeet && (
+                          <span className="text-[10px] text-zinc-600 italic">auto</span>
+                        )}
+                      </div>
                     )}
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           </Card>
         ))}

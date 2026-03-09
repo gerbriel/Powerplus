@@ -418,11 +418,16 @@ function AddBlockModal({ open, onClose, meetFilter = null, existingBlock = null 
 // ── Attempt Planner ──────────────────────────────────────────────────────
 function AttemptPlanner({ meet }) {
   const { weightUnit } = useSettingsStore()
-  const { isDemo } = useAuthStore()
+  const { isDemo, profile } = useAuthStore()
+  const { updateProfile } = useAuthStore()
   const { updateMeet } = useMeetsStore()
   const toUnit = (kg) => weightUnit === 'lbs' ? Math.round(kgToLbs(kg) / 2.5) * 2.5 : kg
+  const toKg = (v) => weightUnit === 'lbs' ? v / 2.20462 : v
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [newPRs, setNewPRs] = useState([]) // lifted lift names that broke PRs
+
+  // Planned attempt weights
   const [attempts, setAttempts] = useState(() => {
     const base = meet?.attempts || { squat:{1:192.5,2:202.5,3:210}, bench:{1:140,2:147.5,3:152.5}, deadlift:{1:260,2:272.5,3:282.5} }
     if (weightUnit === 'lbs') {
@@ -433,17 +438,85 @@ function AttemptPlanner({ meet }) {
     return base
   })
 
+  // Result state per attempt: 'pending' | 'made' | 'miss'
+  const [results, setResults] = useState(() =>
+    meet?.attempt_results || { squat:{1:'pending',2:'pending',3:'pending'}, bench:{1:'pending',2:'pending',3:'pending'}, deadlift:{1:'pending',2:'pending',3:'pending'} }
+  )
+
+  // Actual weight lifted (may differ from planned if called a different weight)
+  const [actuals, setActuals] = useState(() =>
+    meet?.attempt_actuals || { squat:{}, bench:{}, deadlift:{} }
+  )
+
   const unit = weightUnit
   const step = unit === 'lbs' ? 5 : 2.5
-  const total3 = (attempts.squat[3]||0) + (attempts.bench[3]||0) + (attempts.deadlift[3]||0)
-  const totalKg = unit === 'lbs' ? Math.round(total3/2.20462) : total3
+
+  const cycleResult = (lift, att) => {
+    const cur = results[lift][att]
+    const next = cur === 'pending' ? 'made' : cur === 'made' ? 'miss' : 'pending'
+    setResults(p => ({ ...p, [lift]: { ...p[lift], [att]: next } }))
+    // When marking as made, seed actual = planned if not already set
+    if (next === 'made' && !actuals[lift][att]) {
+      setActuals(p => ({ ...p, [lift]: { ...p[lift], [att]: attempts[lift][att] } }))
+    }
+  }
+
+  // Best made attempt per lift (highest attempt number that was made)
+  const bestMade = (lift) => {
+    for (let a = 3; a >= 1; a--) {
+      if (results[lift][a] === 'made') {
+        const w = actuals[lift][a] ?? attempts[lift][a]
+        return w
+      }
+    }
+    return null
+  }
+
+  const sqBest = bestMade('squat')
+  const beBest = bestMade('bench')
+  const dlBest = bestMade('deadlift')
+  const actualTotal = (sqBest || 0) + (beBest || 0) + (dlBest || 0)
+  const projTotal3  = (attempts.squat[3]||0) + (attempts.bench[3]||0) + (attempts.deadlift[3]||0)
+  const displayTotal = actualTotal > 0 ? actualTotal : projTotal3
+  const isLive = Object.values(results).some(r => Object.values(r).some(v => v !== 'pending'))
+
+  const totalKg = unit === 'lbs' ? Math.round(toKg(displayTotal)) : displayTotal
   const liftColors = { squat:'text-purple-400', bench:'text-blue-400', deadlift:'text-orange-400' }
+  const resultStyle = {
+    pending: 'bg-zinc-800/60 border-zinc-700/40 text-zinc-500',
+    made:    'bg-green-500/15 border-green-500/40 text-green-400',
+    miss:    'bg-red-500/15 border-red-500/30 text-red-400 line-through opacity-70',
+  }
+  const resultIcon = { pending: null, made: '✓', miss: '✕' }
 
   const handleSave = async () => {
     if (!meet?.id || meet.id.startsWith('meet-')) return
     setSaving(true)
-    const saved = await saveMeetAttempts(meet.id, attempts)
-    if (saved) updateMeet(meet.id, { attempts: saved.attempts })
+    const saved = await saveMeetAttempts(meet.id, attempts, results, actuals)
+    if (saved) updateMeet(meet.id, { attempts: saved.attempts, attempt_results: saved.attempt_results, attempt_actuals: saved.attempt_actuals })
+
+    // Check if any best-made lift beats current PRs, auto-update profile
+    if (!isDemo && profile) {
+      const detail = profile?.prs_detail || {}
+      const newDetail = { ...detail }
+      const broken = []
+      const liftMap = { squat: sqBest, bench: beBest, deadlift: dlBest }
+      Object.entries(liftMap).forEach(([lift, best]) => {
+        if (!best) return
+        const bestKg = toKg(best)
+        const curGym = detail[lift]?.gym_1rm ?? 0
+        if (bestKg > curGym) {
+          newDetail[lift] = { ...(detail[lift] || {}), gym_1rm: bestKg }
+          broken.push(lift.charAt(0).toUpperCase() + lift.slice(1))
+        }
+      })
+      if (broken.length > 0) {
+        await updateProfile({ prs_detail: newDetail })
+        setNewPRs(broken)
+        setTimeout(() => setNewPRs([]), 4000)
+      }
+    }
+
     setSaving(false)
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
@@ -456,6 +529,14 @@ function AttemptPlanner({ meet }) {
 
   return (
     <div className="space-y-4">
+      {newPRs.length > 0 && (
+        <div className="p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-xl flex items-center gap-2">
+          <Trophy className="w-4 h-4 text-yellow-400 flex-shrink-0" />
+          <p className="text-sm font-semibold text-yellow-300">
+            New PR{newPRs.length > 1 ? 's' : ''}! {newPRs.join(', ')} 1RM updated in your profile.
+          </p>
+        </div>
+      )}
       {linkedGoals.length > 0 && (
         <div className="p-3 bg-yellow-500/5 border border-yellow-500/20 rounded-xl space-y-1.5">
           <p className="text-xs font-semibold text-yellow-300 flex items-center gap-1.5"><Target className="w-3.5 h-3.5" /> Linked Goals</p>
@@ -470,38 +551,79 @@ function AttemptPlanner({ meet }) {
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle>{meet?.name || 'Meet'} — Attempt Selection</CardTitle>
-            <span className="text-xs text-zinc-500">{unit}</span>
+            <div className="flex items-center gap-2">
+              {isLive && (
+                <span className="text-xs bg-green-500/15 text-green-400 border border-green-500/25 px-2 py-0.5 rounded-full">Live</span>
+              )}
+              <span className="text-xs text-zinc-500">{unit}</span>
+            </div>
           </div>
-          <CardSubtitle>Opener = 90–93%, 2nd = 96–99%, 3rd = peak / competition best.</CardSubtitle>
+          <CardSubtitle>
+            {isLive
+              ? 'Tap each attempt to mark Made (✓) or Miss (✕). Actual weight auto-filled on made.'
+              : 'Opener = 90–93%, 2nd = 96–99%, 3rd = peak / competition best. Tap cells during meet to track.'}
+          </CardSubtitle>
         </CardHeader>
         {['squat','bench','deadlift'].map(lift => (
           <div key={lift} className="mb-6">
-            <h3 className={cn('text-sm font-bold capitalize mb-3 flex items-center gap-2', liftColors[lift])}>
-              <span className={cn('w-2 h-2 rounded-full', lift==='squat'?'bg-purple-400':lift==='bench'?'bg-blue-400':'bg-orange-400')} />
-              {lift}
-            </h3>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className={cn('text-sm font-bold capitalize flex items-center gap-2', liftColors[lift])}>
+                <span className={cn('w-2 h-2 rounded-full', lift==='squat'?'bg-purple-400':lift==='bench'?'bg-blue-400':'bg-orange-400')} />
+                {lift}
+              </h3>
+              {bestMade(lift) != null && (
+                <span className={cn('text-xs font-bold', liftColors[lift])}>
+                  Best: {bestMade(lift)} {unit}
+                </span>
+              )}
+            </div>
             <div className="grid grid-cols-3 gap-3">
-              {[1,2,3].map(att => (
-                <div key={att}>
-                  <label className="block text-xs font-medium text-zinc-500 mb-1.5">
-                    {att===1?'Opener':att===2?'2nd Attempt':'3rd / Peak'}
-                  </label>
-                  <div className="relative">
-                    <input type="number" step={step} value={attempts[lift][att]}
-                      onChange={e => setAttempts(p => ({...p, [lift]:{...p[lift],[att]:Number(e.target.value)}}))}
-                      className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500 text-center font-bold pr-10" />
-                    <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-zinc-500">{unit}</span>
+              {[1,2,3].map(att => {
+                const res = results[lift][att]
+                const actual = actuals[lift][att]
+                return (
+                  <div key={att} className="space-y-1.5">
+                    <label className="block text-xs font-medium text-zinc-500">
+                      {att===1?'Opener':att===2?'2nd':'3rd / Peak'}
+                    </label>
+                    {/* Planned weight */}
+                    <div className="relative">
+                      <input type="number" step={step} value={attempts[lift][att]}
+                        onChange={e => setAttempts(p => ({...p, [lift]:{...p[lift],[att]:Number(e.target.value)}}))}
+                        className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500 text-center font-bold pr-10" />
+                      <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-zinc-500">{unit}</span>
+                    </div>
+                    {/* Pass/Miss toggle */}
+                    <button
+                      onClick={() => cycleResult(lift, att)}
+                      className={cn('w-full py-1.5 rounded-lg border text-xs font-bold transition-all', resultStyle[res])}
+                    >
+                      {res === 'pending' ? 'tap to mark' : `${resultIcon[res]} ${res.toUpperCase()}`}
+                    </button>
+                    {/* Actual weight on made */}
+                    {res === 'made' && (
+                      <div className="relative">
+                        <input
+                          type="number" step={step}
+                          value={actual ?? attempts[lift][att]}
+                          onChange={e => setActuals(p => ({...p, [lift]:{...p[lift],[att]:Number(e.target.value)}}))}
+                          className="w-full bg-green-500/10 border border-green-500/30 rounded-lg px-2 py-1.5 text-xs text-green-300 text-center font-bold focus:outline-none focus:ring-1 focus:ring-green-500 pr-8"
+                        />
+                        <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-green-700">{unit}</span>
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           </div>
         ))}
         <div className="pt-4 border-t border-zinc-800 flex items-center justify-between">
           <div>
-            <p className="text-xs text-zinc-400">Projected Total (3rd attempts)</p>
-            <p className="text-2xl font-black text-yellow-400">{total3} {unit}</p>
+            <p className="text-xs text-zinc-400">{isLive ? 'Actual Total' : 'Projected Total (3rd attempts)'}</p>
+            <p className="text-2xl font-black text-yellow-400">{displayTotal} {unit}</p>
             {unit==='lbs' && <p className="text-xs text-zinc-500">{totalKg} kg</p>}
+            {isLive && actualTotal === 0 && <p className="text-xs text-zinc-600">mark attempts above to calculate</p>}
           </div>
           <div className="flex flex-col items-end gap-2">
             <div className="text-right">
@@ -511,7 +633,7 @@ function AttemptPlanner({ meet }) {
             {!meet?.id?.startsWith('meet-') && (
               <Button size="xs" onClick={handleSave} disabled={saving}>
                 {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : saved ? <CheckCircle2 className="w-3.5 h-3.5 text-green-400" /> : <Save className="w-3.5 h-3.5" />}
-                {saved ? 'Saved!' : 'Save Attempts'}
+                {saved ? 'Saved!' : 'Save'}
               </Button>
             )}
           </div>
