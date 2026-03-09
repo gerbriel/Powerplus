@@ -22,7 +22,7 @@ import { StatCard } from '../components/ui/StatCard'
 import { Tabs } from '../components/ui/Tabs'
 import { Modal } from '../components/ui/Modal'
 import { MOCK_ATHLETES, MOCK_USERS, MOCK_ORGS, MOCK_TRAINING_BLOCKS, PLAN_META, DEFAULT_INTAKE_FIELDS } from '../lib/mockData'
-import { useAuthStore, useOrgStore, useGoalsStore, useTrainingStore } from '../lib/store'
+import { useAuthStore, useOrgStore, useGoalsStore, useTrainingStore, useAnalyticsStore } from '../lib/store'
 import { cn } from '../lib/utils'
 import { fetchOrgJoinRequests, approveJoinRequest, denyJoinRequest } from '../lib/supabase'
 
@@ -2715,32 +2715,53 @@ function OrgFormModal({ open, onClose, initial = null, onSave }) {
 
 // ─── Head Coach: Overview (interconnected data) ───────────────────────────────
 function OverviewTab() {
-  const { profile, activeOrgId, isDemo } = useAuthStore()
+  const { profile, activeOrgId } = useAuthStore()
   const { orgs } = useOrgStore()
   const { goals } = useGoalsStore()
   const { blocks } = useTrainingStore()
+  const { team, teamLoading, loadTeamAnalytics } = useAnalyticsStore()
+
   const org = orgs.find((o) => o.id === (activeOrgId || profile?.org_id))
-  const athletes = org ? org.members.filter((m) => m.role === 'athlete') : []
-  const staff = org ? org.members.filter((m) => m.role !== 'athlete') : []
+  const orgId = org?.id
+
+  useEffect(() => {
+    if (orgId) loadTeamAnalytics(orgId)
+  }, [orgId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const athletes = org ? org.members.filter((m) => (m.org_role || m.role) === 'athlete') : []
+  const staff    = org ? org.members.filter((m) => (m.org_role || m.role) !== 'athlete') : []
   const completedGoals = goals.filter((g) => g.completed).length
-  const activeBlocks = blocks.filter((b) => b.status === 'active').length
-  const mockAthletes = isDemo ? MOCK_ATHLETES : []
-  const flaggedAthletes = mockAthletes.filter((a) => a.flags?.length > 0).length
+  const activeBlocks   = blocks.filter((b) => b.status === 'active').length
+
+  const avgAdherence   = team?.avgTeamAdherence  != null ? `${team.avgTeamAdherence}%` : '—'
+  const totalSessions  = team?.totalSessions      != null ? team.totalSessions          : '—'
+  const nutScore       = team?.teamNutScore       != null ? `${team.teamNutScore}%`     : '—'
+  const flaggedCount   = team?.flagged?.length    ?? 0
+  const activeInjuries = team?.activeInjuries     ?? 0
+  const latestWell     = team?.teamWellnessTrend?.slice(-1)[0]
+  const avgSleep       = latestWell?.sleep  != null ? `${latestWell.sleep}h`        : '—'
+  const avgStress      = latestWell?.stress != null ? `${latestWell.stress} / 10`   : '—'
+  const checkInRate    = team?.teamWellnessTrend?.length
+    ? `${Math.round((team.teamWellnessTrend.length / 30) * 100)}%` : '—'
 
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <StatCard label="Total Athletes" value={athletes.length} trend="+3 this month" trendUp icon={Users} color="purple" />
+        <StatCard label="Total Athletes" value={athletes.length} icon={Users} color="purple" />
         <StatCard label="Active Staff" value={staff.length} icon={Shield} color="blue" />
         <StatCard label="Goals Completed" value={`${completedGoals}/${goals.length}`} icon={Target} color="green" />
-        <StatCard label="Pain Flags" value={flaggedAthletes} icon={AlertTriangle} color="yellow" />
+        <StatCard label="Pain Flags" value={flaggedCount} icon={AlertTriangle} color={flaggedCount > 0 ? 'red' : 'green'} />
       </div>
 
       <div className="grid md:grid-cols-3 gap-4">
         <Card>
           <CardHeader><CardTitle className="flex items-center gap-2"><Dumbbell className="w-4 h-4 text-purple-400" /> Training</CardTitle></CardHeader>
           <CardBody className="space-y-2">
-            {[['Active blocks', activeBlocks], ['Avg adherence', '87%'], ['Sessions this week', 42], ['Avg RPE', '7.8']].map(([k, v]) => (
+            {[
+              ['Active blocks',      teamLoading ? '…' : activeBlocks],
+              ['Avg adherence',      teamLoading ? '…' : avgAdherence],
+              ['Sessions (90 days)', teamLoading ? '…' : totalSessions],
+            ].map(([k, v]) => (
               <div key={k} className="flex items-center justify-between">
                 <span className="text-xs text-zinc-400">{k}</span>
                 <span className="text-sm font-semibold text-zinc-200">{v}</span>
@@ -2751,7 +2772,10 @@ function OverviewTab() {
         <Card>
           <CardHeader><CardTitle className="flex items-center gap-2"><UtensilsCrossed className="w-4 h-4 text-green-400" /> Nutrition</CardTitle></CardHeader>
           <CardBody className="space-y-2">
-            {[['Avg compliance', '84%'], ['Plans active', athletes.length], ['Shopping budgets set', 18], ['Custom recipes', 6]].map(([k, v]) => (
+            {[
+              ['Avg compliance', teamLoading ? '…' : nutScore],
+              ['Athletes',       athletes.length],
+            ].map(([k, v]) => (
               <div key={k} className="flex items-center justify-between">
                 <span className="text-xs text-zinc-400">{k}</span>
                 <span className="text-sm font-semibold text-zinc-200">{v}</span>
@@ -2762,10 +2786,15 @@ function OverviewTab() {
         <Card>
           <CardHeader><CardTitle className="flex items-center gap-2"><Activity className="w-4 h-4 text-blue-400" /> Wellness</CardTitle></CardHeader>
           <CardBody className="space-y-2">
-            {[['Avg sleep', '7.2h'], ['Check-in rate', '91%'], ['Pain flags open', flaggedAthletes], ['Avg stress', '4.8 / 10']].map(([k, v]) => (
+            {[
+              ['Avg sleep',       teamLoading ? '…' : avgSleep],
+              ['Check-in rate',   teamLoading ? '…' : checkInRate],
+              ['Active injuries', teamLoading ? '…' : activeInjuries],
+              ['Avg stress',      teamLoading ? '…' : avgStress],
+            ].map(([k, v]) => (
               <div key={k} className="flex items-center justify-between">
                 <span className="text-xs text-zinc-400">{k}</span>
-                <span className={`text-sm font-semibold ${k === 'Pain flags open' && flaggedAthletes > 0 ? 'text-red-400' : 'text-zinc-200'}`}>{v}</span>
+                <span className={`text-sm font-semibold ${k === 'Active injuries' && activeInjuries > 0 ? 'text-red-400' : 'text-zinc-200'}`}>{v}</span>
               </div>
             ))}
           </CardBody>
