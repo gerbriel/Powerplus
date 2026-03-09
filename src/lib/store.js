@@ -577,8 +577,11 @@ export const useOrgStore = create((set, get) => ({
         return o
       }),
     }))
-    if (fromOrgId) await removeOrgMember(fromOrgId, userId)
-    await upsertOrgMember(toOrgId, userId, role)
+    if (fromOrgId) {
+      await removeOrgMember(fromOrgId, userId)
+    }
+    const upsertOk = await upsertOrgMember(toOrgId, userId, role)
+    return upsertOk
   },
 
   // Super-admin: change a member's role within their current org
