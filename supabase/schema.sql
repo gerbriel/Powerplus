@@ -75,6 +75,12 @@ alter table profiles add column if not exists bio text;
 alter table profiles add column if not exists timezone text default 'UTC';
 alter table profiles add column if not exists self_coach boolean default false;
 alter table profiles add column if not exists onboarding_complete boolean default false;
+alter table profiles add column if not exists is_demo boolean default false;
+
+-- Mark demo test accounts — these are internal/testing profiles that should never
+-- appear in production platform metrics. Safe to re-run (idempotent).
+update profiles set is_demo = true where email ilike '%@powerplus.app'
+  or email in ('sam.price@email.com', 'devon@email.com', 'mike@powerplus.com', 'assistant@powerplus.app');
 
 -- ── organizations ─────────────────────────────────────────────
 create table if not exists organizations (
