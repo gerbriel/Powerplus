@@ -1744,7 +1744,7 @@ export async function fetchOrgMembers(orgId) {
   if (!isSupabaseConfigured()) return []
   const { data, error } = await supabase
     .from('org_members')
-    .select('*, profiles(id, full_name, display_name, email, avatar_url, role)')
+    .select('*, profiles!org_members_user_id_fkey(id, full_name, display_name, email, avatar_url, role)')
     .eq('org_id', orgId)
   if (error) { console.error('[supabase] fetchOrgMembers:', error.message); return [] }
   return (data || []).map((m) => ({
@@ -1795,7 +1795,7 @@ export async function fetchAllOrgsForSuperAdmin() {
 
   // Fetch members, invitations, and staff assignments in parallel
   const [{ data: members }, { data: invitations }, { data: assignments }] = await Promise.all([
-    supabase.from('org_members').select('*, profiles(id, full_name, display_name, email, avatar_url, role)'),
+    supabase.from('org_members').select('*, profiles!org_members_user_id_fkey(id, full_name, display_name, email, avatar_url, role)'),
     supabase.from('org_invitations').select('*'),
     supabase.from('staff_athlete_assignments').select('org_id, staff_id, athlete_id, active').eq('active', true),
   ])
