@@ -1943,18 +1943,43 @@ function OrgDetailModal({ org, onClose, onEdit, onToggleStatus, onDelete }) {
             {(org.members || []).length === 0 ? (
               <p className="text-sm text-zinc-600 text-center py-3">No members yet</p>
             ) : (
-              <div className="space-y-1.5">
-                {(org.members || []).map((m) => (
-                  <div key={m.user_id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-zinc-800/30">
-                    <Avatar name={m.full_name} size="xs" />
-                    <div className="flex-1 min-w-0">
-                      <span className="text-sm text-zinc-200">{m.full_name || 'Unknown'}</span>
-                      <span className="text-xs text-zinc-500 ml-2">{m.email}</span>
+              <div className="space-y-4">
+                {[
+                  { label: 'Head Coach', roles: ['head_coach'], color: 'purple' },
+                  { label: 'Staff', roles: ['coach', 'nutritionist', 'assistant_coach'], color: 'green' },
+                  { label: 'Athletes', roles: ['athlete'], color: 'blue' },
+                ].map(({ label, roles, color }) => {
+                  const group = (org.members || []).filter((m) => roles.includes(m.org_role || m.role))
+                  if (group.length === 0) return null
+                  return (
+                    <div key={label}>
+                      <div className="flex items-center gap-2 mb-2">
+                        <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">{label}</p>
+                        <span className="text-xs text-zinc-600">({group.length})</span>
+                      </div>
+                      <div className="space-y-1.5">
+                        {group.map((m) => {
+                          const displayRole = m.org_role || m.role
+                          return (
+                            <div key={m.user_id} className="flex items-center gap-3 p-2.5 rounded-lg bg-zinc-800/30 hover:bg-zinc-800/50">
+                              <Avatar name={m.full_name} size="xs" />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium text-zinc-200 truncate">{m.full_name || 'Unknown'}</p>
+                                <p className="text-xs text-zinc-500 truncate">{m.email}</p>
+                              </div>
+                              <div className="flex items-center gap-2 flex-shrink-0">
+                                <Badge color={roleBadge(displayRole)} className="capitalize text-xs">
+                                  {displayRole === 'head_coach' ? 'Head Coach' : displayRole}
+                                </Badge>
+                                {m.joined_at && <span className="text-xs text-zinc-600">{new Date(m.joined_at).toLocaleDateString()}</span>}
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
                     </div>
-                    <Badge color={roleBadge(m.org_role || m.role)} className="capitalize text-xs">{m.org_role || m.role}</Badge>
-                    <span className="text-xs text-zinc-600">{m.joined_at ? new Date(m.joined_at).toLocaleDateString() : ''}</span>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </div>
@@ -2063,6 +2088,7 @@ function SuperAdminOrgsTab() {
           </Card>
         )}
         {filtered.map((org) => {
+          const headCoach = (org.members || []).find((m) => (m.org_role || m.role) === 'head_coach')
           const athletes = (org.members || []).filter((m) => (m.org_role || m.role) === 'athlete').length
           const staff = (org.members || []).filter((m) => (m.org_role || m.role) !== 'athlete').length
           const pendingInvites = (org.invitations || []).filter((i) => i.status === 'pending').length
@@ -2083,6 +2109,13 @@ function SuperAdminOrgsTab() {
                     {org.is_demo && <Badge color="default" className="text-xs">Demo</Badge>}
                   </div>
                   <p className="text-xs text-zinc-500 mt-0.5">/{org.slug} · {org.federation || 'No federation'} · {org.address || 'No location'}</p>
+                  {/* Head coach callout */}
+                  <p className="text-xs mt-0.5">
+                    <span className="text-zinc-600">Head Coach: </span>
+                    {headCoach
+                      ? <span className="text-purple-400 font-medium">{headCoach.full_name || headCoach.email}</span>
+                      : <span className="text-zinc-600 italic">Unassigned</span>}
+                  </p>
                   <div className="flex items-center gap-4 mt-1.5 text-xs text-zinc-400">
                     <span className="flex items-center gap-1"><Users className="w-3 h-3" />{athletes} athletes</span>
                     <span className="flex items-center gap-1"><Shield className="w-3 h-3" />{staff} staff</span>
