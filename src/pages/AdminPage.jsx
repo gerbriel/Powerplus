@@ -3420,7 +3420,7 @@ function MeetAthleteRoster({ meet, orgId, onViewAthlete, onBack }) {
 }
 
 // ── Main OrgMeetsTab ──────────────────────────────────────────────────────────
-function OrgMeetsTab() {
+export function OrgMeetsTab() {
   const { profile, activeOrgId, isDemo } = useAuthStore()
   const { orgs } = useOrgStore()
   const orgId = activeOrgId || profile?.org_id
