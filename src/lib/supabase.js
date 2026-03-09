@@ -1682,7 +1682,7 @@ export async function deleteOrgInvitation(invitationId) {
  * Used by the super-admin roster board drag-and-drop.
  */
 export async function upsertOrgMember(orgId, userId, orgRole) {
-  if (!isSupabaseConfigured()) return false
+  if (!isSupabaseConfigured()) { console.warn('[supabase] upsertOrgMember: Supabase not configured'); return false }
   const { error } = await supabase
     .from('org_members')
     .upsert(
@@ -1726,7 +1726,7 @@ export async function updateOrgMemberRole(orgId, userId, newRole) {
  * Remove a member from an org (delete the org_members row).
  */
 export async function removeOrgMember(orgId, userId) {
-  if (!isSupabaseConfigured()) return false
+  if (!isSupabaseConfigured()) { console.warn('[supabase] removeOrgMember: Supabase not configured'); return false }
   const { error } = await supabase
     .from('org_members')
     .delete()
