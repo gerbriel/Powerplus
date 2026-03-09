@@ -1874,3 +1874,60 @@ export function subscribeToOrgResources(orgId, cb) {
     .subscribe()
   return () => supabase.removeChannel(channel)
 }
+
+// ─── Role & Member Permission Persistence ─────────────────────────────────────
+
+/**
+ * Fetch all role-level permission overrides for an org.
+ * Returns an object keyed by role: { admin: { can_view_nutrition: true, … }, … }
+ */
+export async function fetchOrgRolePermissions(orgId) {
+  if (!orgId) return {}
+  const { data, error } = await supabase
+    .from('org_role_permissions')
+    .select('role, permissions')
+    .eq('org_id', orgId)
+  if (error) { console.error('fetchOrgRolePermissions:', error.message); return {} }
+  return Object.fromEntries((data || []).map(r => [r.role, r.permissions]))
+}
+
+/**
+ * Upsert role-level permission overrides for one role in an org.
+ */
+export async function saveOrgRolePermission(orgId, role, permissions) {
+  const { error } = await supabase
+    .from('org_role_permissions')
+    .upsert({ org_id: orgId, role, permissions, updated_at: new Date().toISOString() },
+             { onConflict: 'org_id,role' })
+  if (error) { console.error('saveOrgRolePermission:', error.message); return false }
+  return true
+}
+
+/**
+ * Fetch all per-member custom permission overrides for an org.
+ * Returns an array of { user_id, org_role, permissions } rows.
+ */
+export async function fetchMemberCustomPermissions(orgId) {
+  if (!orgId) return []
+  const { data, error } = await supabase
+    .from('member_custom_permissions')
+    .select('user_id, org_role, permissions')
+    .eq('org_id', orgId)
+  if (error) { console.error('fetchMemberCustomPermissions:', error.message); return [] }
+  return data || []
+}
+
+/**
+ * Upsert per-member custom permissions for one member in an org.
+ * Also stores their current org_role so we know if the override is stale.
+ */
+export async function saveMemberCustomPermissions(orgId, userId, permissions, orgRole) {
+  const { error } = await supabase
+    .from('member_custom_permissions')
+    .upsert(
+      { org_id: orgId, user_id: userId, org_role: orgRole, permissions, updated_at: new Date().toISOString() },
+      { onConflict: 'org_id,user_id' }
+    )
+  if (error) { console.error('saveMemberCustomPermissions:', error.message); return false }
+  return true
+}
