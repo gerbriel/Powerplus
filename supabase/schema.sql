@@ -613,6 +613,7 @@ create table if not exists goals (
 );
 -- Idempotent column guard
 alter table goals add column if not exists linked_meet_id uuid;
+alter table goals add column if not exists progress_history jsonb default '[]'::jsonb;
 
 -- ── meets ─────────────────────────────────────────────────────
 create table if not exists meets (
@@ -2041,8 +2042,10 @@ begin
                nullif(count(*),0)*100 from workout_sessions ws
          where ws.athlete_id = p.id and ws.scheduled_date between v_week_start and v_week_end))::integer))
     end,
-    coalesce((select round(avg(nl.compliance_score))::integer from nutrition_logs nl
-      where nl.athlete_id = p.id and nl.compliance_score is not null order by nl.log_date desc limit 7), 0),
+    coalesce((select round(avg(recent.compliance_score))::integer from (
+      select nl.compliance_score from nutrition_logs nl
+      where nl.athlete_id = p.id and nl.compliance_score is not null
+      order by nl.log_date desc limit 7) as recent), 0),
     (select pr.weight from personal_records pr join exercises ex on ex.id = pr.exercise_id
       where pr.athlete_id = p.id and pr.record_type = 'estimated_1rm' and lower(ex.category) = 'squat'
       order by pr.recorded_at desc limit 1),
