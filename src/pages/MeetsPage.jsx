@@ -15,6 +15,7 @@ import { MOCK_MEETS, MOCK_TRAINING_BLOCKS, MOCK_GOALS } from '../lib/mockData'
 import { cn, formatDate, kgToLbs } from '../lib/utils'
 import { useSettingsStore, useAuthStore, useMeetsStore } from '../lib/store'
 import { saveMeet, saveMeetEntry, saveTrainingBlock, deleteMeet, deleteTrainingBlock, saveMeetAttempts } from '../lib/db'
+import { OrgMeetsTab } from './AdminPage'
 
 const FEDERATIONS = [
   'USA Powerlifting (USAPL)',
@@ -1126,6 +1127,20 @@ function PastMeetsSection({ pastMeets, allBlocks, allGoals, daysAgo, isDemo, onV
 
 // ── Main MeetsPage ────────────────────────────────────────────────────────
 export function MeetsPage() {
+  const { isDemo, user, activeOrgId, profile, viewAsAthlete } = useAuthStore()
+
+  // Staff roles: when viewAsAthlete is OFF, show the org coach view
+  const orgRole = profile?.org_role || profile?.role || ''
+  const isStaff = ['owner', 'head_coach', 'coach', 'analyst', 'nutritionist', 'admin'].includes(orgRole)
+  if (isStaff && !viewAsAthlete) {
+    return <OrgMeetsTab />
+  }
+
+  return <AthleteMeetsPage />
+}
+
+// ── Athlete-facing meets page (personal meets, attempts, history) ─────────
+function AthleteMeetsPage() {
   const [tab, setTab] = useState('upcoming')
   const [addMeetOpen, setAddMeetOpen] = useState(false)
   const [selectedMeet, setSelectedMeet] = useState(null)
