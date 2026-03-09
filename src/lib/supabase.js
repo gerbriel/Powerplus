@@ -1812,34 +1812,11 @@ export async function fetchAllPlatformUsers() {
   if (!isSupabaseConfigured()) return []
   const { data, error } = await supabase
     .from('profiles')
-    .select(`
-      id, full_name, display_name, email, avatar_url, role, platform_role, created_at,
-      org_members (
-        org_id,
-        org_role,
-        status,
-        joined_at,
-        organizations ( id, name, slug, plan, status, is_demo )
-      )
-    `)
+    .select('id, full_name, display_name, email, avatar_url, role, platform_role, created_at')
     .order('created_at', { ascending: false })
   if (error) { console.error('[supabase] fetchAllPlatformUsers:', error.message); return [] }
-
-  return (data ?? []).map((u) => {
-    const memberships = (u.org_members || []).map((m) => ({
-      orgId:    m.organizations?.id    || m.org_id,
-      orgName:  m.organizations?.name  || '—',
-      orgSlug:  m.organizations?.slug  || '',
-      orgPlan:  m.organizations?.plan  || 'starter',
-      orgStatus: m.organizations?.status || 'active',
-      is_demo:  m.organizations?.is_demo ?? false,
-      org_role: m.org_role,
-      status:   m.status,
-      joined_at: m.joined_at ? m.joined_at.slice(0, 10) : '',
-    }))
-    const { org_members: _om, ...profile } = u
-    return { ...profile, memberships }
-  })
+  // memberships are enriched in PlatformUsersTab from the already-loaded orgs data
+  return (data ?? []).map((u) => ({ ...u, memberships: null }))
 }
 
 /**

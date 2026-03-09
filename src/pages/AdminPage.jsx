@@ -374,24 +374,43 @@ function PlatformAnalyticsTab() {
 
 // ─── Platform Users (Super Admin) ─────────────────────────────────────────────
 function PlatformUsersTab() {
-  const { platformUsers } = useOrgStore()
+  const { platformUsers, orgs } = useOrgStore()
   const [search, setSearch] = useState('')
   const [roleFilter, setRoleFilter] = useState('all')
   const [selectedUser, setSelectedUser] = useState(null)
 
-  // memberships come directly on each user from fetchAllPlatformUsers (Supabase join)
-  // or from the mock data seeding. Build a helper to resolve them uniformly.
+  // Build membership map from orgs (populated by fetchAllOrgsForSuperAdmin)
+  const userOrgMap = useMemo(() => {
+    const map = {}
+    orgs.forEach((org) => {
+      ;(org.members || []).forEach((m) => {
+        if (!map[m.user_id]) map[m.user_id] = []
+        map[m.user_id].push({
+          orgId:     org.id,
+          orgName:   org.name,
+          orgPlan:   org.plan,
+          orgStatus: org.status,
+          is_demo:   !!org.is_demo,
+          org_role:  m.org_role || m.role,
+          status:    m.status,
+          joined_at: m.joined_at,
+        })
+      })
+    })
+    return map
+  }, [orgs])
+
+  // Memberships for a user: prefer u.memberships (mock) if it's a real array,
+  // otherwise fall back to userOrgMap built from loaded orgs (Supabase path)
   const getMemberships = useCallback((u) => {
-    // Supabase path: u.memberships is already shaped correctly
-    if (Array.isArray(u.memberships)) return u.memberships
-    // Mock/demo path: no memberships array — return empty (userOrgMap is not used here anymore)
-    return []
-  }, [])
+    if (Array.isArray(u.memberships) && u.memberships.length > 0) return u.memberships
+    return userOrgMap[u.id] || []
+  }, [userOrgMap])
 
   // A user is "demo-only" if:
   //  (a) explicitly flagged is_demo: true (mock data), OR
-  //  (b) has at least one org and every org they belong to is a demo org
-  // A user with NO org memberships is NOT automatically demo.
+  //  (b) has at least one org membership and every org is a demo org
+  // Users with NO org memberships are NOT demo — they're real users without an org yet.
   const isUserDemo = useCallback((u) => {
     if (u.is_demo === true) return true
     const memberships = getMemberships(u)
