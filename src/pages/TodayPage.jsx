@@ -294,9 +294,13 @@ function StaffDashboard({ profile, membership }) {
   }, [isDemo, channels, messagesByThread])
 
   const activeBlock = trainingBlocks.find(b => b.status === 'active')
-  const upcomingMeet = meets?.[0]
-  const daysToMeet = upcomingMeet
-    ? Math.ceil((new Date(upcomingMeet.date) - new Date()) / (1000 * 60 * 60 * 24))
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+  const upcomingMeet = [...(meets ?? [])]
+    .filter(m => m.status !== 'completed' && m.status !== 'cancelled' && new Date(m.meet_date ?? m.date) >= today)
+    .sort((a, b) => new Date(a.meet_date ?? a.date) - new Date(b.meet_date ?? b.date))[0] ?? null
+  const meetDateStr = upcomingMeet?.meet_date ?? upcomingMeet?.date ?? null
+  const daysToMeet = meetDateStr
+    ? Math.ceil((new Date(meetDateStr) - today) / (1000 * 60 * 60 * 24))
     : null
 
   const flaggedAthletes = athletes.filter(a => a.flags?.length > 0)
@@ -562,7 +566,7 @@ function StaffDashboard({ profile, membership }) {
             </CardHeader>
             <CardBody className="space-y-3">
               <p className="text-sm font-semibold text-zinc-100">{upcomingMeet.name}</p>
-              <p className="text-xs text-zinc-500">{upcomingMeet.date} · {upcomingMeet.location ?? 'TBD'}</p>
+              <p className="text-xs text-zinc-500">{meetDateStr} · {upcomingMeet.location ?? 'TBD'}</p>
               {daysToMeet !== null && (
                 <div className={cn('inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border text-sm font-bold',
                   daysToMeet <= 7 ? 'bg-red-500/10 border-red-500/30 text-red-300' :
