@@ -2141,7 +2141,7 @@ grant execute on function get_org_review_queue(uuid) to authenticated;
 create table if not exists org_role_permissions (
   id          uuid primary key default uuid_generate_v4(),
   org_id      uuid references organizations(id) on delete cascade not null,
-  role        text not null check (role in ('super_admin','admin','coach','nutritionist','athlete')),
+  role        text not null check (role in ('owner','head_coach','coach','nutritionist','athlete','analyst')),
   permissions jsonb not null default '{}',
   updated_at  timestamptz default now(),
   unique(org_id, role)
@@ -2155,7 +2155,7 @@ create policy "org_role_perms: admins can manage" on org_role_permissions for al
       select 1 from org_members
       where org_id = org_role_permissions.org_id
         and user_id = auth.uid()
-        and org_role in ('admin','head_coach','owner')
+        and org_role in ('owner','head_coach')
     )
   );
 drop policy if exists "org_role_perms: members can read own org" on org_role_permissions;
@@ -2190,7 +2190,7 @@ create policy "member_perms: admins can manage" on member_custom_permissions for
       select 1 from org_members
       where org_id = member_custom_permissions.org_id
         and user_id = auth.uid()
-        and org_role in ('admin','head_coach','owner')
+        and org_role in ('owner','head_coach')
     )
   );
 drop policy if exists "member_perms: members can read own" on member_custom_permissions;
