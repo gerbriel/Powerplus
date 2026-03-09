@@ -1685,7 +1685,10 @@ export async function upsertOrgMember(orgId, userId, orgRole) {
   if (!isSupabaseConfigured()) return false
   const { error } = await supabase
     .from('org_members')
-    .upsert({ org_id: orgId, user_id: userId, org_role: orgRole, status: 'active', joined_at: new Date().toISOString() }, { onConflict: 'org_id,user_id' })
+    .upsert(
+      { org_id: orgId, user_id: userId, org_role: orgRole, status: 'active' },
+      { onConflict: 'org_id,user_id', ignoreDuplicates: false }
+    )
   if (error) { console.error('[supabase] upsertOrgMember:', error.message); return false }
   return true
 }

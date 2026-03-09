@@ -1055,6 +1055,18 @@ drop policy if exists "org_members: owner/head_coach can manage" on org_members;
 create policy "org_members: owner/head_coach can manage" on org_members for all
   using (get_user_org_role(org_id, auth.uid()) in ('owner','head_coach'));
 
+-- Super-admin can manage ALL org_members (roster board moves, assignments)
+drop policy if exists "org_members: super_admin can manage all" on org_members;
+create policy "org_members: super_admin can manage all" on org_members for all
+  using (is_platform_super_admin())
+  with check (is_platform_super_admin());
+
+-- Super-admin can manage ALL staff_athlete_assignments
+drop policy if exists "staff_assignments: super_admin can manage all" on staff_athlete_assignments;
+create policy "staff_assignments: super_admin can manage all" on staff_athlete_assignments for all
+  using (is_platform_super_admin())
+  with check (is_platform_super_admin());
+
 -- ── org_invitations ───────────────────────────────────────────
 drop policy if exists "invitations: org admins can manage" on org_invitations;
 create policy "invitations: org admins can manage" on org_invitations for all

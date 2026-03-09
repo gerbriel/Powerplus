@@ -2083,6 +2083,8 @@ function RosterBoardTab() {
   const handleDragStart = useCallback((e, userId, fromOrgId, memberData) => {
     dragRef.current = { userId, fromOrgId, memberData }
     e.dataTransfer.effectAllowed = 'move'
+    // Store in dataTransfer as fallback (some browsers clear dragRef between events)
+    e.dataTransfer.setData('text/plain', JSON.stringify({ userId, fromOrgId }))
   }, [])
 
   const handleDragOver = useCallback((e, orgId) => {
@@ -2091,16 +2093,20 @@ function RosterBoardTab() {
     setDropTarget(orgId)
   }, [])
 
-  const handleDragLeave = useCallback(() => {
+  const handleDragLeave = useCallback((e, colEl) => {
+    // Only clear dropTarget if leaving the column entirely (not moving to a child element)
+    if (colEl && colEl.contains(e.relatedTarget)) return
     setDropTarget(null)
   }, [])
 
   const handleDrop = useCallback((e, toOrgId) => {
     e.preventDefault()
+    e.stopPropagation()
     setDropTarget(null)
-    if (!dragRef.current) return
-    const { userId, fromOrgId, memberData } = dragRef.current
+    const drag = dragRef.current
     dragRef.current = null
+    if (!drag) return
+    const { userId, fromOrgId, memberData } = drag
     if (fromOrgId === toOrgId) return   // same column — role change via dropdown
     setModalStep(1)
     setPickedRole(memberData?.org_role || 'athlete')
@@ -2121,17 +2127,29 @@ function RosterBoardTab() {
     if (!pendingDrop) return
     setLoading(true)
     const { userId, fromOrgId, toOrgId, memberData } = pendingDrop
-    await moveUserToOrg(userId, memberData?.full_name, memberData?.email, fromOrgId, toOrgId, pickedRole)
-    if (assignedStaff.length > 0) {
-      await assignToStaff(toOrgId, userId, assignedStaff)
+    const targetName = productionOrgs.find((o) => o.id === toOrgId)?.name ?? 'org'
+    try {
+      // 1. Remove from old org (if coming from one)
+      // 2. Add to new org with picked role
+      // 3. Write staff assignments
+      // All awaited sequentially so reload sees final state
+      await moveUserToOrg(userId, memberData?.full_name, memberData?.email, fromOrgId, toOrgId, pickedRole)
+      if (assignedStaff.length > 0) {
+        await assignToStaff(toOrgId, userId, assignedStaff)
+      }
+      // Small delay to ensure Supabase replication is consistent before reading back
+      await new Promise((r) => setTimeout(r, 400))
+      await reloadAllOrgs()
+      toast.success(`Moved to ${targetName}`)
+    } catch (err) {
+      console.error('[RosterBoard] confirmMove failed:', err)
+      toast.error('Move failed — check console')
+    } finally {
+      setLoading(false)
+      setPendingDrop(null)
+      setModalStep(1)
+      setAssignedStaff([])
     }
-    // Reload from Supabase so assignments are reflected from the DB
-    await reloadAllOrgs()
-    setLoading(false)
-    toast.success(`Moved to ${productionOrgs.find((o) => o.id === toOrgId)?.name ?? 'org'}`)
-    setPendingDrop(null)
-    setModalStep(1)
-    setAssignedStaff([])
   }, [pendingDrop, pickedRole, assignedStaff, moveUserToOrg, assignToStaff, reloadAllOrgs, productionOrgs])
 
   const toggleStaff = useCallback((staffUserId) => {
@@ -2219,14 +2237,16 @@ function RosterBoardTab() {
   const Column = useCallback(({ orgId, title, plan, memberCount, children }) => {
     const isOver = dropTarget === orgId
     const planInfo = orgId && plan ? PLAN_META[plan] : null
+    const colRef = useRef(null)
 
     return (
       <div
+        ref={colRef}
         onDragOver={(e) => handleDragOver(e, orgId)}
-        onDragLeave={handleDragLeave}
+        onDragLeave={(e) => handleDragLeave(e, colRef.current)}
         onDrop={(e) => handleDrop(e, orgId)}
         className={cn(
-          'flex flex-col gap-2 min-w-[220px] w-[220px] flex-shrink-0 rounded-xl border p-3 transition-colors',
+          'flex flex-col gap-2 min-w-[240px] w-[240px] flex-shrink-0 rounded-xl border p-3 transition-colors',
           isOver ? 'border-indigo-500 bg-indigo-950/30' : 'border-zinc-700/60 bg-zinc-900/60'
         )}
       >
