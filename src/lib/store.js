@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { MOCK_USERS, MOCK_GOALS, MOCK_TRAINING_BLOCKS, MOCK_MEETS, MOCK_ORGS, MOCK_PLATFORM_USERS, MOCK_ORG_MEMBERS, MOCK_STAFF_ASSIGNMENTS, MOCK_ATHLETE_RECIPES, MOCK_ATHLETE_PREP_LOG, MOCK_ATHLETE_SHOPPING_LISTS, MOCK_ATHLETE_MEAL_PLANS, MOCK_CHANNELS, MOCK_MESSAGES, MOCK_DIRECT_MESSAGES, MOCK_EXERCISES } from './mockData'
-import { upsertProfile, isSupabaseConfigured, onAuthStateChange, fetchProfile, fetchOrgMemberships, signOut as supabaseSignOut, getSession, fetchChannels as sbFetchChannels, createChannel as sbCreateChannel, updateChannel as sbUpdateChannel, archiveChannel as sbArchiveChannel, fetchMessages as sbFetchMessages, sendMessage as sbSendMessage, editMessage as sbEditMessage, deleteMessage as sbDeleteMessage, toggleReaction as sbToggleReaction, togglePinMessage as sbTogglePinMessage, findOrCreateDM as sbFindOrCreateDM, findOrCreateGroup as sbFindOrCreateGroup, markChannelRead as sbMarkChannelRead, subscribeToChannel as sbSubscribeToChannel, uploadMessageFile as sbUploadMessageFile, subscribeToOrgEvents as sbSubscribeToOrgEvents, fetchOrgAthletes, fetchOrgReviewQueue, fetchExercises, fetchProgramTemplates, fetchOrgTrainingBlocks, fetchPrepLog, fetchShoppingLists, fetchOrgRecipes, fetchNutritionLogs, fetchOrgEvents, fetchUserEvents, fetchAthleteSessions, fetchAthleteWorkoutSets, fetchAthleteCheckIns, fetchAthleteInjuries, fetchOrgWorkoutSessions, fetchOrgWorkoutSets, fetchOrgCheckIns, fetchOrgInjuries, fetchOrgStaffMembers, fetchOrgNutritionLogs, fetchUserMeets, fetchUserTrainingBlocks, fetchUserGoals, fetchAthleteMeetHistory, fetchAllOrgsForSuperAdmin, fetchAllPlatformUsers, insertOrgInvitation, deleteOrgInvitation, updateOrgMemberRole, removeOrgMember, fetchOrgMembers, fetchOrgInvitations } from './supabase'
+import { upsertProfile, isSupabaseConfigured, onAuthStateChange, fetchProfile, fetchOrgMemberships, signOut as supabaseSignOut, getSession, fetchChannels as sbFetchChannels, createChannel as sbCreateChannel, updateChannel as sbUpdateChannel, archiveChannel as sbArchiveChannel, fetchMessages as sbFetchMessages, sendMessage as sbSendMessage, editMessage as sbEditMessage, deleteMessage as sbDeleteMessage, toggleReaction as sbToggleReaction, togglePinMessage as sbTogglePinMessage, findOrCreateDM as sbFindOrCreateDM, findOrCreateGroup as sbFindOrCreateGroup, markChannelRead as sbMarkChannelRead, subscribeToChannel as sbSubscribeToChannel, uploadMessageFile as sbUploadMessageFile, subscribeToOrgEvents as sbSubscribeToOrgEvents, fetchOrgAthletes, fetchOrgReviewQueue, fetchExercises, fetchProgramTemplates, fetchOrgTrainingBlocks, fetchPrepLog, fetchShoppingLists, fetchOrgRecipes, fetchNutritionLogs, fetchOrgEvents, fetchUserEvents, fetchAthleteSessions, fetchAthleteWorkoutSets, fetchAthleteCheckIns, fetchAthleteInjuries, fetchOrgWorkoutSessions, fetchOrgWorkoutSets, fetchOrgCheckIns, fetchOrgInjuries, fetchOrgStaffMembers, fetchOrgNutritionLogs, fetchUserMeets, fetchUserTrainingBlocks, fetchUserGoals, fetchAthleteMeetHistory, fetchAllOrgsForSuperAdmin, fetchAllPlatformUsers, insertOrgInvitation, deleteOrgInvitation, updateOrgMemberRole, removeOrgMember, upsertOrgMember, fetchOrgMembers, fetchOrgInvitations } from './supabase'
 import { saveMessageRecord, updateMessageRecord, saveChannelRecord, updateChannelRecord, saveOrgPublicPage, loadOrgPublicPage, loadOrgLeads, submitIntakeLead, saveLead, removeLead, loadOrgResources, saveNewResource, updateResource, removeResource } from './db'
 import { subscribeToOrgLeads, subscribeToOrgResources } from './supabase'
 
@@ -558,6 +558,49 @@ export const useOrgStore = create((set, get) => ({
   loadPlatformUsers: async () => {
     const users = await fetchAllPlatformUsers()
     set({ platformUsers: users })
+  },
+
+  // Super-admin: move a user from one org to another (or add to a new org)
+  // Optimistically updates local state; persists to Supabase in background.
+  moveUserToOrg: async (userId, userName, userEmail, fromOrgId, toOrgId, role) => {
+    const member = { user_id: userId, full_name: userName, email: userEmail, org_role: role, role, status: 'active', joined_at: new Date().toISOString().slice(0, 10) }
+    set((s) => ({
+      orgs: s.orgs.map((o) => {
+        if (o.id === fromOrgId) {
+          return { ...o, members: (o.members || []).filter((m) => m.user_id !== userId) }
+        }
+        if (o.id === toOrgId) {
+          const existing = (o.members || []).find((m) => m.user_id === userId)
+          if (existing) return { ...o, members: (o.members || []).map((m) => m.user_id === userId ? { ...m, org_role: role, role } : m) }
+          return { ...o, members: [...(o.members || []), member] }
+        }
+        return o
+      }),
+    }))
+    if (fromOrgId) await removeOrgMember(fromOrgId, userId)
+    await upsertOrgMember(toOrgId, userId, role)
+  },
+
+  // Super-admin: change a member's role within their current org
+  changeOrgMemberRole: async (orgId, userId, newRole) => {
+    set((s) => ({
+      orgs: s.orgs.map((o) => {
+        if (o.id !== orgId) return o
+        return { ...o, members: (o.members || []).map((m) => m.user_id === userId ? { ...m, org_role: newRole, role: newRole } : m) }
+      }),
+    }))
+    await updateOrgMemberRole(orgId, userId, newRole)
+  },
+
+  // Super-admin: remove a user from an org entirely
+  removeUserFromOrg: async (orgId, userId) => {
+    set((s) => ({
+      orgs: s.orgs.map((o) => {
+        if (o.id !== orgId) return o
+        return { ...o, members: (o.members || []).filter((m) => m.user_id !== userId) }
+      }),
+    }))
+    await removeOrgMember(orgId, userId)
   },
 
   // Get a single org by id

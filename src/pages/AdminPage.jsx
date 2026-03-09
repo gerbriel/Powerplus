@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import toast from 'react-hot-toast'
 import { ResponsiveContainer, BarChart, Bar, CartesianGrid, XAxis, YAxis, Tooltip, Legend } from 'recharts'
 import {
@@ -82,6 +82,7 @@ export function AdminPage() {
   const SUPER_TABS = [
     { id: 'orgs',      label: 'Organizations' },
     { id: 'users',     label: 'Users' },
+    { id: 'roster',    label: 'Roster Board' },
     { id: 'analytics', label: 'Platform Analytics' },
     { id: 'billing',   label: 'Billing & Plans' },
     { id: 'demo',      label: 'Demo Sandbox' },
@@ -142,6 +143,7 @@ export function AdminPage() {
 
       {tab === 'orgs'      && isSuperAdmin && <SuperAdminOrgsTab />}
       {tab === 'users'     && isSuperAdmin && <PlatformUsersTab />}
+      {tab === 'roster'    && isSuperAdmin && <RosterBoardTab />}
       {tab === 'analytics' && isSuperAdmin && <PlatformAnalyticsTab />}
       {tab === 'billing'   && isSuperAdmin && <PlatformBillingTab />}
       {tab === 'demo'      && isSuperAdmin && <DemoSandboxTab />}
@@ -2005,6 +2007,259 @@ function OrgDetailModal({ org, onClose, onEdit, onToggleStatus, onDelete }) {
         </div>
       </div>
     </Modal>
+  )
+}
+
+// ─── Roster Board ────────────────────────────────────────────────────────────
+const ORG_ROLES = ['head_coach', 'coach', 'nutritionist', 'athlete']
+const ROLE_TIER = { head_coach: 0, coach: 1, nutritionist: 2, athlete: 3 }
+const ROLE_LABEL = { head_coach: 'Head Coach', coach: 'Coach', nutritionist: 'Nutritionist', athlete: 'Athlete' }
+
+function RosterBoardTab() {
+  const { orgs, platformUsers, loadAllOrgs, loadPlatformUsers, moveUserToOrg, changeOrgMemberRole, removeUserFromOrg } = useOrgStore()
+  const dragRef = useRef(null)
+  const [dropTarget, setDropTarget] = useState(null)        // orgId being hovered
+  const [pendingDrop, setPendingDrop] = useState(null)      // { userId, fromOrgId, toOrgId, memberData }
+  const [pickedRole, setPickedRole] = useState('athlete')
+  const [search, setSearch] = useState('')
+
+  useEffect(() => { loadAllOrgs(); loadPlatformUsers() }, [loadAllOrgs, loadPlatformUsers])
+
+  const productionOrgs = useMemo(() => (orgs || []).filter((o) => !o.is_demo), [orgs])
+
+  // Build a set of user IDs that are already in at least one production org
+  const assignedUserIds = useMemo(() => {
+    const ids = new Set()
+    productionOrgs.forEach((o) => (o.members || []).forEach((m) => ids.add(m.user_id)))
+    return ids
+  }, [productionOrgs])
+
+  const unassigned = useMemo(() => {
+    const q = search.toLowerCase()
+    return (platformUsers || []).filter((u) => {
+      if (u.is_demo) return false
+      if (assignedUserIds.has(u.id)) return false
+      if (q && !`${u.full_name || ''} ${u.email || ''}`.toLowerCase().includes(q)) return false
+      return true
+    })
+  }, [platformUsers, assignedUserIds, search])
+
+  const filteredOrgs = useMemo(() => {
+    if (!search) return productionOrgs
+    const q = search.toLowerCase()
+    return productionOrgs.filter((o) => {
+      if (o.name.toLowerCase().includes(q)) return true
+      return (o.members || []).some((m) => `${m.full_name || ''} ${m.email || ''}`.toLowerCase().includes(q))
+    })
+  }, [productionOrgs, search])
+
+  // ── Drag handlers ──────────────────────────────────────────────────────────
+  const handleDragStart = useCallback((e, userId, fromOrgId, memberData) => {
+    dragRef.current = { userId, fromOrgId, memberData }
+    e.dataTransfer.effectAllowed = 'move'
+  }, [])
+
+  const handleDragOver = useCallback((e, orgId) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    setDropTarget(orgId)
+  }, [])
+
+  const handleDragLeave = useCallback(() => {
+    setDropTarget(null)
+  }, [])
+
+  const handleDrop = useCallback((e, toOrgId) => {
+    e.preventDefault()
+    setDropTarget(null)
+    if (!dragRef.current) return
+    const { userId, fromOrgId, memberData } = dragRef.current
+    dragRef.current = null
+    if (fromOrgId === toOrgId) return   // same column — no-op (role change via dropdown)
+    setPendingDrop({ userId, fromOrgId, toOrgId, memberData })
+    setPickedRole(memberData?.org_role || 'athlete')
+  }, [])
+
+  const confirmMove = useCallback(async () => {
+    if (!pendingDrop) return
+    const { userId, fromOrgId, toOrgId, memberData } = pendingDrop
+    await moveUserToOrg(userId, memberData?.full_name, memberData?.email, fromOrgId, toOrgId, pickedRole)
+    toast.success(`Moved to ${productionOrgs.find((o) => o.id === toOrgId)?.name ?? 'org'}`)
+    setPendingDrop(null)
+  }, [pendingDrop, pickedRole, moveUserToOrg, productionOrgs])
+
+  // ── Member card ────────────────────────────────────────────────────────────
+  const MemberCard = useCallback(({ member, orgId }) => {
+    const initials = (member.full_name || member.email || '?')
+      .split(' ').slice(0, 2).map((w) => w[0]).join('').toUpperCase()
+
+    return (
+      <div
+        draggable
+        onDragStart={(e) => handleDragStart(e, member.user_id || member.id, orgId, member)}
+        className="flex items-center gap-2 p-2 bg-zinc-800 hover:bg-zinc-750 border border-zinc-700/60 rounded-lg cursor-grab active:cursor-grabbing group transition-colors"
+      >
+        <GripVertical className="w-3 h-3 text-zinc-600 flex-shrink-0" />
+        <div className="w-7 h-7 rounded-full bg-zinc-700 flex items-center justify-center text-[10px] font-bold text-zinc-300 flex-shrink-0">
+          {initials}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-medium text-zinc-200 truncate">{member.full_name || '—'}</p>
+          <p className="text-[10px] text-zinc-500 truncate">{member.email}</p>
+        </div>
+        <div className="flex items-center gap-1">
+          {orgId && (
+            <select
+              value={member.org_role || member.role || 'athlete'}
+              onChange={(e) => { e.stopPropagation(); changeOrgMemberRole(orgId, member.user_id || member.id, e.target.value) }}
+              onClick={(e) => e.stopPropagation()}
+              className="text-[10px] bg-zinc-700 border border-zinc-600 text-zinc-300 rounded px-1 py-0.5 cursor-pointer"
+            >
+              {ORG_ROLES.map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
+            </select>
+          )}
+          {orgId && (
+            <button
+              onClick={(e) => { e.stopPropagation(); removeUserFromOrg(orgId, member.user_id || member.id) }}
+              className="opacity-0 group-hover:opacity-100 p-0.5 text-zinc-500 hover:text-red-400 transition-all"
+              title="Remove from org"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          )}
+        </div>
+      </div>
+    )
+  }, [handleDragStart, changeOrgMemberRole, removeUserFromOrg])
+
+  // ── Column ─────────────────────────────────────────────────────────────────
+  const Column = useCallback(({ orgId, title, plan, memberCount, children }) => {
+    const isOver = dropTarget === orgId
+    const planInfo = orgId && plan ? PLAN_META[plan] : null
+
+    return (
+      <div
+        onDragOver={(e) => handleDragOver(e, orgId)}
+        onDragLeave={handleDragLeave}
+        onDrop={(e) => handleDrop(e, orgId)}
+        className={cn(
+          'flex flex-col gap-2 min-w-[220px] w-[220px] flex-shrink-0 rounded-xl border p-3 transition-colors',
+          isOver ? 'border-indigo-500 bg-indigo-950/30' : 'border-zinc-700/60 bg-zinc-900/60'
+        )}
+      >
+        {/* Column header */}
+        <div className="flex items-center justify-between gap-2 pb-1 border-b border-zinc-700/50">
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-semibold text-zinc-200 truncate">{title}</p>
+            {planInfo && (
+              <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-${planInfo.color}-900/50 text-${planInfo.color}-400`}>
+                {planInfo.label}
+              </span>
+            )}
+          </div>
+          <span className="text-[10px] text-zinc-500 flex-shrink-0">{memberCount}</span>
+        </div>
+
+        {/* Cards */}
+        <div className="flex flex-col gap-1.5 overflow-y-auto max-h-[60vh] pr-0.5">
+          {children}
+        </div>
+
+        {/* Drop zone indicator */}
+        {isOver && (
+          <div className="flex items-center justify-center border-2 border-dashed border-indigo-500/50 rounded-lg h-10 mt-1">
+            <p className="text-[10px] text-indigo-400">Drop here</p>
+          </div>
+        )}
+      </div>
+    )
+  }, [dropTarget, handleDragOver, handleDragLeave, handleDrop])
+
+  // ── Render ─────────────────────────────────────────────────────────────────
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold text-zinc-200">Roster Board</h2>
+          <p className="text-xs text-zinc-500">Drag users between orgs · Use dropdowns to change roles</p>
+        </div>
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
+          <input
+            className="bg-zinc-800 border border-zinc-700 rounded-lg pl-8 pr-3 py-1.5 text-xs text-zinc-200 placeholder-zinc-500 w-52"
+            placeholder="Search users or orgs…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+      </div>
+
+      {/* Board */}
+      <div className="flex gap-3 overflow-x-auto pb-4">
+        {/* Unassigned column */}
+        <Column orgId={null} title="Unassigned" memberCount={unassigned.length}>
+          {unassigned.map((u) => (
+            <MemberCard key={u.id} member={{ ...u, user_id: u.id, org_role: u.role || 'athlete' }} orgId={null} />
+          ))}
+          {unassigned.length === 0 && (
+            <p className="text-[10px] text-zinc-600 text-center py-4">No unassigned users</p>
+          )}
+        </Column>
+
+        {/* One column per production org */}
+        {filteredOrgs.map((org) => {
+          const sorted = [...(org.members || [])].sort(
+            (a, b) => (ROLE_TIER[a.org_role] ?? 99) - (ROLE_TIER[b.org_role] ?? 99)
+          )
+          return (
+            <Column key={org.id} orgId={org.id} title={org.name} plan={org.plan} memberCount={sorted.length}>
+              {sorted.map((m) => (
+                <MemberCard key={m.user_id || m.id} member={m} orgId={org.id} />
+              ))}
+              {sorted.length === 0 && (
+                <p className="text-[10px] text-zinc-600 text-center py-4">Drop users here</p>
+              )}
+            </Column>
+          )
+        })}
+      </div>
+
+      {/* Role-picker confirmation modal */}
+      {pendingDrop && (
+        <Modal open onClose={() => setPendingDrop(null)} title="Assign Role">
+          <div className="space-y-4">
+            <p className="text-sm text-zinc-300">
+              Moving <span className="font-semibold text-zinc-100">{pendingDrop.memberData?.full_name || pendingDrop.memberData?.email}</span> to{' '}
+              <span className="font-semibold text-zinc-100">{productionOrgs.find((o) => o.id === pendingDrop.toOrgId)?.name}</span>.
+            </p>
+            <div>
+              <label className="text-xs text-zinc-400 block mb-1.5">Role in new org</label>
+              <div className="grid grid-cols-2 gap-2">
+                {ORG_ROLES.map((r) => (
+                  <button
+                    key={r}
+                    onClick={() => setPickedRole(r)}
+                    className={cn(
+                      'px-3 py-2 rounded-lg text-sm font-medium border transition-colors',
+                      pickedRole === r
+                        ? 'bg-indigo-600 border-indigo-500 text-white'
+                        : 'bg-zinc-800 border-zinc-700 text-zinc-300 hover:border-zinc-500'
+                    )}
+                  >
+                    {ROLE_LABEL[r]}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="ghost" onClick={() => setPendingDrop(null)}>Cancel</Button>
+              <Button onClick={confirmMove}>Confirm Move</Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </div>
   )
 }
 
