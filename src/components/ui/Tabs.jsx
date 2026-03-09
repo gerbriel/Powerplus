@@ -2,13 +2,14 @@ import { cn } from '../../lib/utils'
 
 export function Tabs({ tabs, activeTab, onChange, className }) {
   return (
-    <div className={cn('flex gap-1 bg-zinc-800/80 rounded-lg p-1', className)}>
+    <div className={cn('flex gap-1 bg-zinc-800/80 rounded-lg p-1 overflow-x-auto scrollbar-none min-w-0', className)}
+      style={{ WebkitOverflowScrolling: 'touch' }}>
       {tabs.map((tab) => (
         <button
           key={tab.id}
           onClick={() => onChange(tab.id)}
           className={cn(
-            'flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-all',
+            'flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-all whitespace-nowrap flex-shrink-0',
             activeTab === tab.id
               ? 'bg-zinc-700 text-zinc-100 shadow-sm'
               : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/50'
