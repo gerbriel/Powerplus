@@ -76,6 +76,11 @@ alter table profiles add column if not exists timezone text default 'UTC';
 alter table profiles add column if not exists self_coach boolean default false;
 alter table profiles add column if not exists onboarding_complete boolean default false;
 alter table profiles add column if not exists is_demo boolean default false;
+alter table profiles add column if not exists pr_squat      numeric(7,2);
+alter table profiles add column if not exists pr_bench      numeric(7,2);
+alter table profiles add column if not exists pr_deadlift   numeric(7,2);
+alter table profiles add column if not exists pr_total      numeric(7,2)
+  generated always as (coalesce(pr_squat,0) + coalesce(pr_bench,0) + coalesce(pr_deadlift,0)) stored;
 
 -- Mark demo test accounts — these are internal/testing profiles that should never
 -- appear in production platform metrics. Safe to re-run (idempotent).

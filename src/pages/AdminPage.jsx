@@ -2730,8 +2730,8 @@ function OverviewTab() {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <StatCard label="Total Athletes" value={athletes.length || 24} trend="+3 this month" trendUp icon={Users} color="purple" />
-        <StatCard label="Active Staff" value={staff.length || 4} icon={Shield} color="blue" />
+        <StatCard label="Total Athletes" value={athletes.length} trend="+3 this month" trendUp icon={Users} color="purple" />
+        <StatCard label="Active Staff" value={staff.length} icon={Shield} color="blue" />
         <StatCard label="Goals Completed" value={`${completedGoals}/${goals.length}`} icon={Target} color="green" />
         <StatCard label="Pain Flags" value={flaggedAthletes} icon={AlertTriangle} color="yellow" />
       </div>
@@ -2751,7 +2751,7 @@ function OverviewTab() {
         <Card>
           <CardHeader><CardTitle className="flex items-center gap-2"><UtensilsCrossed className="w-4 h-4 text-green-400" /> Nutrition</CardTitle></CardHeader>
           <CardBody className="space-y-2">
-            {[['Avg compliance', '84%'], ['Plans active', athletes.length || 24], ['Shopping budgets set', 18], ['Custom recipes', 6]].map(([k, v]) => (
+            {[['Avg compliance', '84%'], ['Plans active', athletes.length], ['Shopping budgets set', 18], ['Custom recipes', 6]].map(([k, v]) => (
               <div key={k} className="flex items-center justify-between">
                 <span className="text-xs text-zinc-400">{k}</span>
                 <span className="text-sm font-semibold text-zinc-200">{v}</span>
@@ -2802,8 +2802,8 @@ function OverviewTab() {
             </div>
             <div className="space-y-3">
               {[
-                { label: 'Athletes', used: athletes.length || 24, limit: org.athlete_limit },
-                { label: 'Staff Seats', used: staff.length || 4, limit: org.staff_limit },
+                { label: 'Athletes', used: athletes.length, limit: org.athlete_limit },
+                { label: 'Staff Seats', used: staff.length, limit: org.staff_limit },
                 { label: 'Storage', used: org.storage_gb_used, limit: org.storage_gb_limit, suffix: 'GB' },
               ].map((item) => (
                 <div key={item.label}>

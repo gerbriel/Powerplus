@@ -408,6 +408,9 @@ export async function saveProfile(userId, updates) {
     const eq = (updates.equipment_type ?? '').toLowerCase()
     row.equipment_type = allowedEquipment.includes(eq) ? eq : null
   }
+  if (updates.pr_squat    != null) row.pr_squat    = sanitizeNumber(updates.pr_squat, 0, 9999)
+  if (updates.pr_bench    != null) row.pr_bench    = sanitizeNumber(updates.pr_bench, 0, 9999)
+  if (updates.pr_deadlift != null) row.pr_deadlift = sanitizeNumber(updates.pr_deadlift, 0, 9999)
 
   if (Object.keys(row).length === 0) return null
 

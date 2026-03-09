@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import {
   Camera, Save, Lock, Bell, Moon, Sun, Globe, Scale,
-  MapPin, Clock, Plus, Trash2, Check, Star, Palette
+  MapPin, Clock, Plus, Trash2, Check, Star, Palette, Dumbbell
 } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardBody } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
@@ -50,7 +50,11 @@ export function ProfilePage() {
                 <Badge color={role === 'admin' ? 'red' : role === 'coach' ? 'blue' : role === 'nutritionist' ? 'green' : 'purple'}>
                   {role}
                 </Badge>
-                <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Joined Jan 2024</span>
+                {(profile?.created_at || user?.created_at) && (
+                  <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                    Joined {new Date(profile?.created_at || user?.created_at).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
+                  </span>
+                )}
               </div>
             </div>
           </div>
@@ -77,6 +81,9 @@ function ProfileTab({ user, profile, isDemo }) {
   const [weightClass, setWeightClass] = useState(profile?.weight_class || '')
   const [federation, setFederation] = useState(profile?.federation || '')
   const [equipment, setEquipment] = useState(profile?.equipment_type || '')
+  const [prSquat, setPrSquat] = useState(profile?.pr_squat ?? '')
+  const [prBench, setPrBench] = useState(profile?.pr_bench ?? '')
+  const [prDeadlift, setPrDeadlift] = useState(profile?.pr_deadlift ?? '')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
 
@@ -95,6 +102,20 @@ function ProfileTab({ user, profile, isDemo }) {
     setSaving(true)
     if (!isDemo && (user?.id || profile?.id)) {
       await saveProfile(user?.id || profile?.id, { weight_class: weightClass, federation, equipment_type: equipment })
+    }
+    setSaving(false)
+    setSaved(true)
+    setTimeout(() => setSaved(false), 2000)
+  }
+
+  const handleSavePRs = async () => {
+    setSaving(true)
+    if (!isDemo && (user?.id || profile?.id)) {
+      await saveProfile(user?.id || profile?.id, {
+        pr_squat:    prSquat    !== '' ? Number(prSquat)    : null,
+        pr_bench:    prBench    !== '' ? Number(prBench)    : null,
+        pr_deadlift: prDeadlift !== '' ? Number(prDeadlift) : null,
+      })
     }
     setSaving(false)
     setSaved(true)
@@ -155,6 +176,59 @@ function ProfileTab({ user, profile, isDemo }) {
             </div>
             <Button size="sm" onClick={handleSaveAthleteDetails} disabled={saving}>
               {saved ? <><Check className="w-3.5 h-3.5" /> Saved</> : <><Save className="w-3.5 h-3.5" /> Save</>}
+            </Button>
+          </CardBody>
+        </Card>
+      )}
+
+      {isAthlete && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Dumbbell className="w-4 h-4" style={{ color: 'var(--brand-primary)' }} />
+              Benchmark PRs
+            </CardTitle>
+          </CardHeader>
+          <CardBody className="space-y-3">
+            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+              Your current all-time personal records. Coaches use these for programming percentages.
+            </p>
+            <div className="grid grid-cols-3 gap-3">
+              {[
+                { label: 'Squat', value: prSquat, setter: setPrSquat },
+                { label: 'Bench', value: prBench, setter: setPrBench },
+                { label: 'Deadlift', value: prDeadlift, setter: setPrDeadlift },
+              ].map(({ label, value, setter }) => (
+                <div key={label}>
+                  <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>{label}</label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min="0"
+                      max="9999"
+                      step="0.5"
+                      value={value}
+                      onChange={e => setter(e.target.value)}
+                      placeholder="—"
+                      className="pp-input w-full pr-8"
+                    />
+                    <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs pointer-events-none"
+                      style={{ color: 'var(--text-muted)' }}>kg</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {(prSquat || prBench || prDeadlift) ? (
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs"
+                style={{ background: 'rgba(80,165,177,0.06)', border: '1px solid rgba(80,165,177,0.2)', color: 'var(--text-secondary)' }}>
+                <Dumbbell className="w-3.5 h-3.5 flex-shrink-0" style={{ color: 'var(--brand-primary)' }} />
+                Total: <strong style={{ color: 'var(--text-primary)' }}>
+                  {((Number(prSquat) || 0) + (Number(prBench) || 0) + (Number(prDeadlift) || 0)).toFixed(1)} kg
+                </strong>
+              </div>
+            ) : null}
+            <Button size="sm" onClick={handleSavePRs} disabled={saving}>
+              {saved ? <><Check className="w-3.5 h-3.5" /> Saved</> : <><Save className="w-3.5 h-3.5" /> Save PRs</>}
             </Button>
           </CardBody>
         </Card>
