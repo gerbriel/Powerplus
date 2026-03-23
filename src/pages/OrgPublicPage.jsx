@@ -4,6 +4,7 @@ import { CheckCircle2, ChevronDown, ChevronUp, Zap, Star, Trophy, Users, ArrowRi
 import { useOrgStore } from '../lib/store'
 import { fetchPublicOrgBySlug } from '../lib/supabase'
 import { submitIntakeLead } from '../lib/db'
+import { MOCK_ORGS } from '../lib/mockData'
 import { cn } from '../lib/utils'
 
 // ─── Public-facing org page (no auth required) ─────────────────────────────
@@ -15,19 +16,50 @@ export function OrgPublicPage() {
   // Try store first (when logged-in admin previews their own page); fall back to Supabase fetch
   const storeOrg = orgs.find((o) => o.slug === slug)
 
+  // Only trust the store org if its page is already published (admin preview).
+  // If the store org exists but has no published page, fall through to a live Supabase fetch
+  // so the public visitor sees the real database state (or the not-found screen).
+  const storeOrgIsPublished = storeOrg && storeOrg.public_page?.published === true
+
   const [liveData, setLiveData] = useState(null)   // { org, page, staff }
-  const [loading, setLoading]   = useState(!storeOrg)
+  const [loading, setLoading]   = useState(!storeOrgIsPublished)
   const [fetchErr, setFetchErr] = useState(false)
 
   useEffect(() => {
-    if (storeOrg) return  // already have it in the store
+    if (storeOrgIsPublished) return  // already have a published page in the store
     setLoading(true)
     fetchPublicOrgBySlug(slug).then((result) => {
-      if (result) setLiveData(result)
-      else setFetchErr(true)
+      if (result) {
+        setLiveData(result)
+      } else {
+        // No Supabase row — fall back to mock data for known demo orgs
+        const mockOrg = MOCK_ORGS.find((o) => o.slug === slug)
+        if (mockOrg?.public_page?.published) {
+          setLiveData({
+            org: mockOrg,
+            page: mockOrg.public_page,
+            staff: (mockOrg.members || []).filter((m) => ['head_coach','coach','nutritionist'].includes(m.org_role)),
+          })
+        } else {
+          setFetchErr(true)
+        }
+      }
       setLoading(false)
-    }).catch(() => { setFetchErr(true); setLoading(false) })
-  }, [slug, storeOrg])
+    }).catch(() => {
+      // Network error — still try mock fallback
+      const mockOrg = MOCK_ORGS.find((o) => o.slug === slug)
+      if (mockOrg?.public_page?.published) {
+        setLiveData({
+          org: mockOrg,
+          page: mockOrg.public_page,
+          staff: (mockOrg.members || []).filter((m) => ['head_coach','coach','nutritionist'].includes(m.org_role)),
+        })
+      } else {
+        setFetchErr(true)
+      }
+      setLoading(false)
+    })
+  }, [slug, storeOrgIsPublished])
 
   // Loading state
   if (loading) {
@@ -39,9 +71,9 @@ export function OrgPublicPage() {
     )
   }
 
-  // Resolve org + page from store (admin preview) or Supabase fetch (public)
+  // Resolve org + page from store (admin preview with published page) or Supabase fetch (public)
   let org, page, coaches, athleteCount
-  if (storeOrg) {
+  if (storeOrgIsPublished) {
     org          = storeOrg
     page         = storeOrg.public_page || {}
     coaches      = (storeOrg.members || []).filter((m) => ['head_coach','coach','nutritionist'].includes(m.org_role))

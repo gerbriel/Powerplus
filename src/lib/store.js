@@ -19,6 +19,11 @@ export const useAuthStore = create((set, get) => ({
   // If Supabase is configured, upserts the mock profile row so the UUID
   // exists in the profiles table for subsequent DB writes.
   loginAsDemo: async (role) => {
+    // If a real Supabase session is active, sign it out first so that
+    // onAuthStateChange cannot fire and overwrite the demo state.
+    if (isSupabaseConfigured()) {
+      try { await supabaseSignOut() } catch (_) { /* ignore */ }
+    }
     const baseProfile = MOCK_USERS[role] || MOCK_USERS.athlete
     // assistant_coach has role:'coach' baked into its MOCK_USERS entry;
     // for all others, use the role key directly.
@@ -36,6 +41,9 @@ export const useAuthStore = create((set, get) => ({
     })
     // Seed all other stores with mock data for the demo session
     useOrgStore.setState({ orgs: MOCK_ORGS, staffAssignments: MOCK_STAFF_ASSIGNMENTS })
+    // Sync weight unit to the demo org's setting so Org Settings and display agree
+    const demoOrg = MOCK_ORGS[0]
+    if (demoOrg?.weight_unit) useSettingsStore.setState({ weightUnit: demoOrg.weight_unit })
     // Super-admin demo: also seed platform-wide user list and mark orgs loaded
     if (resolvedRole === 'super_admin') {
       useOrgStore.setState({ platformUsers: MOCK_PLATFORM_USERS, _allOrgsLoaded: true })
@@ -183,7 +191,10 @@ export const useAuthStore = create((set, get) => ({
     // Listen for future auth changes. Skip SIGNED_IN during the initial tick
     // because getSession() already handles the on-load session — firing both
     // would double-clear stores and cause a race condition.
+    // Also skip all events while demo mode is active — demo state is isolated
+    // and must never be overwritten by a background Supabase auth event.
     const subscription = onAuthStateChange((event, session) => {
+      if (get().isDemo) return  // demo mode is fully isolated from real auth
       if (event === 'SIGNED_IN') {
         // Only act on SIGNED_IN after the initial check is done (i.e. this is
         // a real new login, not the token being read from localStorage on load).
