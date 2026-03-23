@@ -300,7 +300,10 @@ function StaffDashboard({ profile, membership }) {
     .sort((a, b) => new Date(a.meet_date ?? a.date) - new Date(b.meet_date ?? b.date))[0] ?? null
   const meetDateStr = upcomingMeet?.meet_date ?? upcomingMeet?.date ?? null
   const daysToMeet = meetDateStr
-    ? Math.ceil((new Date(meetDateStr) - today) / (1000 * 60 * 60 * 24))
+    ? (() => {
+        const d = Math.round((new Date(meetDateStr) - today) / (1000 * 60 * 60 * 24))
+        return isNaN(d) ? null : d
+      })()
     : null
 
   const flaggedAthletes = athletes.filter(a => a.flags?.length > 0)
@@ -567,7 +570,7 @@ function StaffDashboard({ profile, membership }) {
             <CardBody className="space-y-3">
               <p className="text-sm font-semibold text-zinc-100">{upcomingMeet.name}</p>
               <p className="text-xs text-zinc-500">{meetDateStr} · {upcomingMeet.location ?? 'TBD'}</p>
-              {daysToMeet !== null && (
+              {daysToMeet !== null && isFinite(daysToMeet) && (
                 <div className={cn('inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border text-sm font-bold',
                   daysToMeet <= 7 ? 'bg-red-500/10 border-red-500/30 text-red-300' :
                   daysToMeet <= 21 ? 'bg-orange-500/10 border-orange-500/30 text-orange-300' :
@@ -691,6 +694,7 @@ function StaffDashboard({ profile, membership }) {
 // ─── Athlete Today Page ────────────────────────────────────────────────────────
 function AthleteTodayPage({ profile, weightUnit, toggleWeightUnit }) {
   const { isDemo, activeOrgId } = useAuthStore()
+  const { setActivePage } = useUIStore()
   const [checkinOpen, setCheckinOpen] = useState(false)
   const [checkinData, setCheckinData] = useState({ sleep_hours: 7, sleep_quality: 7, soreness: 5, motivation: 7, stress: 4, bodyweight: '' })
   const [checkinDone, setCheckinDone] = useState(false)
@@ -740,19 +744,21 @@ function AthleteTodayPage({ profile, weightUnit, toggleWeightUnit }) {
       // Sanitize bodyweight input
       const bwRaw = String(checkinData.bodyweight).trim()
       const bw = bwRaw !== '' ? Number(bwRaw) : null
-      await saveCheckIn(profile?.id, {
-        ...checkinData,
-        body_weight: bw,
-        bodyweight_unit: weightUnit || 'kg',
-        check_type: 'morning',
-        check_date: new Date().toISOString().slice(0, 10),
-      })
+      if (!isDemo) {
+        await saveCheckIn(profile?.id, {
+          ...checkinData,
+          body_weight: bw,
+          bodyweight_unit: weightUnit || 'kg',
+          check_type: 'morning',
+          check_date: new Date().toISOString().slice(0, 10),
+        })
+        // Invalidate analytics so next load picks up the new check-in
+        if (profile?.id) {
+          useAnalyticsStore.setState({ personalFor: null })
+        }
+      }
       setCheckinDone(true)
       setCheckinOpen(false)
-      // Invalidate analytics so next load picks up the new check-in
-      if (!isDemo && profile?.id) {
-        useAnalyticsStore.setState({ personalFor: null })
-      }
     } catch (err) {
       console.error('[TodayPage] saveCheckIn error:', err)
     } finally {
@@ -877,7 +883,7 @@ function AthleteTodayPage({ profile, weightUnit, toggleWeightUnit }) {
               </div>
             ))}
           </div>
-          <Button className="mt-4 w-full" size="sm">
+          <Button className="mt-4 w-full" size="sm" onClick={() => setActivePage('workout')}>
             <Zap className="w-3.5 h-3.5" /> Start Workout
           </Button>
         </Card>

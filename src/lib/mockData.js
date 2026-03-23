@@ -1735,10 +1735,7 @@ export const MOCK_ORGS = [
     head_coach_id: MOCK_USER_IDS.admin,
     federation: 'USAPL',
     timezone: 'America/New_York',
-    weight_unit: 'lbs',
-    athlete_limit: 30,
-    staff_limit: 5,
-    storage_gb_limit: 10,
+    weight_unit: 'kg',
     storage_gb_used: 6.2,
     logo_url: null,
     address: 'New York, NY',
@@ -1979,7 +1976,7 @@ export const MOCK_STAFF_ASSIGNMENTS = [
 ]
 
 export const PLAN_META = {
-  starter: { label: 'Starter', color: 'blue', athletes: 10, staff: 2, storage: '2GB', price: '$49/mo' },
+  starter: { label: 'Starter', color: 'blue', athletes: 10, staff: 2, storage: '2GB', price: 'Free' },
   team_pro: { label: 'Team Pro', color: 'purple', athletes: 30, staff: 5, storage: '10GB', price: '$149/mo' },
   enterprise: { label: 'Enterprise', color: 'yellow', athletes: 100, staff: 20, storage: '50GB', price: '$499/mo' },
 }
