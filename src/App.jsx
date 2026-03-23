@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { Toaster } from 'react-hot-toast'
-import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, Outlet, useNavigate } from 'react-router-dom'
 import { useAuthStore, useUIStore, useSettingsStore } from './lib/store'
 import { Sidebar } from './components/layout/Sidebar'
 import { Topbar } from './components/layout/Topbar'
@@ -34,43 +34,8 @@ import { InjuryPage } from './pages/InjuryPage'
 import { WebsitePage } from './pages/WebsitePage'
 import { LeadsPage } from './pages/LeadsPage'
 
-// Page registry — keyed by the activePage value set in Sidebar/MobileNav
-const PAGE_MAP = {
-  today: TodayPage,
-  workout: WorkoutPage,
-  messaging: MessagingPage,
-  analytics: AnalyticsPage,
-  roster: RosterPage,
-  nutrition: NutritionPage,
-  goals: GoalsPage,
-  meets: MeetsPage,
-  resources: ResourcesPage,
-  calendar: CalendarPage,
-  programming: ProgrammingPage,
-  settings: AdminPage,
-  dashboard: DashboardRedirect,
-  checkin: CheckInPage,
-  profile: ProfilePage,
-  calculators: CalculatorsPage,
-  injury: InjuryPage,
-  website: WebsitePage,
-  leads: LeadsPage,
-}
-
-/** Redirects /dashboard to the role-appropriate landing page */
-function DashboardRedirect() {
-  const { profile } = useAuthStore()
-  const { setActivePage } = useUIStore()
-  const isSuperAdmin = profile?.platform_role === 'super_admin' || profile?.role === 'super_admin'
-  const landingPage = isSuperAdmin ? 'settings' : 'today'
-  setTimeout(() => setActivePage(landingPage), 0)
-  return null
-}
-
 function AppShell() {
-  const { activePage } = useUIStore()
   const { colorMode } = useSettingsStore()
-  const PageComponent = PAGE_MAP[activePage]
 
   return (
     <div className={`flex h-screen overflow-hidden ${colorMode === 'light' ? 'light bg-[#FEF6ED]' : 'bg-[#0d1117]'}`}>
@@ -80,13 +45,7 @@ function AppShell() {
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
         <Topbar />
         <main className="flex-1 overflow-y-auto pb-20 md:pb-0">
-          {PageComponent ? (
-            <PageComponent />
-          ) : (
-            <div className="flex items-center justify-center h-full text-zinc-500 text-sm">
-              Page not found
-            </div>
-          )}
+          <Outlet />
         </main>
       </div>
       <MobileNav />
@@ -109,14 +68,14 @@ function ProtectedApp() {
   if (!profile) return <Navigate to="/login" replace />
   // Super admins skip onboarding — they have no org and don't need one
   const isSuperAdmin = profile.platform_role === 'super_admin' || profile.role === 'super_admin'
-  if (isSuperAdmin) return <AppShell />
+  if (isSuperAdmin) return <Outlet />
   // Demo users skip onboarding
   const isDemo = profile.id?.startsWith('mock-') || profile.id?.startsWith('demo-') || profile.isDemo
   // Real non-super-admin users with no org and onboarding not complete → onboarding
   if (!isDemo && !profile.onboarding_complete && orgMemberships.length === 0) {
     return <Navigate to="/onboarding" replace />
   }
-  return <AppShell />
+  return <Outlet />
 }
 
 /** Root — subscribes to Supabase auth on mount */
@@ -141,6 +100,7 @@ function Root() {
         }}
       />
       <Routes>
+        {/* Public routes */}
         <Route path="/"              element={<LandingPage />} />
         <Route path="/login"         element={<LoginPage />} />
         <Route path="/signup"        element={<SignupPage />} />
@@ -148,9 +108,39 @@ function Root() {
         <Route path="/auth/callback" element={<AuthCallbackPage />} />
         <Route path="/onboarding"    element={<OnboardingPage />} />
         <Route path="/org/:slug"     element={<OrgPublicPage />} />
-        <Route path="/app"           element={<ProtectedApp />} />
-        {/* Fallback */}
-        <Route path="*"              element={<Navigate to="/" replace />} />
+
+        {/* Protected app routes */}
+        <Route path="/app" element={<ProtectedApp />}>
+          <Route element={<AppShell />}>
+            <Route index element={<Navigate to="dashboard" replace />} />
+            <Route path="dashboard"   element={<TodayPage />} />
+            <Route path="workout"     element={<WorkoutPage />} />
+            <Route path="training"    element={<WorkoutPage />} />
+            <Route path="programming" element={<ProgrammingPage />} />
+            <Route path="roster"      element={<RosterPage />} />
+            <Route path="roster/:athleteId" element={<RosterPage />} />
+            <Route path="nutrition"   element={<NutritionPage />} />
+            <Route path="checkin"     element={<CheckInPage />} />
+            <Route path="goals"       element={<GoalsPage />} />
+            <Route path="injury"      element={<InjuryPage />} />
+            <Route path="meets"       element={<MeetsPage />} />
+            <Route path="meets/:meetId" element={<MeetsPage />} />
+            <Route path="messaging"   element={<MessagingPage />} />
+            <Route path="calendar"    element={<CalendarPage />} />
+            <Route path="analytics"   element={<AnalyticsPage />} />
+            <Route path="leads"       element={<LeadsPage />} />
+            <Route path="resources"   element={<ResourcesPage />} />
+            <Route path="calculators" element={<CalculatorsPage />} />
+            <Route path="settings"    element={<AdminPage />} />
+            <Route path="profile"     element={<ProfilePage />} />
+            <Route path="website"     element={<WebsitePage />} />
+            {/* Fallback inside app — redirect to dashboard */}
+            <Route path="*" element={<Navigate to="/app/dashboard" replace />} />
+          </Route>
+        </Route>
+
+        {/* Global fallback */}
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </>
   )
@@ -163,4 +153,3 @@ export default function App() {
     </BrowserRouter>
   )
 }
-

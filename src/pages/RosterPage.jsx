@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   Users, AlertTriangle, CheckCircle2, Clock, Dumbbell, Eye, MessageSquare,
   ChevronRight, BarChart3, X, Moon, Utensils, TrendingUp, Target, Layers,
@@ -20,7 +21,7 @@ import {
   MOCK_ATHLETE_MEAL_PLANS, MOCK_MEAL_PLAN_RECIPES, MOCK_MEAL_PREP_LOG,
   MOCK_MEAL_HISTORY
 } from '../lib/mockData'
-import { useSettingsStore, useAuthStore, useUIStore, useNutritionStore, useGoalsStore, useTrainingStore, resolveRole, useRosterStore } from '../lib/store'
+import { useSettingsStore, useAuthStore, useNutritionStore, useGoalsStore, useTrainingStore, resolveRole, useRosterStore } from '../lib/store'
 import { cn, adherenceColor, flagLabel, formatDate, calcDotsScore, convertWeight } from '../lib/utils'
 import { saveTrainingBlock, saveGoal, saveProfile, sendDirectMessage, saveNutritionPlan, saveCoachNote, updateInjury } from '../lib/db'
 
@@ -348,16 +349,14 @@ function AthleteProfileModal({ athlete, onClose }) {
   const [activeTab, setActiveTab] = useState('overview')
   const [overlay, setOverlay] = useState(null) // 'message' | 'edit_program' | 'edit_meal_plan' | 'analytics'
 
-  // Role detection
+  const navigate = useNavigate()
   const { profile, orgMemberships, activeOrgId } = useAuthStore()
-  const { setActivePage, setNutritionDeepLink } = useUIStore()
   const membership = orgMemberships?.find(m => m.org_id === activeOrgId)
   const role = resolveRole(profile, membership)
   const isNutritionist = role === 'nutritionist'
 
   function goToMealPlanner() {
-    setNutritionDeepLink({ tab: 'planner', athleteId: athlete.id })
-    setActivePage('nutrition')
+    navigate(`/app/nutrition?tab=planner&athleteId=${athlete.id}`)
     onClose()
   }
 

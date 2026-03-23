@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Zap, CheckCircle2, Circle, Clock, Flame, Droplets, Moon, Dumbbell, MessageSquare, ChevronRight, AlertCircle, Trophy, Scale, Users, TrendingUp, TrendingDown, AlertTriangle, Activity, Target, BarChart2, Shield, Stethoscope, Eye, CreditCard, Building2, Globe, Server, CheckCircle, Search } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardSubtitle, CardBody } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
@@ -9,7 +10,7 @@ import { Modal } from '../components/ui/Modal'
 import { Avatar } from '../components/ui/Avatar'
 import { Badge } from '../components/ui/Badge'
 import { MOCK_TODAY_WORKOUT, MOCK_NUTRITION_TODAY, MOCK_NOTIFICATIONS, MOCK_ATHLETES, MOCK_TRAINING_BLOCKS, MOCK_MEETS, MOCK_STAFF_ASSIGNMENTS, PLAN_META } from '../lib/mockData'
-import { useAuthStore, useSettingsStore, useUIStore, useOrgStore, useRosterStore, useTrainingStore, useMeetsStore, useAnalyticsStore, useMessagingStore } from '../lib/store'
+import { useAuthStore, useSettingsStore, useOrgStore, useRosterStore, useTrainingStore, useMeetsStore, useAnalyticsStore, useMessagingStore, useWorkoutStore } from '../lib/store'
 import { resolveRole, isStaffRole } from '../lib/store'
 import { cn, macroPercent, kgToLbs } from '../lib/utils'
 import { saveCheckIn } from '../lib/db'
@@ -48,8 +49,10 @@ export function TodayPage() {
 
 // ─── Platform Dashboard (super_admin) ────────────────────────────────────────
 function PlatformDashboard() {
+  const navigate = useNavigate()
   const { orgs } = useOrgStore()
-  const { setActivePage } = useUIStore()
+
+  const PAGE_PATH = { settings: '/app/settings', analytics: '/app/analytics' }
 
   const PLAN_MRR = { starter: 0, team_pro: 149, enterprise: 499 }
 
@@ -181,7 +184,7 @@ function PlatformDashboard() {
           {quickLinks.map((link) => (
             <button
               key={link.label}
-              onClick={() => setActivePage(link.page)}
+              onClick={() => navigate(PAGE_PATH[link.page] || '/app/dashboard')}
               className="p-4 bg-zinc-900 border border-zinc-800 rounded-xl text-left hover:border-zinc-600 hover:bg-zinc-800/60 transition-all group"
             >
               <link.icon className={cn('w-5 h-5 mb-2', link.color)} />
@@ -225,10 +228,10 @@ function PlatformDashboard() {
 
 // ─── Staff Dashboard ──────────────────────────────────────────────────────────
 function StaffDashboard({ profile, membership }) {
+  const navigate = useNavigate()
   const role = resolveRole(profile, membership)
   const isNutritionist = role === 'nutritionist'
   const isAdmin = role === 'admin'
-  const { setActivePage } = useUIStore()
   const { isDemo, activeOrgId } = useAuthStore()
 
   // ── Live data — always prefer store data, fall back to mock in demo ──────
@@ -299,12 +302,11 @@ function StaffDashboard({ profile, membership }) {
     .filter(m => m.status !== 'completed' && m.status !== 'cancelled' && new Date(m.meet_date ?? m.date) >= today)
     .sort((a, b) => new Date(a.meet_date ?? a.date) - new Date(b.meet_date ?? b.date))[0] ?? null
   const meetDateStr = upcomingMeet?.meet_date ?? upcomingMeet?.date ?? null
-  const daysToMeet = meetDateStr
-    ? (() => {
-        const d = Math.round((new Date(meetDateStr) - today) / (1000 * 60 * 60 * 24))
-        return isNaN(d) ? null : d
-      })()
-    : null
+  const daysToMeet = (() => {
+    if (!meetDateStr) return null
+    const diff = Math.round((new Date(meetDateStr) - today) / (1000 * 60 * 60 * 24))
+    return isNaN(diff) ? null : diff
+  })()
 
   const flaggedAthletes = athletes.filter(a => a.flags?.length > 0)
   const lowCompliance = athletes.filter(a => a.nutrition_compliance < 80)
@@ -354,11 +356,11 @@ function StaffDashboard({ profile, membership }) {
             />
           </div>
           {!isNutritionist && (
-            <Button size="sm" variant="outline" onClick={() => setActivePage?.('programming')}>
+            <Button size="sm" variant="outline" onClick={() => navigate('/app/programming')}>
               <Activity className="w-3.5 h-3.5" /> Program Builder
             </Button>
           )}
-          <Button size="sm" onClick={() => setActivePage?.('roster')}>
+          <Button size="sm" onClick={() => navigate('/app/roster')}>
             <Users className="w-3.5 h-3.5" /> View Roster
           </Button>
         </div>
@@ -641,7 +643,7 @@ function StaffDashboard({ profile, membership }) {
             <CardTitle className="flex items-center gap-2">
               <MessageSquare className="w-4 h-4 text-blue-400" />Recent Messages
             </CardTitle>
-            <button onClick={() => setActivePage?.('messaging')} className="text-xs text-purple-400 hover:text-purple-300 flex items-center gap-0.5">
+            <button onClick={() => navigate('/app/messaging')} className="text-xs text-purple-400 hover:text-purple-300 flex items-center gap-0.5">
               All <ChevronRight className="w-3 h-3" />
             </button>
           </div>
@@ -693,8 +695,9 @@ function StaffDashboard({ profile, membership }) {
 
 // ─── Athlete Today Page ────────────────────────────────────────────────────────
 function AthleteTodayPage({ profile, weightUnit, toggleWeightUnit }) {
+  const navigate = useNavigate()
   const { isDemo, activeOrgId } = useAuthStore()
-  const { setActivePage } = useUIStore()
+  const { startSession } = useWorkoutStore()
   const [checkinOpen, setCheckinOpen] = useState(false)
   const [checkinData, setCheckinData] = useState({ sleep_hours: 7, sleep_quality: 7, soreness: 5, motivation: 7, stress: 4, bodyweight: '' })
   const [checkinDone, setCheckinDone] = useState(false)
@@ -799,6 +802,9 @@ function AthleteTodayPage({ profile, weightUnit, toggleWeightUnit }) {
         <div className="text-center py-10 text-zinc-600">
           <Dumbbell className="w-10 h-10 mx-auto mb-3 opacity-30" />
           <p className="text-sm">No workout scheduled for today.</p>
+          <Button className="mt-4" size="sm" onClick={() => navigate('/app/workout')}>
+            <Dumbbell className="w-3.5 h-3.5" /> View Workout Program
+          </Button>
         </div>
 
         {/* Morning Check-In Modal */}
@@ -883,7 +889,7 @@ function AthleteTodayPage({ profile, weightUnit, toggleWeightUnit }) {
               </div>
             ))}
           </div>
-          <Button className="mt-4 w-full" size="sm" onClick={() => setActivePage('workout')}>
+          <Button className="mt-4 w-full" size="sm" onClick={() => { startSession(workout); navigate('/app/workout') }}>
             <Zap className="w-3.5 h-3.5" /> Start Workout
           </Button>
         </Card>

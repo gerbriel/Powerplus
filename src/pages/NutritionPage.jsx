@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   Plus, Flame, Droplets, CheckCircle2, Circle, MessageSquare,
   ChevronDown, ChevronUp, ShoppingCart, UtensilsCrossed, Clock,
@@ -24,7 +25,7 @@ import {
   MOCK_INJURY_LOGS, MOCK_STAFF_ASSIGNMENTS, MOCK_ORG_MEMBERS, MOCK_ATHLETE_MEAL_PLANS,
   MOCK_MEAL_HISTORY, MOCK_ATHLETE_RECIPES, MOCK_ATHLETE_PREP_LOG, MOCK_ATHLETE_SHOPPING_LISTS,
 } from '../lib/mockData'
-import { useAuthStore, useUIStore, useNutritionStore, useGoalsStore, useTrainingStore, useRosterStore, resolveRole, isStaffRole } from '../lib/store'
+import { useAuthStore, useNutritionStore, useGoalsStore, useTrainingStore, useRosterStore, resolveRole, isStaffRole } from '../lib/store'
 import { cn, macroPercent } from '../lib/utils'
 import { saveNutritionLog, saveMealPrepRecipe, saveShoppingList, toggleShoppingItem, deleteMealPrepRecipe, deleteShoppingListItem, savePrepSessionFull, saveBodyWeight, saveNutritionPlan, reportInjury, updateInjury } from '../lib/db'
 
@@ -603,8 +604,8 @@ function LogMealModal({ open, onClose }) {
 }
 
 export function NutritionPage() {
+  const [searchParams] = useSearchParams()
   const { profile, viewAsAthlete, orgMemberships, activeOrgId, isDemo } = useAuthStore()
-  const { nutritionDeepLink, clearNutritionDeepLink } = useUIStore()
   const membership = orgMemberships?.find((m) => m.org_id === activeOrgId)
   // Use resolveRole so org_role fallback works if profile.role is missing
   const baseIsStaff = isStaffRole(profile, membership)
@@ -612,7 +613,12 @@ export function NutritionPage() {
   const isStaff = baseIsStaff && !viewAsAthlete
   const isAdmin = isStaff && resolveRole(profile, membership) === 'admin'
   const staffTabs = isAdmin ? [...STAFF_TABS, ...ADMIN_EXTRA_TABS] : STAFF_TABS
-  const [tab, setTab] = useState(isStaff ? 'roster' : 'dashboard')
+  const [tab, setTab] = useState(() => {
+    // Honour ?tab= query param on first render
+    const qTab = searchParams.get('tab')
+    if (qTab) return qTab
+    return isStaff ? 'roster' : 'dashboard'
+  })
   const [logOpen, setLogOpen] = useState(false)
   const [suppChecked, setSuppChecked] = useState({})
 
@@ -641,16 +647,13 @@ export function NutritionPage() {
     }
   }, [isDemo, isStaff, MY_ATHLETE_ID, activeOrgId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Deep-link: navigate to a specific tab (+ optionally pre-select athlete) on mount
+  // Deep-link: navigate to a specific tab (+ optionally pre-select athlete) via URL params
   const plannerAthleteRef = useRef(null)
   useEffect(() => {
-    if (nutritionDeepLink) {
-      setTab(nutritionDeepLink.tab)
-      if (nutritionDeepLink.athleteId) {
-        plannerAthleteRef.current = nutritionDeepLink.athleteId
-      }
-      clearNutritionDeepLink()
-    }
+    const qTab = searchParams.get('tab')
+    const qAthleteId = searchParams.get('athleteId')
+    if (qTab) setTab(qTab)
+    if (qAthleteId) plannerAthleteRef.current = qAthleteId
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const nutrition = isDemo ? MOCK_NUTRITION_TODAY : {
@@ -1391,9 +1394,13 @@ function CombinedMyPlan({ nutrition }) {
   const linkedGoals = isDemo
     ? (goals.length ? goals.filter(g => ['g1','g3','g4'].includes(g.id)) : MOCK_GOALS.filter(g => ['g1','g3','g4'].includes(g.id)))
     : goals.slice(0, 3)
-  const daysToMeet = upcomingMeet
-    ? Math.ceil((new Date(upcomingMeet.date) - new Date()) / (1000 * 60 * 60 * 24))
-    : null
+  const daysToMeet = (() => {
+    if (!upcomingMeet) return null
+    const dateStr = upcomingMeet.meet_date ?? upcomingMeet.date
+    if (!dateStr) return null
+    const diff = Math.ceil((new Date(dateStr) - new Date()) / (1000 * 60 * 60 * 24))
+    return isNaN(diff) ? null : diff
+  })()
 
   // ── Checklist helpers ──
   const allCheckItems = [...mealChecks, ...customItems]

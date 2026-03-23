@@ -301,18 +301,12 @@ export const useAuthStore = create((set, get) => ({
 
 export const useUIStore = create((set) => ({
   sidebarCollapsed: false,
-  activeTab: 'today',
-  activePage: 'dashboard',
   mobileNavOpen: false,
   notificationsOpen: false,
-  nutritionDeepLink: null, // { tab: string, athleteId?: string } — consumed once on NutritionPage mount
 
   toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
-  setActivePage: (page) => set({ activePage: page }),
   setMobileNavOpen: (v) => set({ mobileNavOpen: v }),
   setNotificationsOpen: (v) => set({ notificationsOpen: v }),
-  setNutritionDeepLink: (link) => set({ nutritionDeepLink: link }),
-  clearNutritionDeepLink: () => set({ nutritionDeepLink: null }),
 }))
 
 export const useWorkoutStore = create((set) => ({
