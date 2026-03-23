@@ -8,7 +8,8 @@ import { MOCK_NOTIFICATIONS, MOCK_ATHLETES, MOCK_WEEK_SCHEDULE, MOCK_PAST_WORKOU
 import { useState, useMemo, useRef, useEffect } from 'react'
 
 export function Topbar() {
-  const { setMobileNavOpen, notificationsOpen, setNotificationsOpen, setActivePage } = useUIStore()
+  const navigate = useNavigate()
+  const { setMobileNavOpen, notificationsOpen, setNotificationsOpen } = useUIStore()
   const { profile, handleSignOut, isDemo } = useAuthStore()
   const [profileOpen, setProfileOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -34,36 +35,36 @@ export function Topbar() {
 
     athletes.forEach(a => {
       if (a.full_name.toLowerCase().includes(q)) {
-        out.push({ type: 'athlete', icon: Users, label: a.full_name, sub: `${a.weight_class} · ${a.federation}`, action: () => setActivePage('roster'), color: 'text-blue-400' })
+        out.push({ type: 'athlete', icon: Users, label: a.full_name, sub: `${a.weight_class} · ${a.federation}`, action: () => navigate('/app/roster'), color: 'text-blue-400' })
       }
     })
 
     ;[...weekSchedule, ...pastWorkouts].forEach(s => {
       if (s.name?.toLowerCase().includes(q)) {
-        out.push({ type: 'workout', icon: Dumbbell, label: s.name, sub: s.date || s.scheduled_date || '', action: () => setActivePage('workouts'), color: 'text-purple-400' })
+        out.push({ type: 'workout', icon: Dumbbell, label: s.name, sub: s.date || s.scheduled_date || '', action: () => navigate('/app/workout'), color: 'text-purple-400' })
       }
     })
 
     goals.forEach(g => {
       if (g.title.toLowerCase().includes(q)) {
-        out.push({ type: 'goal', icon: Target, label: g.title, sub: `${g.goal_type} · Target: ${g.target_value}${g.target_unit}`, action: () => setActivePage('goals'), color: 'text-yellow-400' })
+        out.push({ type: 'goal', icon: Target, label: g.title, sub: `${g.goal_type} · Target: ${g.target_value}${g.target_unit}`, action: () => navigate('/app/goals'), color: 'text-yellow-400' })
       }
     })
 
     meets.forEach(m => {
       if (m.name.toLowerCase().includes(q)) {
-        out.push({ type: 'meet', icon: Trophy, label: m.name, sub: `${m.meet_date} · ${m.location}`, action: () => setActivePage('meets'), color: 'text-orange-400' })
+        out.push({ type: 'meet', icon: Trophy, label: m.name, sub: `${m.meet_date} · ${m.location}`, action: () => navigate('/app/meets'), color: 'text-orange-400' })
       }
     })
 
     messages.forEach(m => {
       if (m.content.toLowerCase().includes(q)) {
-        out.push({ type: 'message', icon: MessageSquare, label: m.sender.name, sub: m.content.slice(0, 60) + (m.content.length > 60 ? '…' : ''), action: () => setActivePage('messages'), color: 'text-green-400' })
+        out.push({ type: 'message', icon: MessageSquare, label: m.sender.name, sub: m.content.slice(0, 60) + (m.content.length > 60 ? '…' : ''), action: () => navigate('/app/messaging'), color: 'text-green-400' })
       }
     })
 
     return out.slice(0, 8)
-  }, [query, isDemo])
+  }, [query, isDemo]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleSelect(item) {
     item.action()
@@ -254,7 +255,6 @@ function NotificationsPanel({ onClose }) {
 }
 
 function ProfileDropdown({ onClose, profile, handleSignOut }) {
-  const { setActivePage } = useUIStore()
   const navigate = useNavigate()
   return (
     <div className="absolute right-0 top-full mt-2 w-48 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl z-50 overflow-hidden">
@@ -264,7 +264,7 @@ function ProfileDropdown({ onClose, profile, handleSignOut }) {
       </div>
       <div className="p-1">
         <button
-          onClick={() => { setActivePage('settings'); onClose() }}
+          onClick={() => { navigate('/app/settings'); onClose() }}
           className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 rounded-lg transition-colors"
         >
           <User className="w-4 h-4" />Profile & Settings

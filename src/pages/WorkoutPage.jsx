@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   Dumbbell, ChevronDown, ChevronUp, CheckCircle2, Circle,
   Video, AlertTriangle, Plus, ArrowLeft, Camera, ImageIcon,
@@ -15,7 +16,7 @@ import { Avatar } from '../components/ui/Avatar'
 import { ProgressBar } from '../components/ui/ProgressBar'
 import { MOCK_TODAY_WORKOUT, MOCK_PAST_WORKOUTS, MOCK_GOALS, MOCK_WEEK_SCHEDULE, MOCK_TRAINING_BLOCKS, MOCK_MEETS, MOCK_ATHLETES, MOCK_STAFF_ASSIGNMENTS } from '../lib/mockData'
 import { cn, calcE1RM, calcDotsScore, convertWeight, toKg, kgToLbs } from '../lib/utils'
-import { useSettingsStore, useGoalsStore, useAuthStore, useUIStore, resolveRole, isStaffRole, useTrainingStore, useRosterStore, useMeetsStore, useAnalyticsStore } from '../lib/store'
+import { useSettingsStore, useGoalsStore, useAuthStore, resolveRole, isStaffRole, useTrainingStore, useRosterStore, useMeetsStore, useAnalyticsStore, useWorkoutStore } from '../lib/store'
 import { saveWorkoutSession, saveWorkoutSet, saveOrgTrainingBlock, deleteTrainingBlock, reportInjury } from '../lib/db'
 import { fetchAthleteSessions } from '../lib/supabase'
 
@@ -68,8 +69,20 @@ function AthleteWorkoutPage() {
   const { isDemo, profile, activeOrgId } = useAuthStore()
   const { blocks: meetsBlocks, meets, load: loadMeets } = useMeetsStore()
   const { personal, loadPersonalAnalytics } = useAnalyticsStore()
+  const { activeSession: storeSession, completeSession: clearStoreSession } = useWorkoutStore()
   const currentSessionIdRef = useRef(null)
   const activeGym = gymLocations?.find(l => l.id === preferredLocation) || gymLocations?.[0]
+
+  // If TodayPage pre-seeded a session via useWorkoutStore, jump directly into active view
+  useEffect(() => {
+    if (storeSession && view === VIEW.LIST) {
+      setActiveWorkout(storeSession)
+      setCompletedSets({})
+      setExpandedBlock('main')
+      setView(VIEW.ACTIVE)
+      clearStoreSession()
+    }
+  }, []) // eslint-disable-line
 
   const [dbSessions, setDbSessions] = useState([])
   const [sessionsLoading, setSessionsLoading] = useState(false)
@@ -2358,7 +2371,7 @@ function BlockFormModal({ open, onClose, initial, onSave, saving }) {
 }
 
 function StaffTrainingPage({ profile, membership }) {
-  const { setActivePage } = useUIStore()
+  const navigate = useNavigate()
   const { isDemo, activeOrgId, user } = useAuthStore()
   const role = resolveRole(profile, membership)
   const isNutritionist = role === 'nutritionist'
@@ -2533,10 +2546,10 @@ function StaffTrainingPage({ profile, membership }) {
           <p className="text-sm text-zinc-400 mt-0.5">Manage blocks, monitor sessions, assign workouts</p>
         </div>
         <div className="flex gap-2">
-          <Button size="sm" variant="outline" onClick={() => setActivePage?.('programming')}>
+          <Button size="sm" variant="outline" onClick={() => navigate('/app/programming')}>
             <Dumbbell className="w-3.5 h-3.5" /> Program Builder
           </Button>
-          <Button size="sm" onClick={() => setActivePage?.('roster')}>
+          <Button size="sm" onClick={() => navigate('/app/roster')}>
             <Users className="w-3.5 h-3.5" /> View Roster
           </Button>
         </div>

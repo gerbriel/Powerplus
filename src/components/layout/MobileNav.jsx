@@ -1,3 +1,4 @@
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useUIStore, useAuthStore } from '../../lib/store'
 import { cn } from '../../lib/utils'
 import { X, Zap, Dumbbell, UtensilsCrossed, MessageSquare, Calendar, Target, Trophy, BookOpen, LayoutDashboard, Users, BarChart3, Settings, Shield, Globe, Stethoscope, Eye, EyeOff, Activity, Code2, UserCheck } from 'lucide-react'
@@ -6,61 +7,61 @@ import { Badge } from '../ui/Badge'
 
 const STAFF_NAV = {
   admin: [
-    { id: 'today', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'roster', label: 'Roster', icon: Users },
-    { id: 'programming', label: 'Programming', icon: Code2 },
-    { id: 'workout', label: 'Training Mgmt', icon: Activity },
-    { id: 'nutrition', label: 'Nutrition', icon: UtensilsCrossed },
-    { id: 'messaging', label: 'Messaging', icon: MessageSquare },
-    { id: 'calendar', label: 'Calendar', icon: Calendar },
-    { id: 'analytics', label: 'Analytics', icon: BarChart3 },
-    { id: 'meets', label: 'Meets', icon: Trophy },
-    { id: 'website', label: 'Website', icon: Globe },
-    { id: 'leads', label: 'Leads', icon: UserCheck },
-    { id: 'resources', label: 'Resources', icon: BookOpen },
-    { id: 'settings', label: 'Settings', icon: Settings },
+    { id: 'today',       path: 'dashboard',   label: 'Dashboard',     icon: LayoutDashboard },
+    { id: 'roster',      path: 'roster',      label: 'Roster',        icon: Users },
+    { id: 'programming', path: 'programming', label: 'Programming',   icon: Code2 },
+    { id: 'workout',     path: 'workout',     label: 'Training Mgmt', icon: Activity },
+    { id: 'nutrition',   path: 'nutrition',   label: 'Nutrition',     icon: UtensilsCrossed },
+    { id: 'messaging',   path: 'messaging',   label: 'Messaging',     icon: MessageSquare },
+    { id: 'calendar',    path: 'calendar',    label: 'Calendar',      icon: Calendar },
+    { id: 'analytics',   path: 'analytics',   label: 'Analytics',     icon: BarChart3 },
+    { id: 'meets',       path: 'meets',       label: 'Meets',         icon: Trophy },
+    { id: 'website',     path: 'website',     label: 'Website',       icon: Globe },
+    { id: 'leads',       path: 'leads',       label: 'Leads',         icon: UserCheck },
+    { id: 'resources',   path: 'resources',   label: 'Resources',     icon: BookOpen },
+    { id: 'settings',    path: 'settings',    label: 'Settings',      icon: Settings },
   ],
   coach: [
-    { id: 'today', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'roster', label: 'My Athletes', icon: Users },
-    { id: 'programming', label: 'Programming', icon: Code2 },
-    { id: 'workout', label: 'Training Mgmt', icon: Activity },
-    { id: 'nutrition', label: 'Nutrition', icon: UtensilsCrossed },
-    { id: 'messaging', label: 'Messaging', icon: MessageSquare },
-    { id: 'calendar', label: 'Calendar', icon: Calendar },
-    { id: 'analytics', label: 'Analytics', icon: BarChart3 },
-    { id: 'meets', label: 'Meets', icon: Trophy },
-    { id: 'website', label: 'Website', icon: Globe },
-    { id: 'leads', label: 'Leads', icon: UserCheck },
-    { id: 'resources', label: 'Resources', icon: BookOpen },
+    { id: 'today',       path: 'dashboard',   label: 'Dashboard',     icon: LayoutDashboard },
+    { id: 'roster',      path: 'roster',      label: 'My Athletes',   icon: Users },
+    { id: 'programming', path: 'programming', label: 'Programming',   icon: Code2 },
+    { id: 'workout',     path: 'workout',     label: 'Training Mgmt', icon: Activity },
+    { id: 'nutrition',   path: 'nutrition',   label: 'Nutrition',     icon: UtensilsCrossed },
+    { id: 'messaging',   path: 'messaging',   label: 'Messaging',     icon: MessageSquare },
+    { id: 'calendar',    path: 'calendar',    label: 'Calendar',      icon: Calendar },
+    { id: 'analytics',   path: 'analytics',   label: 'Analytics',     icon: BarChart3 },
+    { id: 'meets',       path: 'meets',       label: 'Meets',         icon: Trophy },
+    { id: 'website',     path: 'website',     label: 'Website',       icon: Globe },
+    { id: 'leads',       path: 'leads',       label: 'Leads',         icon: UserCheck },
+    { id: 'resources',   path: 'resources',   label: 'Resources',     icon: BookOpen },
   ],
   nutritionist: [
-    { id: 'today', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'roster', label: 'My Athletes', icon: Users },
-    { id: 'nutrition', label: 'Nutrition Plans', icon: UtensilsCrossed },
-    { id: 'injury', label: 'Injuries', icon: Stethoscope },
-    { id: 'messaging', label: 'Messaging', icon: MessageSquare },
-    { id: 'analytics', label: 'Analytics', icon: BarChart3 },
-    { id: 'resources', label: 'Resources', icon: BookOpen },
+    { id: 'today',       path: 'dashboard',   label: 'Dashboard',       icon: LayoutDashboard },
+    { id: 'roster',      path: 'roster',      label: 'My Athletes',     icon: Users },
+    { id: 'nutrition',   path: 'nutrition',   label: 'Nutrition Plans', icon: UtensilsCrossed },
+    { id: 'injury',      path: 'injury',      label: 'Injuries',        icon: Stethoscope },
+    { id: 'messaging',   path: 'messaging',   label: 'Messaging',       icon: MessageSquare },
+    { id: 'analytics',   path: 'analytics',   label: 'Analytics',       icon: BarChart3 },
+    { id: 'resources',   path: 'resources',   label: 'Resources',       icon: BookOpen },
   ],
 }
 
 const ATHLETE_NAV = [
-  { id: 'today', label: 'Today', icon: Zap },
-  { id: 'workout', label: 'Workouts', icon: Dumbbell },
-  { id: 'nutrition', label: 'Nutrition', icon: UtensilsCrossed },
-  { id: 'injury', label: 'Injuries', icon: Stethoscope },
-  { id: 'messaging', label: 'Messages', icon: MessageSquare },
-  { id: 'calendar', label: 'Calendar', icon: Calendar },
-  { id: 'goals', label: 'Goals & PRs', icon: Target },
-  { id: 'meets', label: 'Meets', icon: Trophy },
-  { id: 'resources', label: 'Resources', icon: BookOpen },
+  { id: 'today',       path: 'dashboard',   label: 'Today',       icon: Zap },
+  { id: 'workout',     path: 'workout',     label: 'Workouts',    icon: Dumbbell },
+  { id: 'nutrition',   path: 'nutrition',   label: 'Nutrition',   icon: UtensilsCrossed },
+  { id: 'injury',      path: 'injury',      label: 'Injuries',    icon: Stethoscope },
+  { id: 'messaging',   path: 'messaging',   label: 'Messages',    icon: MessageSquare },
+  { id: 'calendar',    path: 'calendar',    label: 'Calendar',    icon: Calendar },
+  { id: 'goals',       path: 'goals',       label: 'Goals & PRs', icon: Target },
+  { id: 'meets',       path: 'meets',       label: 'Meets',       icon: Trophy },
+  { id: 'resources',   path: 'resources',   label: 'Resources',   icon: BookOpen },
 ]
 
 const NAV_ITEMS = {
   super_admin: [
-    { id: 'settings', label: 'Organizations', icon: Globe },
-    { id: 'analytics', label: 'Platform Analytics', icon: BarChart3 },
+    { id: 'settings',  path: 'settings',  label: 'Organizations',      icon: Globe },
+    { id: 'analytics', path: 'analytics', label: 'Platform Analytics', icon: BarChart3 },
   ],
   admin: STAFF_NAV.admin,
   coach: STAFF_NAV.coach,
@@ -74,13 +75,14 @@ function roleBadgeColor(role) {
 }
 
 export function MobileNav() {
-  const { mobileNavOpen, setMobileNavOpen, activePage, setActivePage } = useUIStore()
+  const navigate = useNavigate()
+  const location = useLocation()
+  const { mobileNavOpen, setMobileNavOpen } = useUIStore()
   const { profile, viewAsAthlete, toggleViewAsAthlete, orgMemberships, activeOrgId } = useAuthStore()
 
   const membership = orgMemberships.find((m) => m.org_id === activeOrgId)
   const orgRole = membership?.org_role
 
-  // Same role resolution as Sidebar — platform_role takes highest priority
   const role = (() => {
     if (profile?.platform_role === 'super_admin') return 'super_admin'
     const r = profile?.role || orgRole
@@ -93,9 +95,7 @@ export function MobileNav() {
     return 'athlete'
   })()
 
-  // Any staff member can toggle athlete view to see their own personal data
   const canViewAsAthlete = role === 'admin' || role === 'coach' || role === 'nutritionist'
-  // When staff are in athlete view, show the athlete nav; otherwise show their staff nav.
   const items = (canViewAsAthlete && viewAsAthlete) ? ATHLETE_NAV : (NAV_ITEMS[role] || NAV_ITEMS.athlete)
 
   if (!mobileNavOpen) return null
@@ -125,7 +125,8 @@ export function MobileNav() {
             <button
               onClick={() => {
                 toggleViewAsAthlete()
-                setActivePage(viewAsAthlete ? 'today' : 'today')
+                navigate('/app/dashboard')
+                setMobileNavOpen(false)
               }}
               className={cn(
                 'w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-all border',
@@ -147,11 +148,12 @@ export function MobileNav() {
           <ul className="space-y-0.5">
             {items.map((item) => {
               const Icon = item.icon
-              const active = activePage === item.id
+              const active = location.pathname === `/Powerplus/app/${item.path}` ||
+                             location.pathname.startsWith(`/Powerplus/app/${item.path}/`)
               return (
                 <li key={item.id}>
                   <button
-                    onClick={() => { setActivePage(item.id); setMobileNavOpen(false) }}
+                    onClick={() => { navigate(`/app/${item.path}`); setMobileNavOpen(false) }}
                     className={cn(
                       'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all',
                       active
@@ -180,3 +182,4 @@ export function MobileNav() {
     </div>
   )
 }
+
